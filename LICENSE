@@ -1,21 +1,104 @@
-MIT License
+PULSE — END USER LICENSE AGREEMENT (EULA)
 
-Copyright (c) 2026 Refora Technologies
+Copyright (c) 2025 Refora Technologies. All rights reserved.
+Package: com.reforatech.pulse
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+========================================================================
+1. LICENSE GRANT
+========================================================================
+Refora Technologies ("Licensor") grants you ("User") a non-exclusive,
+non-transferable, revocable license to install and use Pulse ("Software")
+on any number of personal computers for personal or commercial use,
+subject to the terms of this agreement.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+========================================================================
+2. RESTRICTIONS
+========================================================================
+You may NOT:
+  (a) Reverse engineer, decompile, or disassemble the Software;
+  (b) Modify, adapt, or create derivative works based on the Software;
+  (c) Redistribute, sublicense, rent, lease, or sell the Software;
+  (d) Remove or alter any proprietary notices, labels, or branding;
+  (e) Use the Software for any unlawful purpose.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+========================================================================
+3. INTELLECTUAL PROPERTY
+========================================================================
+The Software, including its design, code, UI, and branding, is the
+exclusive property of Refora Technologies. This license does not grant
+you any ownership rights to the Software.
+
+========================================================================
+4. DISCLAIMER OF WARRANTIES
+========================================================================
+THE SOFTWARE IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND, EXPRESS
+OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT.
+
+========================================================================
+5. LIMITATION OF LIABILITY
+========================================================================
+IN NO EVENT SHALL REFORA TECHNOLOGIES BE LIABLE FOR ANY INDIRECT,
+INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES ARISING OUT OF
+OR RELATED TO YOUR USE OF THE SOFTWARE, EVEN IF ADVISED OF THE
+POSSIBILITY OF SUCH DAMAGES.
+
+========================================================================
+6. DATA AND PRIVACY
+========================================================================
+Pulse operates entirely offline. It does not collect, transmit, or
+store any personal data. All sensor readings and configuration files
+remain on your local device.
+
+========================================================================
+7. TERMINATION
+========================================================================
+This license is effective until terminated. It will terminate
+automatically if you fail to comply with any term of this agreement.
+Upon termination, you must destroy all copies of the Software.
+
+========================================================================
+8. GOVERNING LAW
+========================================================================
+This agreement shall be governed by and construed in accordance with
+the laws of Sri Lanka. Any disputes arising under this agreement shall
+be subject to the exclusive jurisdiction of the courts of Sri Lanka.
+
+========================================================================
+9. THIRD-PARTY SOFTWARE NOTICES
+========================================================================
+Pulse incorporates the following open-source components. Their use is
+governed by their respective licenses:
+
+  (a) LibreHardwareMonitor (Mozilla Public License 2.0)
+      https://github.com/LibreHardwareMonitor/LibreHardwareMonitor
+      Used for hardware sensor data collection (CPU, GPU, RAM).
+      The MPL-2.0 license permits use in proprietary software
+      provided that modifications to MPL-licensed files are made
+      available under the same license.
+
+  (b) Newtonsoft.Json (MIT License)
+      https://github.com/JamesNK/Newtonsoft.Json
+      Used for JSON serialization of application settings.
+
+  (c) CommunityToolkit.Mvvm (MIT License)
+      https://github.com/CommunityToolkit/dotnet
+      Used for MVVM framework utilities and data binding.
+
+  (d) Ubuntu Font Family (Ubuntu Font Licence v1.0)
+      https://ubuntu.com/legal/font-licence
+      Used for application UI typography.
+
+The full text of each license is available at the URLs listed above.
+
+========================================================================
+10. CONTACT
+========================================================================
+For questions, support, or licensing inquiries:
+  Email:   reforatech@gmail.com
+  Web:     https://reforatech.com
+
+========================================================================
+By installing or using this Software, you acknowledge that you have
+read, understood, and agree to be bound by the terms of this agreement.
+========================================================================

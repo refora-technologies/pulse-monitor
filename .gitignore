@@ -1,0 +1,17 @@
+# Build folders
+bin/
+obj/
+publish/
+installer/
+
+# User-specific files
+*.user
+*.suo
+.vs/
+settings.json
+
+# Build results
+*.exe
+*.dll
+*.pdb
+*.cache
