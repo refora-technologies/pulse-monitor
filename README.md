@@ -2,6 +2,11 @@
   <img src="Resources/Icons/pulse%20logo.png" alt="Pulse Logo" width="128" height="128" />
   <h1>Pulse Monitor</h1>
   <p><b>A lightweight, precise, and beautiful hardware monitoring overlay for Windows.</b></p>
+  <p>
+    <a href="https://pulse.reforatech.com">🌐 Website</a> &nbsp;·&nbsp;
+    <a href="https://github.com/refora-technologies/pulse-monitor/releases/latest">⬇️ Download</a> &nbsp;·&nbsp;
+    <a href="https://pulse.reforatech.com/privacy.html">🔒 Privacy</a>
+  </p>
 </div>
 
 <br/>
