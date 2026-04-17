@@ -46,9 +46,11 @@ Once launched, right-click the Pulse icon in the Windows system tray and select 
 
 ## License
 
-Copyright (c) 2026 Refora Technologies. All rights reserved.
+This project is licensed under the **GNU General Public License v3.0 (GPLv3)**.
 
-This software is distributed under a proprietary license under **com.reforatech.pulse**. Unauthorized copying, modification, or distribution is strictly prohibited. Pulse links dynamically to open-source components such as LibreHardwareMonitor (MPL-2.0), Newtonsoft.Json (MIT), and CommunityToolkit.Mvvm (MIT). Please see the `LICENSE` file for the complete terms and conditions, along with all relevant third-party sub-licenses.
+You are free to use, modify, and distribute this software, provided that any derivative works are also open-source and licensed under the identical terms. See the `LICENSE` file for the complete terms and conditions.
+
+Pulse links dynamically to open-source components such as LibreHardwareMonitor (MPL-2.0), Newtonsoft.Json (MIT), and CommunityToolkit.Mvvm (MIT).
 
 ---
 
