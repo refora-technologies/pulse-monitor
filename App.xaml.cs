@@ -72,12 +72,16 @@ public partial class App : WinApplication
 
         try
         {
-            var iconPath = System.IO.Path.Combine(
-                AppDomain.CurrentDomain.BaseDirectory,
-                "Resources", "Icons", "pulse.ico");
-            _trayIcon.Icon = System.IO.File.Exists(iconPath)
-                ? new System.Drawing.Icon(iconPath)
-                : System.Drawing.SystemIcons.Application;
+            var iconUri = new Uri("pack://application:,,,/Resources/Icons/pulse.ico");
+            var streamInfo = System.Windows.Application.GetResourceStream(iconUri);
+            if (streamInfo != null)
+            {
+                _trayIcon.Icon = new System.Drawing.Icon(streamInfo.Stream);
+            }
+            else
+            {
+                _trayIcon.Icon = System.Drawing.SystemIcons.Application;
+            }
         }
         catch
         {
