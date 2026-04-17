@@ -8,6 +8,7 @@
         AllowsTransparency="True"
         Background="Transparent"
         ResizeMode="NoResize"
+        Icon="pack://application:,,,/Resources/Icons/pulse.ico"
         WindowStartupLocation="CenterScreen">
 
     <Window.Resources>
