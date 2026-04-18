@@ -128,28 +128,54 @@ public class HardwareService : IDisposable
         float clockSum = 0; int clockCount = 0;
         float usageSum = 0; int usageCount = 0;
 
+        // Priority-based temp/power tracking for Intel + AMD compatibility
+        // Intel: "CPU Package" (temp), "CPU Package" (power)
+        // AMD:   "Core (Tctl/Tdie)" or "Tdie" (temp), "Package" or "PPT" (power)
+        float? tempPackage = null, tempTctl = null, tempFallback = null;
+        float? powerPackage = null, powerPpt = null, powerFallback = null;
+
         foreach (var s in hw.Sensors)
         {
             if (s.Value is null) continue;
+
             switch (s.SensorType)
             {
-                case SensorType.Temperature when s.Name.Contains("Package", StringComparison.OrdinalIgnoreCase):
-                    data.CpuTemp = s.Value;
+                case SensorType.Temperature:
+                    if (s.Name.Contains("Package", StringComparison.OrdinalIgnoreCase))
+                        tempPackage = s.Value;
+                    else if (s.Name.Contains("Tctl", StringComparison.OrdinalIgnoreCase)
+                          || s.Name.Contains("Tdie", StringComparison.OrdinalIgnoreCase))
+                        tempTctl = s.Value;
+                    else if (tempFallback is null && s.Name.Contains("Core", StringComparison.OrdinalIgnoreCase))
+                        tempFallback = s.Value;
                     break;
-                case SensorType.Power when s.Name.Contains("Package", StringComparison.OrdinalIgnoreCase):
-                    data.CpuPower = s.Value;
+
+                case SensorType.Power:
+                    if (s.Name.Contains("Package", StringComparison.OrdinalIgnoreCase))
+                        powerPackage = s.Value;
+                    else if (s.Name.Contains("PPT", StringComparison.OrdinalIgnoreCase))
+                        powerPpt = s.Value;
+                    else if (powerFallback is null)
+                        powerFallback = s.Value;
                     break;
+
                 case SensorType.Clock when !s.Name.Contains("Bus", StringComparison.OrdinalIgnoreCase):
                     clockSum += s.Value.Value; clockCount++;
                     break;
+
                 case SensorType.Load when s.Name.Contains("Total", StringComparison.OrdinalIgnoreCase):
                     data.CpuUsage = s.Value;
                     break;
+
                 case SensorType.Load:
                     usageSum += s.Value.Value; usageCount++;
                     break;
             }
         }
+
+        // Apply priority: Package > Tctl/Tdie > any Core sensor
+        data.CpuTemp  = tempPackage  ?? tempTctl  ?? tempFallback;
+        data.CpuPower = powerPackage ?? powerPpt  ?? powerFallback;
 
         if (clockCount > 0 && data.CpuClock is null)
             data.CpuClock = MathF.Round(clockSum / clockCount / 1000f, 2);
