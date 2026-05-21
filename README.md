@@ -3,6 +3,12 @@
   <h1>Pulse Monitor</h1>
   <p><b>A lightweight, precise, and beautiful hardware monitoring overlay for Windows.</b></p>
   <p>
+    <img src="https://img.shields.io/badge/Windows-10%20%7C%2011-blue?style=flat-square" alt="Windows 10/11" />
+    <img src="https://img.shields.io/github/license/refora-technologies/pulse-monitor?style=flat-square" alt="License" />
+    <img src="https://img.shields.io/github/v/release/refora-technologies/pulse-monitor?style=flat-square" alt="Release" />
+    <img src="https://img.shields.io/github/downloads/refora-technologies/pulse-monitor/total?style=flat-square" alt="Downloads" />
+  </p>
+  <p>
     <a href="https://pulse.reforatech.com">🌐 Website</a> &nbsp;·&nbsp;
     <a href="https://github.com/refora-technologies/pulse-monitor/releases/latest">⬇️ Download</a> &nbsp;·&nbsp;
     <a href="https://pulse.reforatech.com/privacy.html">🔒 Privacy</a>
