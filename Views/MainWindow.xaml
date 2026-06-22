@@ -146,6 +146,7 @@
         <Style x:Key="VioletSlider" TargetType="Slider">
             <Setter Property="Height" Value="22"/>
             <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="IsMoveToPointEnabled" Value="True"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Slider">

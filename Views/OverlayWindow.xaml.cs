@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Interop;
+using System.Windows.Threading;
 using Pulse.Services;
 using Pulse.ViewModels;
 
@@ -19,6 +20,34 @@ public partial class OverlayWindow : Window
 
     [DllImport("user32.dll")] static extern int GetWindowLong(IntPtr hwnd, int index);
     [DllImport("user32.dll")] static extern int SetWindowLong(IntPtr hwnd, int index, int newStyle);
+
+    // --- Always-on-top enforcement -------------------------------------------------
+    private static readonly IntPtr HWND_TOPMOST = new(-1);
+    private const uint SWP_NOSIZE     = 0x0001;
+    private const uint SWP_NOMOVE     = 0x0002;
+    private const uint SWP_NOACTIVATE = 0x0010;
+
+    private const uint EVENT_SYSTEM_FOREGROUND = 0x0003;
+    private const uint WINEVENT_OUTOFCONTEXT   = 0x0000;
+    private const uint WINEVENT_SKIPOWNPROCESS = 0x0002;
+
+    [DllImport("user32.dll")]
+    static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter,
+        int X, int Y, int cx, int cy, uint uFlags);
+
+    private delegate void WinEventDelegate(IntPtr hWinEventHook, uint eventType,
+        IntPtr hwnd, int idObject, int idChild, uint dwEventThread, uint dwmsEventTime);
+
+    [DllImport("user32.dll")]
+    static extern IntPtr SetWinEventHook(uint eventMin, uint eventMax, IntPtr hmodWinEventProc,
+        WinEventDelegate lpfnWinEventProc, uint idProcess, uint idThread, uint dwFlags);
+
+    [DllImport("user32.dll")] static extern bool UnhookWinEvent(IntPtr hWinEventHook);
+
+    // Held as a field so the delegate isn't garbage-collected while the hook is live.
+    private WinEventDelegate? _winEventProc;
+    private IntPtr            _winEventHook = IntPtr.Zero;
+    private DispatcherTimer?  _topmostTimer;
 
     private readonly OverlayViewModel _vm;
 
@@ -46,6 +75,53 @@ public partial class OverlayWindow : Window
         var hwnd  = new WindowInteropHelper(this).Handle;
         int style = GetWindowLong(hwnd, GWL_EXSTYLE);
         SetWindowLong(hwnd, GWL_EXSTYLE, style | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW);
+
+        StartTopmostEnforcement();
+        ForceTopmost();
+    }
+
+    /// <summary>
+    /// Keep the overlay above every other window (games, launchers, other topmost
+    /// widgets). Setting Topmost once is not enough: when another app creates its own
+    /// topmost window it can push us down, so we re-assert HWND_TOPMOST whenever the
+    /// foreground window changes, plus a low-frequency timer as a safety net.
+    ///
+    /// This covers windowed, borderless-windowed and Windows' fullscreen-optimized
+    /// games (the vast majority). True DirectX *exclusive* fullscreen bypasses the
+    /// desktop compositor entirely and cannot be covered by any normal window — that
+    /// would require DirectX hooking/injection, which is out of scope here.
+    /// </summary>
+    private void StartTopmostEnforcement()
+    {
+        _winEventProc = OnForegroundChanged;
+        _winEventHook = SetWinEventHook(
+            EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND,
+            IntPtr.Zero, _winEventProc, 0, 0,
+            WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
+
+        _topmostTimer = new DispatcherTimer(DispatcherPriority.Background)
+        {
+            Interval = TimeSpan.FromSeconds(1)
+        };
+        _topmostTimer.Tick += (_, _) => ForceTopmost();
+        _topmostTimer.Start();
+    }
+
+    private void OnForegroundChanged(IntPtr hWinEventHook, uint eventType, IntPtr hwnd,
+        int idObject, int idChild, uint dwEventThread, uint dwmsEventTime)
+    {
+        // OUTOFCONTEXT callbacks are delivered on this (the installing) thread, so it's
+        // safe to touch the window directly.
+        ForceTopmost();
+    }
+
+    private void ForceTopmost()
+    {
+        if (!IsVisible) return;
+        var hwnd = new WindowInteropHelper(this).Handle;
+        if (hwnd == IntPtr.Zero) return;
+        SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     }
 
     private void SetClickThrough(bool enabled)
@@ -154,6 +230,15 @@ public partial class OverlayWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
+        _topmostTimer?.Stop();
+        _topmostTimer = null;
+        if (_winEventHook != IntPtr.Zero)
+        {
+            UnhookWinEvent(_winEventHook);
+            _winEventHook = IntPtr.Zero;
+        }
+        _winEventProc = null;
+
         SettingsService.Instance.SettingsChanged -= OnSettingsChanged;
         _vm.PropertyChanged -= OnViewModelPropertyChanged;
         base.OnClosed(e);
