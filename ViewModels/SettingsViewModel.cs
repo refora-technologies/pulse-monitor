@@ -142,6 +142,83 @@ public class SettingsViewModel : BaseViewModel
     public int SelectedCount  => AllTiles.Count(t => t.IsSelected);
     public int OpacityPercent => (int)Math.Round(_opacity * 100);
 
+    public string AppVersionLabel => UpdateService.CurrentVersionLabel;
+
+    private UpdateInfo? _pendingUpdate;
+
+    private string _updateStatus = "";
+    public string UpdateStatus { get => _updateStatus; private set => Set(ref _updateStatus, value); }
+
+    private bool _isCheckingUpdate;
+    public bool IsCheckingUpdate { get => _isCheckingUpdate; private set => Set(ref _isCheckingUpdate, value); }
+
+    private bool _isUpdateAvailable;
+    public bool IsUpdateAvailable
+    {
+        get => _isUpdateAvailable;
+        private set { if (Set(ref _isUpdateAvailable, value)) OnPropertyChanged(nameof(ShowUpdateBanner)); }
+    }
+
+    private bool _bannerDismissed;
+    public bool ShowUpdateBanner => _isUpdateAvailable && !_bannerDismissed;
+
+    private string _bannerVersion = "";
+    public string BannerVersion { get => _bannerVersion; private set => Set(ref _bannerVersion, value); }
+
+    public async Task CheckForUpdatesAsync(bool manual)
+    {
+        if (_isCheckingUpdate) return;
+
+        IsCheckingUpdate = true;
+        if (manual) UpdateStatus = "Checking for updates…";
+
+        var info = await UpdateService.CheckForUpdateAsync();
+
+        IsCheckingUpdate = false;
+
+        if (info != null)
+        {
+            _pendingUpdate     = info;
+            _bannerDismissed   = false;
+            BannerVersion      = info.DisplayVersion;
+            IsUpdateAvailable  = true;
+            UpdateStatus       = $"{info.DisplayVersion} is available";
+        }
+        else
+        {
+            IsUpdateAvailable = false;
+            OnPropertyChanged(nameof(ShowUpdateBanner));
+            if (manual) UpdateStatus = "You're on the latest version";
+        }
+    }
+
+    public async Task InstallUpdateAsync()
+    {
+        if (_pendingUpdate == null)
+        {
+            UpdateService.OpenReleasePage(null);
+            return;
+        }
+
+        UpdateStatus = "Downloading update…";
+        var launched = await UpdateService.DownloadAndRunAsync(_pendingUpdate);
+        if (launched)
+        {
+            UpdateStatus = "Starting installer…";
+            System.Windows.Application.Current.Shutdown();
+        }
+        else
+        {
+            UpdateStatus = "Opened download page in your browser";
+        }
+    }
+
+    public void DismissBanner()
+    {
+        _bannerDismissed = true;
+        OnPropertyChanged(nameof(ShowUpdateBanner));
+    }
+
     // Preview / mirror bindings
     public IEnumerable<TileViewModel> ActiveTileVMs => OverlayViewModel.Instance.ActiveTiles;
     public string   StatusText  => OverlayViewModel.Instance.StatusText;
@@ -158,6 +235,8 @@ public class SettingsViewModel : BaseViewModel
         _minimizeToTray   = settings.MinimizeToTray;
         _isDragEnabled    = settings.IsDragEnabled;
         _isCompactMode    = settings.IsCompactMode;
+
+        HardwareService.Instance.SetInterval(_pollingInterval);
 
         foreach (var def in SensorTileDefinition.All)
         {
