@@ -31,6 +31,23 @@ public partial class App : WinApplication
         _mainWindow.Show();
 
         ShowOverlay();
+
+        CheckForUpdatesOnStartup();
+    }
+
+    private async void CheckForUpdatesOnStartup()
+    {
+        try
+        {
+            await SettingsViewModel.Instance.CheckForUpdatesAsync(false);
+            if (SettingsViewModel.Instance.IsUpdateAvailable)
+            {
+                _trayIcon?.ShowBalloonTip(6000, "Pulse update available",
+                    $"{SettingsViewModel.Instance.BannerVersion} is ready to download. Open the control panel to update.",
+                    System.Windows.Forms.ToolTipIcon.Info);
+            }
+        }
+        catch { }
     }
 
     /// <summary>Show the single overlay instance.</summary>

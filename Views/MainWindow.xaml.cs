@@ -33,7 +33,7 @@ public partial class MainWindow : Window
             // Clip content to rounded border shape
             WindowBorder.Clip = new RectangleGeometry(
                 new System.Windows.Rect(0, 0, WindowBorder.ActualWidth, WindowBorder.ActualHeight),
-                16, 16);
+                18, 18);
 
             HighlightActivePollingRate();
             UpdateOverlayButton();
@@ -116,4 +116,17 @@ public partial class MainWindow : Window
             SettingsService.Instance.Save();
         }
     }
+
+    private async void BtnCheckUpdates_Click(object sender, RoutedEventArgs e)
+    {
+        if (_vm != null) await _vm.CheckForUpdatesAsync(true);
+    }
+
+    private async void BtnUpdateNow_Click(object sender, RoutedEventArgs e)
+    {
+        if (_vm != null) await _vm.InstallUpdateAsync();
+    }
+
+    private void BtnDismissBanner_Click(object sender, RoutedEventArgs e)
+        => _vm?.DismissBanner();
 }

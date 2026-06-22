@@ -50,12 +50,12 @@ public class TileViewModel : BaseViewModel
         get
         {
             if (!_value.HasValue || Definition.DangerThreshold == 0)
-                return WpfColor.FromRgb(0xF0, 0xF0, 0xF5);
+                return WpfColor.FromRgb(0xF4, 0xF2, 0xFC);
             if (_value >= Definition.DangerThreshold)
-                return WpfColor.FromRgb(0xFF, 0x4B, 0x4B);   // Red
+                return WpfColor.FromRgb(0xFF, 0x5C, 0x6C);   // Red
             if (_value >= Definition.WarnThreshold)
-                return WpfColor.FromRgb(0xFF, 0xB4, 0x00);   // Amber
-            return WpfColor.FromRgb(0x00, 0xFF, 0x87);        // Green
+                return WpfColor.FromRgb(0xFF, 0xB4, 0x54);   // Amber
+            return WpfColor.FromRgb(0x3D, 0xDC, 0x97);        // Green
         }
     }
 
@@ -159,17 +159,17 @@ public class OverlayViewModel : BaseViewModel
         if (maxTemp >= cpuDanger)
         {
             StatusText  = $"Running hot — {maxTemp:F0}°C peak";
-            StatusColor = WpfColor.FromRgb(0xFF, 0x4B, 0x4B);
+            StatusColor = WpfColor.FromRgb(0xFF, 0x5C, 0x6C);
         }
         else if (maxTemp >= cpuWarn)
         {
             StatusText  = $"Warming up — {maxTemp:F0}°C peak";
-            StatusColor = WpfColor.FromRgb(0xFF, 0xB4, 0x00);
+            StatusColor = WpfColor.FromRgb(0xFF, 0xB4, 0x54);
         }
         else
         {
             StatusText  = "All systems nominal";
-            StatusColor = WpfColor.FromRgb(0x00, 0xFF, 0x87);
+            StatusColor = WpfColor.FromRgb(0x3D, 0xDC, 0x97);
         }
     }
 }
