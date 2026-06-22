@@ -16,6 +16,8 @@
     <Company>Refora Technologies</Company>
     <Product>Pulse</Product>
     <Copyright>© 2025 Refora Technologies</Copyright>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
   </PropertyGroup>
 
   <ItemGroup>
