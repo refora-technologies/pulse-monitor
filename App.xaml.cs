@@ -9,15 +9,26 @@ namespace Pulse;
 
 public partial class App : WinApplication
 {
+    private static Mutex? _mutex;
+
     private MainWindow?    _mainWindow;
     private OverlayWindow? _overlayWindow;
     private System.Windows.Forms.NotifyIcon? _trayIcon;
+    private System.Windows.Forms.ToolStripMenuItem? _overlayToggleItem;
 
     /// <summary>Whether the overlay is currently visible.</summary>
     public bool IsOverlayVisible => _overlayWindow != null && _overlayWindow.IsLoaded && _overlayWindow.IsVisible;
 
     protected override void OnStartup(StartupEventArgs e)
     {
+        _mutex = new Mutex(true, "Global\\PulseMonitor_SingleInstance", out bool createdNew);
+        if (!createdNew)
+        {
+            _mutex.Dispose();
+            Shutdown();
+            return;
+        }
+
         base.OnStartup(e);
 
         // Initialise singletons (starts hardware polling)
@@ -27,10 +38,10 @@ public partial class App : WinApplication
 
         SetupTrayIcon();
 
-        _mainWindow = new MainWindow();
-        _mainWindow.Show();
-
         ShowOverlay();
+
+        if (!e.Args.Contains("--startup"))
+            ShowControlPanel();
 
         CheckForUpdatesOnStartup();
     }
@@ -50,7 +61,6 @@ public partial class App : WinApplication
         catch { }
     }
 
-    /// <summary>Show the single overlay instance.</summary>
     public void ShowOverlay()
     {
         Dispatcher.Invoke(() =>
@@ -60,17 +70,29 @@ public partial class App : WinApplication
             _overlayWindow.Show();
             _overlayWindow.Topmost = true;
             UpdateMainWindowButton();
+            UpdateTrayMenu();
         });
     }
 
-    /// <summary>Hide the overlay.</summary>
     public void HideOverlay()
     {
         Dispatcher.Invoke(() =>
         {
             _overlayWindow?.Hide();
             UpdateMainWindowButton();
+            UpdateTrayMenu();
         });
+    }
+
+    private void ToggleOverlay()
+    {
+        if (IsOverlayVisible) HideOverlay(); else ShowOverlay();
+    }
+
+    private void UpdateTrayMenu()
+    {
+        if (_overlayToggleItem != null)
+            _overlayToggleItem.Text = IsOverlayVisible ? "Hide Overlay" : "Show Overlay";
     }
 
     private void UpdateMainWindowButton()
@@ -105,12 +127,14 @@ public partial class App : WinApplication
             _trayIcon.Icon = System.Drawing.SystemIcons.Application;
         }
 
+        _overlayToggleItem = new System.Windows.Forms.ToolStripMenuItem("Hide Overlay", null,
+            (_, _) => ToggleOverlay());
+
         var menu = new System.Windows.Forms.ContextMenuStrip();
         menu.Items.Add("Open Control Panel", null, (_, _) => ShowControlPanel());
-        menu.Items.Add("Show Overlay",        null, (_, _) => ShowOverlay());
-        menu.Items.Add("Hide Overlay",        null, (_, _) => HideOverlay());
+        menu.Items.Add(_overlayToggleItem);
         menu.Items.Add("-");
-        menu.Items.Add("Exit Pulse",          null, (_, _) => ExitApp());
+        menu.Items.Add("Exit Pulse", null, (_, _) => ExitApp());
 
         _trayIcon.ContextMenuStrip = menu;
         _trayIcon.DoubleClick     += (_, _) => ShowControlPanel();
@@ -139,6 +163,7 @@ public partial class App : WinApplication
     {
         _trayIcon?.Dispose();
         try { HardwareService.Instance.Dispose(); } catch { }
+        try { _mutex?.ReleaseMutex(); _mutex?.Dispose(); } catch { }
         base.OnExit(e);
     }
 }
