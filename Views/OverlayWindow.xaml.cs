@@ -178,7 +178,6 @@ public partial class OverlayWindow : Window
     private void ApplyPosition()
     {
         var settings = SettingsService.Instance.Settings;
-        var screen   = SystemParameters.WorkArea;
 
         if (settings.OverlayCustomX >= 0 && settings.OverlayCustomY >= 0)
         {
@@ -186,6 +185,8 @@ public partial class OverlayWindow : Window
             Top  = settings.OverlayCustomY;
             return;
         }
+
+        var screen = GetMonitorWorkAreaDip(settings.SelectedMonitorIndex);
 
         const double margin = 20;
         switch (settings.OverlayPosition)
@@ -207,6 +208,17 @@ public partial class OverlayWindow : Window
                 Top  = screen.Top   + margin;
                 break;
         }
+    }
+
+    private static System.Windows.Rect GetMonitorWorkAreaDip(int monitorIndex)
+    {
+        var screens = System.Windows.Forms.Screen.AllScreens;
+        if (monitorIndex < 0 || monitorIndex >= screens.Length) monitorIndex = 0;
+        var wa = screens[monitorIndex].WorkingArea;
+        using var g = System.Drawing.Graphics.FromHwnd(IntPtr.Zero);
+        double sx = g.DpiX / 96.0;
+        double sy = g.DpiY / 96.0;
+        return new System.Windows.Rect(wa.Left / sx, wa.Top / sy, wa.Width / sx, wa.Height / sy);
     }
 
     private void SavePosition()
