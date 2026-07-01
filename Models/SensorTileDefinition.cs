@@ -23,6 +23,9 @@ public class SensorTileDefinition
         new() { Id = "gpu_vram",   Label = "VRAM Used",   Unit = "GB",  Category = SensorCategory.GPU,    HasBar = true,  BarMax = 6,   WarnThreshold = 4.5f, DangerThreshold = 5.5f },
         new() { Id = "gpu_usage",  Label = "GPU Usage",   Unit = "%",   Category = SensorCategory.GPU,    HasBar = true,  BarMax = 100, WarnThreshold = 70,  DangerThreshold = 95 },
         new() { Id = "ram_used",   Label = "RAM Used",    Unit = "GB",  Category = SensorCategory.Memory, HasBar = true,  BarMax = 16,  WarnThreshold = 12,  DangerThreshold = 14.5f },
-        new() { Id = "sys_power",  Label = "Total Power", Unit = "W",   Category = SensorCategory.System, HasBar = false, WarnThreshold = 100, DangerThreshold = 160 },
+        new() { Id = "sys_power",    Label = "Total Power",  Unit = "W",    Category = SensorCategory.System,  HasBar = false, WarnThreshold = 100, DangerThreshold = 160 },
+        new() { Id = "net_upload",   Label = "Net Upload",   Unit = "MB/s", Category = SensorCategory.Network, HasBar = false, WarnThreshold = 0,   DangerThreshold = 0   },
+        new() { Id = "net_download", Label = "Net Download", Unit = "MB/s", Category = SensorCategory.Network, HasBar = false, WarnThreshold = 0,   DangerThreshold = 0   },
+        new() { Id = "disk_activity",Label = "Disk Activity",Unit = "%",    Category = SensorCategory.Storage, HasBar = true,  BarMax = 100, WarnThreshold = 70, DangerThreshold = 90 },
     };
 }

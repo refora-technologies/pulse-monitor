@@ -17,20 +17,28 @@ public class SensorData
     public float? GpuUsage { get; set; }
     public float? RamUsed { get; set; }
     public float? SysPower { get; set; }
+    public float? NetUpload { get; set; }
+    public float? NetDownload { get; set; }
+    public float? DiskActivity { get; set; }
+    public float TotalRamGb { get; set; }
+    public float TotalVramGb { get; set; }
 
     public float? GetById(string id) => id switch
     {
-        "cpu_temp"  => CpuTemp,
-        "cpu_power" => CpuPower,
-        "cpu_clock" => CpuClock,
-        "cpu_usage" => CpuUsage,
-        "gpu_temp"  => GpuTemp,
-        "gpu_power" => GpuPower,
-        "gpu_clock" => GpuClock,
-        "gpu_vram"  => GpuVram,
-        "gpu_usage" => GpuUsage,
-        "ram_used"  => RamUsed,
-        "sys_power" => SysPower,
+        "cpu_temp"     => CpuTemp,
+        "cpu_power"    => CpuPower,
+        "cpu_clock"    => CpuClock,
+        "cpu_usage"    => CpuUsage,
+        "gpu_temp"     => GpuTemp,
+        "gpu_power"    => GpuPower,
+        "gpu_clock"    => GpuClock,
+        "gpu_vram"     => GpuVram,
+        "gpu_usage"    => GpuUsage,
+        "ram_used"     => RamUsed,
+        "sys_power"    => SysPower,
+        "net_upload"   => NetUpload,
+        "net_download" => NetDownload,
+        "disk_activity"=> DiskActivity,
         _ => null
     };
 }
@@ -48,16 +56,19 @@ public class HardwareService : IDisposable
     public event EventHandler<SensorData>? SensorsUpdated;
     public double PollingIntervalSeconds { get; set; } = 2;
 
+    public float TotalRamGb { get; private set; } = 16f;
+    public float TotalVramGb { get; private set; } = 6f;
+
     private HardwareService()
     {
         _computer = new Computer
         {
-            IsCpuEnabled        = true,
-            IsGpuEnabled        = true,
-            IsMemoryEnabled     = true,
+            IsCpuEnabled         = true,
+            IsGpuEnabled         = true,
+            IsMemoryEnabled      = true,
             IsMotherboardEnabled = false,
-            IsStorageEnabled    = false,
-            IsNetworkEnabled    = false,
+            IsStorageEnabled     = true,
+            IsNetworkEnabled     = true,
         };
 
         try { _computer.Open(); } catch { }
@@ -97,9 +108,11 @@ public class HardwareService : IDisposable
         }
         catch { }
 
-        // Derive total system power
         data.SysPower = (data.CpuPower ?? 0) + (data.GpuPower ?? 0);
         if (data.SysPower == 0) data.SysPower = null;
+
+        if (data.TotalRamGb > 0) TotalRamGb = data.TotalRamGb;
+        if (data.TotalVramGb > 0) TotalVramGb = data.TotalVramGb;
 
         Current = data;
         SensorsUpdated?.Invoke(this, data);
@@ -119,6 +132,12 @@ public class HardwareService : IDisposable
                 break;
             case HardwareType.Memory:
                 ReadMemory(hw, data);
+                break;
+            case HardwareType.Network:
+                ReadNetwork(hw, data);
+                break;
+            case HardwareType.Storage:
+                ReadStorage(hw, data);
                 break;
         }
     }
@@ -203,6 +222,9 @@ public class HardwareService : IDisposable
                 case SensorType.SmallData when s.Name.Contains("Memory Used", StringComparison.OrdinalIgnoreCase):
                     data.GpuVram = MathF.Round(s.Value.Value / 1024f, 2);
                     break;
+                case SensorType.SmallData when s.Name.Contains("Memory Total", StringComparison.OrdinalIgnoreCase) && data.TotalVramGb == 0:
+                    data.TotalVramGb = MathF.Round(s.Value.Value / 1024f, 0);
+                    break;
                 case SensorType.Load when s.Name.Contains("Core", StringComparison.OrdinalIgnoreCase) && data.GpuUsage is null:
                     data.GpuUsage = s.Value;
                     break;
@@ -212,17 +234,52 @@ public class HardwareService : IDisposable
 
     private static void ReadMemory(IHardware hw, SensorData data)
     {
+        float? used = null, available = null;
         foreach (var s in hw.Sensors)
         {
-            if (s.Value is null) continue;
-            // Only pick physical memory used — skip virtual/pagefile sensors
-            if (s.SensorType == SensorType.Data
-                && s.Name.Contains("Used", StringComparison.OrdinalIgnoreCase)
-                && !s.Name.Contains("Virtual", StringComparison.OrdinalIgnoreCase))
-            {
-                data.RamUsed = MathF.Round(s.Value.Value, 2);
-            }
+            if (s.Value is null || s.SensorType != SensorType.Data) continue;
+            var name = s.Name;
+            if (name.Contains("Used", StringComparison.OrdinalIgnoreCase)
+                && !name.Contains("Virtual", StringComparison.OrdinalIgnoreCase))
+                used = s.Value.Value;
+            else if (name.Contains("Available", StringComparison.OrdinalIgnoreCase)
+                && !name.Contains("Virtual", StringComparison.OrdinalIgnoreCase))
+                available = s.Value.Value;
         }
+        if (used.HasValue)
+            data.RamUsed = MathF.Round(used.Value, 2);
+        if (used.HasValue && available.HasValue)
+            data.TotalRamGb = MathF.Round(used.Value + available.Value, 0);
+    }
+
+    private static void ReadNetwork(IHardware hw, SensorData data)
+    {
+        foreach (var s in hw.Sensors)
+        {
+            if (s.Value is null || s.SensorType != SensorType.Throughput) continue;
+            if (s.Name.Contains("Upload", StringComparison.OrdinalIgnoreCase))
+                data.NetUpload = (data.NetUpload ?? 0) + s.Value.Value / 1_048_576f;
+            else if (s.Name.Contains("Download", StringComparison.OrdinalIgnoreCase))
+                data.NetDownload = (data.NetDownload ?? 0) + s.Value.Value / 1_048_576f;
+        }
+    }
+
+    private static void ReadStorage(IHardware hw, SensorData data)
+    {
+        float? activity = null;
+        foreach (var s in hw.Sensors)
+        {
+            if (s.Value is null || s.SensorType != SensorType.Load) continue;
+            if (s.Name.Contains("Used Space", StringComparison.OrdinalIgnoreCase)) continue;
+            if (s.Name.Contains("Total", StringComparison.OrdinalIgnoreCase))
+            {
+                activity = s.Value.Value;
+                break;
+            }
+            activity ??= s.Value.Value;
+        }
+        if (activity.HasValue && activity > (data.DiskActivity ?? -1f))
+            data.DiskActivity = activity;
     }
 
     public void Dispose()

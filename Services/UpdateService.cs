@@ -104,9 +104,9 @@ public class UpdateService
         return true;
     }
 
-    /// Downloads the installer and launches it, then signals the caller to exit.
+    /// Downloads the installer streaming with progress, then launches it.
     /// Falls back to opening the release page when no installer asset is attached.
-    public static async Task<bool> DownloadAndRunAsync(UpdateInfo info)
+    public static async Task<bool> DownloadAndRunAsync(UpdateInfo info, IProgress<int>? progress = null)
     {
         if (string.IsNullOrEmpty(info.InstallerUrl))
         {
@@ -121,8 +121,25 @@ public class UpdateService
                 : info.InstallerName;
             var target = Path.Combine(Path.GetTempPath(), fileName);
 
-            var bytes = await Http.GetByteArrayAsync(info.InstallerUrl);
-            await File.WriteAllBytesAsync(target, bytes);
+            using var response = await Http.GetAsync(info.InstallerUrl, HttpCompletionOption.ResponseHeadersRead);
+            response.EnsureSuccessStatusCode();
+
+            var total = response.Content.Headers.ContentLength ?? 0L;
+            await using var src = await response.Content.ReadAsStreamAsync();
+            await using var dst = new FileStream(target, FileMode.Create, FileAccess.Write, FileShare.None, 81920, true);
+
+            var buffer = new byte[81920];
+            long received = 0;
+            int read;
+            while ((read = await src.ReadAsync(buffer)) > 0)
+            {
+                await dst.WriteAsync(buffer.AsMemory(0, read));
+                received += read;
+                if (total > 0)
+                    progress?.Report(Math.Min(99, (int)(received * 100 / total)));
+            }
+
+            progress?.Report(100);
 
             Process.Start(new ProcessStartInfo
             {
