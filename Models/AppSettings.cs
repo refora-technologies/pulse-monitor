@@ -16,8 +16,9 @@ public class AppSettings
     public bool ShowStatusBar { get; set; } = true;
 
     // v1.1 — Redesign additions
-    public bool IsCompactMode { get; set; } = false;   // MSI Afterburner-style HUD
-    public bool IsDragEnabled { get; set; } = false;    // Unlock overlay for repositioning
+    public bool IsCompactMode { get; set; } = false;
+    public bool IsDragEnabled { get; set; } = false;
+    public int SelectedMonitorIndex { get; set; } = 0;
 
     private static readonly string SettingsPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),

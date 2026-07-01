@@ -138,7 +138,41 @@ public class SettingsViewModel : BaseViewModel
         }
     }
 
-    public int MaxTiles       => 5;
+    private int _selectedMonitorIndex;
+    public int SelectedMonitorIndex
+    {
+        get => _selectedMonitorIndex;
+        set
+        {
+            if (Set(ref _selectedMonitorIndex, value))
+            {
+                var s = SettingsService.Instance.Settings;
+                s.SelectedMonitorIndex = value;
+                s.OverlayCustomX = -1;
+                s.OverlayCustomY = -1;
+                if (s.OverlayPosition == "Custom")
+                    s.OverlayPosition = "TopRight";
+                SettingsService.Instance.Save();
+            }
+        }
+    }
+
+    private bool _showStatusBar;
+    public bool ShowStatusBar
+    {
+        get => _showStatusBar;
+        set
+        {
+            if (Set(ref _showStatusBar, value))
+            {
+                SettingsService.Instance.Settings.ShowStatusBar = value;
+                OverlayViewModel.Instance.ShowStatusBar = value;
+                SettingsService.Instance.Save();
+            }
+        }
+    }
+
+    public int MaxTiles       => 8;
     public int SelectedCount  => AllTiles.Count(t => t.IsSelected);
     public int OpacityPercent => (int)Math.Round(_opacity * 100);
 
@@ -160,7 +194,22 @@ public class SettingsViewModel : BaseViewModel
     }
 
     private bool _bannerDismissed;
-    public bool ShowUpdateBanner => _isUpdateAvailable && !_bannerDismissed;
+    public bool ShowUpdateBanner => _isUpdateAvailable && !_bannerDismissed && !_isDownloading;
+
+    private bool _isDownloading;
+    public bool IsDownloading
+    {
+        get => _isDownloading;
+        private set { if (Set(ref _isDownloading, value)) OnPropertyChanged(nameof(ShowUpdateBanner)); }
+    }
+
+    private int _downloadProgress;
+    public int DownloadProgress
+    {
+        get => _downloadProgress;
+        private set { if (Set(ref _downloadProgress, value)) OnPropertyChanged(nameof(DownloadFraction)); }
+    }
+    public double DownloadFraction => _downloadProgress / 100.0;
 
     private string _bannerVersion = "";
     public string BannerVersion { get => _bannerVersion; private set => Set(ref _bannerVersion, value); }
@@ -200,8 +249,17 @@ public class SettingsViewModel : BaseViewModel
             return;
         }
 
-        UpdateStatus = "Downloading update…";
-        var launched = await UpdateService.DownloadAndRunAsync(_pendingUpdate);
+        IsDownloading = true;
+        DownloadProgress = 0;
+        UpdateStatus = "Downloading…";
+
+        var progress = new Progress<int>(p =>
+        {
+            DownloadProgress = p;
+            UpdateStatus = p >= 100 ? "Starting installer…" : $"Downloading… {p}%";
+        });
+
+        var launched = await UpdateService.DownloadAndRunAsync(_pendingUpdate, progress);
         if (launched)
         {
             UpdateStatus = "Starting installer…";
@@ -209,7 +267,8 @@ public class SettingsViewModel : BaseViewModel
         }
         else
         {
-            UpdateStatus = "Opened download page in your browser";
+            IsDownloading = false;
+            UpdateStatus = "Download failed — click Update Now to retry";
         }
     }
 
@@ -228,13 +287,15 @@ public class SettingsViewModel : BaseViewModel
     private SettingsViewModel()
     {
         var settings  = SettingsService.Instance.Settings;
-        _opacity          = settings.OverlayOpacity;
-        _pollingInterval  = settings.PollingIntervalSeconds;
-        _overlayPosition  = settings.OverlayPosition;
-        _startWithWindows = settings.StartWithWindows;
-        _minimizeToTray   = settings.MinimizeToTray;
-        _isDragEnabled    = settings.IsDragEnabled;
-        _isCompactMode    = settings.IsCompactMode;
+        _opacity               = settings.OverlayOpacity;
+        _pollingInterval       = settings.PollingIntervalSeconds;
+        _overlayPosition       = settings.OverlayPosition;
+        _startWithWindows      = settings.StartWithWindows;
+        _minimizeToTray        = settings.MinimizeToTray;
+        _isDragEnabled         = settings.IsDragEnabled;
+        _isCompactMode         = settings.IsCompactMode;
+        _showStatusBar         = settings.ShowStatusBar;
+        _selectedMonitorIndex  = settings.SelectedMonitorIndex;
 
         HardwareService.Instance.SetInterval(_pollingInterval);
 
@@ -243,11 +304,10 @@ public class SettingsViewModel : BaseViewModel
             var item = new TileSelectionItem(def, settings.ActiveTileIds.Contains(def.Id));
             item.PropertyChanged += (_, e) =>
             {
-                if (e.PropertyName == nameof(TileSelectionItem.IsSelected))
-                {
-                    OnPropertyChanged(nameof(SelectedCount));
-                    ApplyTileSelection();
-                }
+                if (e.PropertyName != nameof(TileSelectionItem.IsSelected)) return;
+                OnPropertyChanged(nameof(SelectedCount));
+                OnPropertyChanged(nameof(CanSelectMore));
+                ApplyTileSelection();
             };
             AllTiles.Add(item);
         }
@@ -258,6 +318,7 @@ public class SettingsViewModel : BaseViewModel
             OnPropertyChanged(nameof(StatusBrush));
             OnPropertyChanged(nameof(StatusColor));
         };
+
     }
 
     private void ApplyTileSelection()
@@ -270,4 +331,19 @@ public class SettingsViewModel : BaseViewModel
     }
 
     public bool CanSelectMore => SelectedCount < MaxTiles;
+
+    public void SetPositionPreset(string position)
+    {
+        var s = SettingsService.Instance.Settings;
+        s.OverlayPosition  = position;
+        s.IsDragEnabled    = false;
+        s.OverlayCustomX   = -1;
+        s.OverlayCustomY   = -1;
+        _overlayPosition   = position;
+        _isDragEnabled     = false;
+        OverlayViewModel.Instance.IsDragEnabled = false;
+        SettingsService.Instance.Save();
+        OnPropertyChanged(nameof(OverlayPosition));
+        OnPropertyChanged(nameof(IsDragEnabled));
+    }
 }

@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using Pulse.Services;
 using Pulse.ViewModels;
 
@@ -30,13 +31,18 @@ public partial class MainWindow : Window
 
         Loaded += (_, _) =>
         {
-            // Clip content to rounded border shape
             WindowBorder.Clip = new RectangleGeometry(
                 new System.Windows.Rect(0, 0, WindowBorder.ActualWidth, WindowBorder.ActualHeight),
                 18, 18);
 
             HighlightActivePollingRate();
+            HighlightActivePosition();
             UpdateOverlayButton();
+            PopulateMonitorButtons();
+
+            PollRatePanel.SizeChanged += (_, _) => UpdateSegIndicator(false);
+            Dispatcher.InvokeAsync(() => UpdateSegIndicator(false),
+                System.Windows.Threading.DispatcherPriority.Render);
         };
     }
 
@@ -92,8 +98,8 @@ public partial class MainWindow : Window
     {
         if (_vm == null || PollRatePanel == null) return;
 
-        var activeStyle = (WpfStyle)FindResource("PillBtnActive");
-        var normalStyle = (WpfStyle)FindResource("PillBtn");
+        var activeStyle = (WpfStyle)FindResource("SegBtnActive");
+        var normalStyle = (WpfStyle)FindResource("SegBtn");
 
         foreach (var child in PollRatePanel.Children)
         {
@@ -103,18 +109,111 @@ public partial class MainWindow : Window
                 btn.Style = isActive ? activeStyle : normalStyle;
             }
         }
+
+        UpdateSegIndicator(true);
+    }
+
+    private void UpdateSegIndicator(bool animate)
+    {
+        if (_vm == null || SegIndicator == null || PollRatePanel == null) return;
+        if (PollRatePanel.ActualWidth <= 0) return;
+
+        double segW = PollRatePanel.ActualWidth / 4.0;
+        SegIndicator.Width = segW;
+
+        int idx = _vm.PollingInterval switch
+        {
+            <= 0.6 => 0,
+            <= 1.5 => 1,
+            <= 3.0 => 2,
+            _      => 3,
+        };
+
+        double targetX = idx * segW;
+
+        if (animate)
+        {
+            var anim = new DoubleAnimation
+            {
+                To = targetX,
+                Duration = TimeSpan.FromMilliseconds(200),
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+            };
+            SegIndicatorTranslate.BeginAnimation(TranslateTransform.XProperty, anim);
+        }
+        else
+        {
+            SegIndicatorTranslate.X = targetX;
+        }
     }
 
     private void Position_Click(object sender, RoutedEventArgs e)
     {
         if (sender is WpfButton btn && _vm != null)
         {
-            _vm.OverlayPosition = btn.Tag?.ToString() ?? "TopRight";
-            _vm.IsDragEnabled = false;
-            SettingsService.Instance.Settings.OverlayCustomX = -1;
-            SettingsService.Instance.Settings.OverlayCustomY = -1;
-            SettingsService.Instance.Save();
+            _vm.SetPositionPreset(btn.Tag?.ToString() ?? "TopRight");
+            HighlightActivePosition();
         }
+    }
+
+    private void HighlightActivePosition()
+    {
+        if (_vm == null || PositionPanel == null) return;
+        var activeStyle = (WpfStyle)FindResource("CornerBtnActive");
+        var normalStyle = (WpfStyle)FindResource("CornerBtn");
+        foreach (var child in PositionPanel.Children)
+        {
+            if (child is WpfButton btn)
+                btn.Style = btn.Tag?.ToString() == _vm.OverlayPosition ? activeStyle : normalStyle;
+        }
+    }
+
+    private void PopulateMonitorButtons()
+    {
+        if (_vm == null || MonitorPanel == null || MonitorSelectionRow == null) return;
+
+        var screens = System.Windows.Forms.Screen.AllScreens;
+        if (screens.Length <= 1)
+        {
+            MonitorSelectionRow.Visibility = System.Windows.Visibility.Collapsed;
+            return;
+        }
+
+        MonitorSelectionRow.Visibility = System.Windows.Visibility.Visible;
+        MonitorPanel.Children.Clear();
+
+        var activeStyle = (WpfStyle)FindResource("MonitorBtnActive");
+        var normalStyle = (WpfStyle)FindResource("MonitorBtn");
+
+        for (int i = 0; i < screens.Length; i++)
+        {
+            var idx = i;
+            var btn = new WpfButton
+            {
+                Content = $"Display {i + 1}",
+                Tag = i,
+                Style = i == _vm.SelectedMonitorIndex ? activeStyle : normalStyle,
+                Margin = new System.Windows.Thickness(0, 0, i < screens.Length - 1 ? 8 : 0, 0),
+            };
+            btn.Click += Monitor_Click;
+            MonitorPanel.Children.Add(btn);
+        }
+    }
+
+    private void Monitor_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not WpfButton btn || _vm == null) return;
+        _vm.SelectedMonitorIndex = (int)btn.Tag;
+
+        var activeStyle = (WpfStyle)FindResource("MonitorBtnActive");
+        var normalStyle = (WpfStyle)FindResource("MonitorBtn");
+        foreach (var child in MonitorPanel.Children)
+        {
+            if (child is WpfButton b)
+                b.Style = (int)b.Tag == _vm.SelectedMonitorIndex ? activeStyle : normalStyle;
+        }
+
+        HighlightActivePosition();
     }
 
     private async void BtnCheckUpdates_Click(object sender, RoutedEventArgs e)

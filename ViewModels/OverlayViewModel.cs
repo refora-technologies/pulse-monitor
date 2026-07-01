@@ -35,10 +35,11 @@ public class TileViewModel : BaseViewModel
     public string DisplayValue => _value.HasValue
         ? Definition.Unit switch
         {
-            "GHz" => $"{_value:F2}",
-            "GB"  => $"{_value:F1}",
-            "%"   => $"{_value:F0}",
-            _     => $"{_value:F0}"
+            "GHz"  => $"{_value:F2}",
+            "GB"   => $"{_value:F1}",
+            "%"    => $"{_value:F0}",
+            "MB/s" => $"{_value:F2}",
+            _      => $"{_value:F0}"
         }
         : "--";
 
@@ -65,8 +66,16 @@ public class TileViewModel : BaseViewModel
     {
         get
         {
-            if (!_value.HasValue || !Definition.HasBar || Definition.BarMax <= 0) return 0;
-            return Math.Clamp((double)_value.Value / Definition.BarMax, 0, 1);
+            if (!_value.HasValue || !Definition.HasBar) return 0;
+            double max = Definition.Id switch
+            {
+                "ram_used" => HardwareService.Instance.TotalRamGb,
+                "gpu_vram" => HardwareService.Instance.TotalVramGb,
+                _          => Definition.BarMax
+            };
+            if (max <= 0) max = Definition.BarMax;
+            if (max <= 0) return 0;
+            return Math.Clamp((double)_value.Value / max, 0, 1);
         }
     }
 
@@ -112,11 +121,19 @@ public class OverlayViewModel : BaseViewModel
         set => Set(ref _isDragEnabled, value);
     }
 
+    private bool _showStatusBar = true;
+    public bool ShowStatusBar
+    {
+        get => _showStatusBar;
+        set => Set(ref _showStatusBar, value);
+    }
+
     private OverlayViewModel()
     {
         var s = SettingsService.Instance.Settings;
-        _isCompactMode = s.IsCompactMode;
-        _isDragEnabled = s.IsDragEnabled;
+        _isCompactMode  = s.IsCompactMode;
+        _isDragEnabled  = s.IsDragEnabled;
+        _showStatusBar  = s.ShowStatusBar;
         LoadActiveTiles();
         HardwareService.Instance.SensorsUpdated += OnSensorsUpdated;
     }
