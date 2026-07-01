@@ -12,7 +12,7 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <ApplicationIcon>Resources\Icons\pulse.ico</ApplicationIcon>
-    <Version>1.0.1</Version>
+    <Version>1.0.3</Version>
     <Company>Refora Technologies</Company>
     <Product>Pulse</Product>
     <Copyright>© 2025 Refora Technologies</Copyright>
