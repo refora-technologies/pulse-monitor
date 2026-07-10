@@ -676,6 +676,18 @@ Public License instead of this License.  But first, please read
 
 ======================================================================
 
+THIRD-PARTY OPEN SOURCE COMPONENTS
+
+Pulse bundles or uses the following open-source components. Full
+attribution details are in THIRD-PARTY-NOTICES.txt.
+
+  LibreHardwareMonitorLib v0.9.6  — Mozilla Public License 2.0
+  PawnIO (kernel sensor driver)   — GNU Lesser General Public License v2.1
+  CommunityToolkit.Mvvm v8.3.2    — MIT License
+  Newtonsoft.Json v13.0.3         — MIT License
+
+======================================================================
+
 PULSE MONITOR
 Copyright (C) 2026 Refora Technologies
 

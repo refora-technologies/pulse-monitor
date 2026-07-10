@@ -1,0 +1,32 @@
+SENSOR DRIVER NOTICE
+====================
+
+During installation, a kernel sensor driver (PawnIO) will be installed
+to enable hardware monitoring — CPU temperature, power, and clock speeds.
+
+  - PawnIO is part of the LibreHardwareMonitor project
+  - It is digitally signed by Microsoft (WHQL)
+  - It does not connect to the internet or collect any data
+  - It is automatically removed when you uninstall Pulse
+
+
+OPEN SOURCE ATTRIBUTIONS
+========================
+
+Pulse is built with the following open-source components:
+
+LibreHardwareMonitorLib v0.9.6
+  License : Mozilla Public License 2.0
+  Source  : https://github.com/LibreHardwareMonitor/LibreHardwareMonitor
+
+PawnIO (kernel sensor driver)
+  License : GNU Lesser General Public License v2.1
+  Source  : https://github.com/LibreHardwareMonitor/LibreHardwareMonitor
+
+CommunityToolkit.Mvvm v8.3.2
+  License : MIT License
+  Source  : https://github.com/CommunityToolkit/dotnet
+
+Newtonsoft.Json v13.0.3
+  License : MIT License
+  Source  : https://github.com/JamesNK/Newtonsoft.Json
