@@ -5,8 +5,8 @@
 [Setup]
 AppId={{B8F3E2A4-9D1C-4F7E-A5B2-3C8D6E9F1A2B}
 AppName=Pulse
-AppVersion=1.0.3
-AppVerName=Pulse v1.0.3
+AppVersion=1.0.4
+AppVerName=Pulse v1.0.4
 AppPublisher=Refora Technologies
 AppPublisherURL=https://reforatech.com
 AppSupportURL=https://reforatech.com
@@ -18,6 +18,7 @@ OutputBaseFilename=PulseSetup
 SetupIconFile=Resources\Icons\pulse.ico
 UninstallDisplayIcon={app}\Pulse.exe
 LicenseFile=LICENSE
+InfoBeforeFile=THIRD-PARTY-NOTICES.txt
 Compression=lzma2/ultra64
 SolidCompression=yes
 PrivilegesRequired=admin
@@ -38,6 +39,8 @@ Name: "startupentry"; Description: "Start Pulse when Windows starts"; GroupDescr
 [Files]
 Source: "publish\Pulse.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "LICENSE"; DestDir: "{app}"; Flags: ignoreversion
+Source: "THIRD-PARTY-NOTICES.txt"; DestDir: "{app}"; Flags: ignoreversion
+Source: "PawnIO_setup.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 
 [Icons]
 Name: "{group}\Pulse"; Filename: "{app}\Pulse.exe"; IconFilename: "{app}\Pulse.exe"
@@ -45,6 +48,7 @@ Name: "{group}\Uninstall Pulse"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\Pulse"; Filename: "{app}\Pulse.exe"; IconFilename: "{app}\Pulse.exe"; Tasks: desktopicon
 
 [Run]
+Filename: "{tmp}\PawnIO_setup.exe"; Parameters: "-install -silent"; Flags: runhidden waituntilterminated; StatusMsg: "Installing sensor driver..."
 Filename: "schtasks.exe"; Parameters: "/Create /TN ""PulseMonitor"" /TR ""\""{app}\Pulse.exe\"" --startup"" /SC ONLOGON /RL HIGHEST /F"; Flags: runhidden; Tasks: startupentry
 Filename: "{app}\Pulse.exe"; Description: "Launch Pulse"; Flags: nowait postinstall skipifsilent runascurrentuser
 
