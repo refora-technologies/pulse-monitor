@@ -64,9 +64,10 @@ public partial class OverlayWindow : Window
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
-        ApplyPosition();
         ApplyCompactMode();
         ApplyDragState();
+        // Defer position until after first render so ActualWidth/ActualHeight are correct
+        Dispatcher.InvokeAsync(ApplyPosition, System.Windows.Threading.DispatcherPriority.Render);
     }
 
     protected override void OnSourceInitialized(EventArgs e)
