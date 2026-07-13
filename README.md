@@ -23,7 +23,7 @@
 
 ## Key Features
 
-- **Real-Time Telemetry:** Instant readouts for CPU/GPU Temperatures, Clock Speeds, Usage, TDP/Power Draw, and VRAM/RAM utilization.
+- **Real-Time Telemetry:** Instant readouts for CPU/GPU Temperatures, Clock Speeds, Usage, TDP/Power Draw, VRAM/RAM utilization, Network throughput (upload/download), and Disk Activity.
 - **Dynamic Overlay:** A seamless glassmorphic HUD that sits unobtrusively on your screen, featuring a secondary "Compact Mode" designed specifically for distraction-free in-game monitoring.
 - **Ultra-Fast Polling:** Customizable interval polling directly integrated with LibreHardwareMonitor, down to 0.5 seconds for instantaneous tracking.
 - **Refora Design Language:** A customized, violet-accented dark theme powered by the Ubuntu font family for crisp, elegant readability.
@@ -40,7 +40,7 @@
 
 Download the latest installer from our official distribution channels. Pulse features a completely self-contained deployment model—no prerequisites required.
 
-1. Run `PulseSetup_v1.X.X.exe`.
+1. Run `PulseSetup.exe`.
 2. Follow the on-screen instructions.
 3. Pulse will automatically launch and minimize to the system tray.
 
@@ -61,7 +61,7 @@ This project is licensed under the **GNU General Public License v3.0 (GPLv3)**.
 
 You are free to use, modify, and distribute this software, provided that any derivative works are also open-source and licensed under the identical terms. See the `LICENSE` file for the complete terms and conditions.
 
-Pulse links dynamically to open-source components such as LibreHardwareMonitor (MPL-2.0), Newtonsoft.Json (MIT), and CommunityToolkit.Mvvm (MIT).
+Pulse bundles and links to the following open-source components: LibreHardwareMonitor (MPL-2.0), PawnIO kernel driver (LGPL-2.1), Newtonsoft.Json (MIT), and CommunityToolkit.Mvvm (MIT). See `THIRD-PARTY-NOTICES.txt` for full attribution.
 
 ---
 
