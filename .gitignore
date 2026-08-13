@@ -2,7 +2,8 @@
 bin/
 obj/
 publish/
-installer/
+installer/*
+!installer/*.ps1
 
 # User-specific files
 *.user

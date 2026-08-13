@@ -221,7 +221,7 @@ public class SettingsViewModel : BaseViewModel
         IsCheckingUpdate = true;
         if (manual) UpdateStatus = "Checking for updates…";
 
-        var info = await UpdateService.CheckForUpdateAsync();
+        var (success, info) = await UpdateService.CheckForUpdateAsync();
 
         IsCheckingUpdate = false;
 
@@ -237,7 +237,7 @@ public class SettingsViewModel : BaseViewModel
         {
             IsUpdateAvailable = false;
             OnPropertyChanged(nameof(ShowUpdateBanner));
-            if (manual) UpdateStatus = "You're on the latest version";
+            if (manual) UpdateStatus = success ? "You're on the latest version" : "Couldn't check for updates — try again later";
         }
     }
 
@@ -259,16 +259,25 @@ public class SettingsViewModel : BaseViewModel
             UpdateStatus = p >= 100 ? "Starting installer…" : $"Downloading… {p}%";
         });
 
-        var launched = await UpdateService.DownloadAndRunAsync(_pendingUpdate, progress);
-        if (launched)
+        var status = await UpdateService.DownloadAndRunAsync(_pendingUpdate, progress);
+        switch (status)
         {
-            UpdateStatus = "Starting installer…";
-            System.Windows.Application.Current.Shutdown();
-        }
-        else
-        {
-            IsDownloading = false;
-            UpdateStatus = "Download failed — click Update Now to retry";
+            case UpdateDownloadStatus.Success:
+                UpdateStatus = "Starting installer…";
+                System.Windows.Application.Current.Shutdown();
+                break;
+            case UpdateDownloadStatus.VerificationFailed:
+                IsDownloading = false;
+                UpdateStatus = "Update failed verification — download blocked for your safety";
+                break;
+            case UpdateDownloadStatus.VerificationUnavailable:
+                IsDownloading = false;
+                UpdateStatus = "Can't verify this update yet — download it manually from the release page";
+                break;
+            default:
+                IsDownloading = false;
+                UpdateStatus = "Download failed — click Update Now to retry";
+                break;
         }
     }
 
