@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
 using System.Reflection;
+using System.Security.Cryptography;
 using Newtonsoft.Json.Linq;
 
 namespace Pulse.Services;
@@ -14,9 +15,18 @@ public class UpdateInfo
     public string? InstallerUrl { get; init; }
     public string? InstallerName { get; init; }
     public long InstallerSize { get; init; }
+    public string? ExpectedSha256 { get; init; }
     public string Notes { get; init; } = "";
 
     public string DisplayVersion => $"v{Version.Major}.{Version.Minor}.{Version.Build}";
+}
+
+public enum UpdateDownloadStatus
+{
+    Success,
+    DownloadFailed,
+    VerificationFailed,
+    VerificationUnavailable,
 }
 
 public class UpdateService
@@ -62,14 +72,16 @@ public class UpdateService
     public static string CurrentVersionLabel =>
         $"v{CurrentVersion.Major}.{CurrentVersion.Minor}.{CurrentVersion.Build}";
 
-    public static async Task<UpdateInfo?> CheckForUpdateAsync()
+    /// <summary>Success indicates the GitHub API call itself succeeded (distinct from "no update found"),
+    /// so callers can tell "you're up to date" apart from "the check failed."</summary>
+    public static async Task<(bool Success, UpdateInfo? Info)> CheckForUpdateAsync()
     {
-        var latest = await FetchLatestAsync();
-        if (latest == null) return null;
-        return latest.Version > CurrentVersion ? latest : null;
+        var (success, latest) = await FetchLatestAsync();
+        if (!success) return (false, null);
+        return (true, latest != null && latest.Version > CurrentVersion ? latest : null);
     }
 
-    private static async Task<UpdateInfo?> FetchLatestAsync()
+    private static async Task<(bool Success, UpdateInfo? Info)> FetchLatestAsync()
     {
         try
         {
@@ -78,9 +90,9 @@ public class UpdateService
             var root = JObject.Parse(json);
 
             var tag = root.Value<string>("tag_name") ?? "";
-            if (!TryParseVersion(tag, out var version)) return null;
+            if (!TryParseVersion(tag, out var version)) return (true, null);
 
-            string? installerUrl = null, installerName = null;
+            string? installerUrl = null, installerName = null, checksumUrl = null;
             long    installerSize = 0;
             if (root["assets"] is JArray assets)
             {
@@ -89,23 +101,49 @@ public class UpdateService
                 installerUrl  = asset?.Value<string>("browser_download_url");
                 installerName = asset?.Value<string>("name");
                 installerSize = asset?.Value<long>("size") ?? 0L;
+
+                if (installerName != null)
+                {
+                    var checksumAsset = assets.FirstOrDefault(a =>
+                        string.Equals(a.Value<string>("name"), installerName + ".sha256",
+                            StringComparison.OrdinalIgnoreCase));
+                    checksumUrl = checksumAsset?.Value<string>("browser_download_url");
+                }
             }
 
-            return new UpdateInfo
+            string? expectedSha256 = null;
+            if (checksumUrl != null)
             {
-                Version       = version,
-                TagName       = tag,
-                ReleaseUrl    = root.Value<string>("html_url") ?? ReleasesPage,
-                InstallerUrl  = installerUrl,
-                InstallerName = installerName,
-                InstallerSize = installerSize,
-                Notes         = root.Value<string>("body") ?? "",
-            };
+                try
+                {
+                    var checksumContent = await ApiHttp.GetStringAsync(checksumUrl);
+                    expectedSha256 = ParseSha256(checksumContent);
+                }
+                catch { /* checksum unavailable — DownloadAndRunAsync fails closed without it */ }
+            }
+
+            return (true, new UpdateInfo
+            {
+                Version        = version,
+                TagName        = tag,
+                ReleaseUrl     = root.Value<string>("html_url") ?? ReleasesPage,
+                InstallerUrl   = installerUrl,
+                InstallerName  = installerName,
+                InstallerSize  = installerSize,
+                ExpectedSha256 = expectedSha256,
+                Notes          = root.Value<string>("body") ?? "",
+            });
         }
         catch
         {
-            return null;
+            return (false, null);
         }
+    }
+
+    private static string? ParseSha256(string content)
+    {
+        var token = content.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+        return token is { Length: 64 } && token.All(Uri.IsHexDigit) ? token.ToLowerInvariant() : null;
     }
 
     private static bool TryParseVersion(string tag, out Version version)
@@ -122,20 +160,23 @@ public class UpdateService
         return true;
     }
 
-    /// Downloads the installer with progress, then launches it. Returns false on failure.
-    public static async Task<bool> DownloadAndRunAsync(UpdateInfo info, IProgress<int>? progress = null)
+    /// Downloads the installer with progress, verifies its SHA-256 against the checksum
+    /// published alongside the release, then launches it. Refuses to launch anything that
+    /// isn't verified — we have no code-signing certificate, so the published hash is the
+    /// only trust anchor we have.
+    public static async Task<UpdateDownloadStatus> DownloadAndRunAsync(UpdateInfo info, IProgress<int>? progress = null)
     {
         if (string.IsNullOrEmpty(info.InstallerUrl))
-            return false;
+            return UpdateDownloadStatus.DownloadFailed;
+
+        var fileName = string.IsNullOrEmpty(info.InstallerName)
+            ? $"PulseSetup-{info.TagName}.exe"
+            : info.InstallerName;
+        var target = Path.Combine(Path.GetTempPath(), fileName);
 
         try
         {
-            var fileName = string.IsNullOrEmpty(info.InstallerName)
-                ? $"PulseSetup-{info.TagName}.exe"
-                : info.InstallerName;
-            var target = Path.Combine(Path.GetTempPath(), fileName);
-
-            // Download — streams explicitly closed before we launch the exe
+            // Download — streams explicitly closed before we hash/launch the exe
             await using (var src = await DownloadHttp.GetStreamAsync(info.InstallerUrl))
             await using (var dst = new FileStream(target, FileMode.Create, FileAccess.Write,
                                                   FileShare.None, 65536, useAsync: true))
@@ -153,21 +194,57 @@ public class UpdateService
                 }
                 await dst.FlushAsync();
             }
-            // Both streams fully closed here — file is complete and unlocked
+        }
+        catch
+        {
+            TryDelete(target);
+            return UpdateDownloadStatus.DownloadFailed;
+        }
 
-            progress?.Report(100);
+        if (string.IsNullOrEmpty(info.ExpectedSha256))
+        {
+            TryDelete(target);
+            return UpdateDownloadStatus.VerificationUnavailable;
+        }
 
+        try
+        {
+            await using var verifyStream = File.OpenRead(target);
+            var hashBytes    = await SHA256.HashDataAsync(verifyStream);
+            var actualSha256 = Convert.ToHexString(hashBytes).ToLowerInvariant();
+
+            if (!string.Equals(actualSha256, info.ExpectedSha256, StringComparison.OrdinalIgnoreCase))
+            {
+                TryDelete(target);
+                return UpdateDownloadStatus.VerificationFailed;
+            }
+        }
+        catch
+        {
+            TryDelete(target);
+            return UpdateDownloadStatus.DownloadFailed;
+        }
+
+        progress?.Report(100);
+
+        try
+        {
             // Launch installer elevated; the Inno Setup CloseApplications=yes will
             // close Pulse automatically before installing, so we just wait briefly
             // and then shut down ourselves to avoid a duplicate-close conflict.
             Process.Start(new ProcessStartInfo { FileName = target, UseShellExecute = true });
             await Task.Delay(1500);
-            return true;
+            return UpdateDownloadStatus.Success;
         }
         catch
         {
-            return false;
+            return UpdateDownloadStatus.DownloadFailed;
         }
+    }
+
+    private static void TryDelete(string path)
+    {
+        try { if (File.Exists(path)) File.Delete(path); } catch { }
     }
 
     public static void OpenReleasePage(UpdateInfo? info)
