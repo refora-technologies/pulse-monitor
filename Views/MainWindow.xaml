@@ -22,8 +22,9 @@
 
         <!-- ═══ SCROLLBAR ═══ -->
         <Style x:Key="ThinScrollBar" TargetType="ScrollBar">
-            <Setter Property="Width" Value="2"/>
+            <Setter Property="Width" Value="5"/>
             <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Opacity" Value="0.6"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="ScrollBar">
@@ -46,13 +47,13 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="ScrollViewer">
+                        <!-- Single cell: the scrollbar floats over the content instead of
+                             reserving its own column, so its presence never narrows the
+                             content area or shifts the app's width. -->
                         <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <ScrollContentPresenter Grid.Column="0"/>
-                            <ScrollBar Grid.Column="1" x:Name="PART_VerticalScrollBar"
+                            <ScrollContentPresenter/>
+                            <ScrollBar HorizontalAlignment="Right" Margin="0,0,1,0"
+                                       x:Name="PART_VerticalScrollBar"
                                        Style="{StaticResource ThinScrollBar}" Orientation="Vertical"
                                        Value="{TemplateBinding VerticalOffset}"
                                        Maximum="{TemplateBinding ScrollableHeight}"
