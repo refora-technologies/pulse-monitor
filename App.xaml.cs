@@ -140,7 +140,7 @@ public partial class App : WinApplication
         _trayIcon.DoubleClick     += (_, _) => ShowControlPanel();
     }
 
-    private void ShowControlPanel()
+    public void ShowControlPanel()
     {
         Dispatcher.Invoke(() =>
         {
