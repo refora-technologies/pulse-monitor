@@ -21,6 +21,19 @@ public partial class OverlayWindow : Window
     [DllImport("user32.dll")] static extern int GetWindowLong(IntPtr hwnd, int index);
     [DllImport("user32.dll")] static extern int SetWindowLong(IntPtr hwnd, int index, int newStyle);
 
+    // --- Per-monitor DPI lookup (for correctly placing the overlay on mixed-scaling setups) ---
+    private enum MonitorDpiType { Effective = 0 }
+    private const uint MONITOR_DEFAULTTONEAREST = 2;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct RECT { public int Left, Top, Right, Bottom; }
+
+    [DllImport("user32.dll")]
+    static extern IntPtr MonitorFromRect(ref RECT lprc, uint dwFlags);
+
+    [DllImport("Shcore.dll")]
+    static extern int GetDpiForMonitor(IntPtr hmonitor, MonitorDpiType dpiType, out uint dpiX, out uint dpiY);
+
     // --- Always-on-top enforcement -------------------------------------------------
     private static readonly IntPtr HWND_TOPMOST = new(-1);
     private const uint SWP_NOSIZE     = 0x0001;
@@ -180,7 +193,7 @@ public partial class OverlayWindow : Window
     {
         var settings = SettingsService.Instance.Settings;
 
-        if (settings.OverlayCustomX >= 0 && settings.OverlayCustomY >= 0)
+        if (settings.OverlayPosition == "Custom")
         {
             Left = settings.OverlayCustomX;
             Top  = settings.OverlayCustomY;
@@ -216,10 +229,31 @@ public partial class OverlayWindow : Window
         var screens = System.Windows.Forms.Screen.AllScreens;
         if (monitorIndex < 0 || monitorIndex >= screens.Length) monitorIndex = 0;
         var wa = screens[monitorIndex].WorkingArea;
-        using var g = System.Drawing.Graphics.FromHwnd(IntPtr.Zero);
-        double sx = g.DpiX / 96.0;
-        double sy = g.DpiY / 96.0;
+
+        var (sx, sy) = GetMonitorScale(wa);
         return new System.Windows.Rect(wa.Left / sx, wa.Top / sy, wa.Width / sx, wa.Height / sy);
+    }
+
+    /// Looks up the DPI of the monitor containing <paramref name="workArea"/> specifically —
+    /// using the desktop/primary DPI here would misplace the overlay on any secondary
+    /// monitor whose scaling differs from the primary's.
+    private static (double sx, double sy) GetMonitorScale(System.Drawing.Rectangle workArea)
+    {
+        try
+        {
+            var rect = new RECT { Left = workArea.Left, Top = workArea.Top, Right = workArea.Right, Bottom = workArea.Bottom };
+            var hMonitor = MonitorFromRect(ref rect, MONITOR_DEFAULTTONEAREST);
+            if (hMonitor != IntPtr.Zero &&
+                GetDpiForMonitor(hMonitor, MonitorDpiType.Effective, out uint dpiX, out uint dpiY) == 0)
+            {
+                return (dpiX / 96.0, dpiY / 96.0);
+            }
+        }
+        catch { }
+
+        // Fallback if the per-monitor DPI API is unavailable for some reason.
+        using var g = System.Drawing.Graphics.FromHwnd(IntPtr.Zero);
+        return (g.DpiX / 96.0, g.DpiY / 96.0);
     }
 
     private void SavePosition()
