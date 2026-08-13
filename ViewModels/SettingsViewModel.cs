@@ -172,7 +172,20 @@ public class SettingsViewModel : BaseViewModel
         }
     }
 
-    public int MaxTiles       => 8;
+    private bool _showMaxValues;
+    public bool ShowMaxValues
+    {
+        get => _showMaxValues;
+        set
+        {
+            if (Set(ref _showMaxValues, value))
+            {
+                SettingsService.Instance.Settings.ShowMaxValues = value;
+                SettingsService.Instance.Save();
+            }
+        }
+    }
+
     public int SelectedCount  => AllTiles.Count(t => t.IsSelected);
     public int OpacityPercent => (int)Math.Round(_opacity * 100);
 
@@ -305,6 +318,7 @@ public class SettingsViewModel : BaseViewModel
         _isCompactMode         = settings.IsCompactMode;
         _showStatusBar         = settings.ShowStatusBar;
         _selectedMonitorIndex  = settings.SelectedMonitorIndex;
+        _showMaxValues         = settings.ShowMaxValues;
 
         HardwareService.Instance.SetInterval(_pollingInterval);
 
@@ -315,7 +329,6 @@ public class SettingsViewModel : BaseViewModel
             {
                 if (e.PropertyName != nameof(TileSelectionItem.IsSelected)) return;
                 OnPropertyChanged(nameof(SelectedCount));
-                OnPropertyChanged(nameof(CanSelectMore));
                 ApplyTileSelection();
             };
             AllTiles.Add(item);
@@ -338,8 +351,6 @@ public class SettingsViewModel : BaseViewModel
         OverlayViewModel.Instance.LoadActiveTiles();
         OnPropertyChanged(nameof(ActiveTileVMs));
     }
-
-    public bool CanSelectMore => SelectedCount < MaxTiles;
 
     public void SetPositionPreset(string position)
     {

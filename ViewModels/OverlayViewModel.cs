@@ -32,16 +32,38 @@ public class TileViewModel : BaseViewModel
 
     public bool HasValue => _value.HasValue;
 
-    public string DisplayValue => _value.HasValue
-        ? Definition.Unit switch
+    /// Known hardware capacity for this tile (total RAM/VRAM), or 0 if none exists.
+    private double KnownMax => Definition.Id switch
+    {
+        "ram_used" => HardwareService.Instance.TotalRamGb,
+        "gpu_vram" => HardwareService.Instance.TotalVramGb,
+        _          => 0
+    };
+
+    public string DisplayValue
+    {
+        get
         {
-            "GHz"  => $"{_value:F2}",
-            "GB"   => $"{_value:F1}",
-            "%"    => $"{_value:F0}",
-            "MB/s" => $"{_value:F2}",
-            _      => $"{_value:F0}"
+            if (!_value.HasValue) return "--";
+
+            var formatted = Definition.Unit switch
+            {
+                "GHz"  => $"{_value:F2}",
+                "GB"   => $"{_value:F1}",
+                "%"    => $"{_value:F0}",
+                "MB/s" => $"{_value:F2}",
+                _      => $"{_value:F0}"
+            };
+
+            if (Definition.HasKnownMax && SettingsService.Instance.Settings.ShowMaxValues)
+            {
+                var max = KnownMax;
+                if (max > 0) return $"{formatted} / {max:F0}";
+            }
+
+            return formatted;
         }
-        : "--";
+    }
 
     /// Compact HUD line: "CPU Temp  68 °C"
     public string CompactLine => $"{DisplayValue} {Definition.Unit}";
@@ -67,12 +89,7 @@ public class TileViewModel : BaseViewModel
         get
         {
             if (!_value.HasValue || !Definition.HasBar) return 0;
-            double max = Definition.Id switch
-            {
-                "ram_used" => HardwareService.Instance.TotalRamGb,
-                "gpu_vram" => HardwareService.Instance.TotalVramGb,
-                _          => Definition.BarMax
-            };
+            double max = Definition.HasKnownMax ? KnownMax : Definition.BarMax;
             if (max <= 0) max = Definition.BarMax;
             if (max <= 0) return 0;
             return Math.Clamp((double)_value.Value / max, 0, 1);
@@ -80,6 +97,14 @@ public class TileViewModel : BaseViewModel
     }
 
     public TileViewModel(SensorTileDefinition def) { Definition = def; }
+
+    /// Re-raises formatting-dependent properties without needing a new sensor value —
+    /// used when the "show max values" setting is toggled.
+    public void RefreshDisplayFormatting()
+    {
+        OnPropertyChanged(nameof(DisplayValue));
+        OnPropertyChanged(nameof(CompactLine));
+    }
 }
 
 public class OverlayViewModel : BaseViewModel
@@ -136,6 +161,10 @@ public class OverlayViewModel : BaseViewModel
         _showStatusBar  = s.ShowStatusBar;
         LoadActiveTiles();
         HardwareService.Instance.SensorsUpdated += OnSensorsUpdated;
+        SettingsService.Instance.SettingsChanged += (_, _) =>
+        {
+            foreach (var tile in ActiveTiles) tile.RefreshDisplayFormatting();
+        };
     }
 
     public void LoadActiveTiles()

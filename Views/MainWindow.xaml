@@ -874,6 +874,20 @@
                                                TextWrapping="Wrap"/>
                                 </StackPanel>
                             </CheckBox>
+
+                            <Border Height="1" Background="#131128"/>
+
+                            <!-- Show Max Values -->
+                            <CheckBox Style="{StaticResource RowToggle}" Margin="18,14,18,14"
+                                      IsChecked="{Binding ShowMaxValues, Mode=TwoWay}">
+                                <StackPanel>
+                                    <TextBlock Text="Show Max Values" FontSize="13" FontWeight="SemiBold"
+                                               Foreground="#DBD7F2" Margin="0,0,0,2"/>
+                                    <TextBlock Text="RAM and VRAM show as used / total"
+                                               FontSize="10.5" FontWeight="Medium" Foreground="#4E4A6C"
+                                               TextWrapping="Wrap"/>
+                                </StackPanel>
+                            </CheckBox>
                         </StackPanel>
                     </Border>
 

@@ -19,6 +19,7 @@ public class AppSettings
     public bool IsCompactMode { get; set; } = false;
     public bool IsDragEnabled { get; set; } = false;
     public int SelectedMonitorIndex { get; set; } = 0;
+    public bool ShowMaxValues { get; set; } = false;
 
     private static readonly string SettingsPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
