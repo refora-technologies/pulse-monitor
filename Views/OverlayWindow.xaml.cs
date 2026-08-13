@@ -93,6 +93,41 @@ public partial class OverlayWindow : Window
     private IntPtr            _winEventHook = IntPtr.Zero;
     private DispatcherTimer?  _topmostTimer;
 
+    // --- Menu outside-click dismissal (cross-process) -------------------------------
+    // WPF's own Popup light-dismiss only sees mouse-down events that pass through this
+    // app's input pipeline, so it correctly closes the menu for clicks elsewhere in
+    // Pulse (the overlay itself, the Control Panel), but never finds out about a click
+    // on the taskbar or another app's window — that message never reaches this process.
+    // A low-level mouse hook is the only way to see those.
+    private delegate IntPtr LowLevelMouseProc(int nCode, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    static extern IntPtr SetWindowsHookEx(int idHook, LowLevelMouseProc lpfn, IntPtr hMod, uint dwThreadId);
+    [DllImport("user32.dll")] static extern bool UnhookWindowsHookEx(IntPtr hhk);
+    [DllImport("user32.dll")] static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
+    [DllImport("kernel32.dll", CharSet = CharSet.Auto)] static extern IntPtr GetModuleHandle(string? lpModuleName);
+
+    private const int WH_MOUSE_LL    = 14;
+    private const int WM_LBUTTONDOWN = 0x0201;
+    private const int WM_RBUTTONDOWN = 0x0204;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct POINT { public int X; public int Y; }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MSLLHOOKSTRUCT
+    {
+        public POINT pt;
+        public uint mouseData;
+        public uint flags;
+        public uint time;
+        public IntPtr dwExtraInfo;
+    }
+
+    private LowLevelMouseProc? _menuMouseHookProc;
+    private IntPtr             _menuMouseHook = IntPtr.Zero;
+    private ContextMenu?       _activeMenu;
+
     private readonly OverlayViewModel _vm;
 
     public OverlayWindow()
@@ -255,10 +290,13 @@ public partial class OverlayWindow : Window
         {
             DragBorder.MouseLeftButtonDown -= OnDragStart;
             DragBorder.MouseLeftButtonDown += OnDragStart;
+            DragBorder.MouseRightButtonUp  -= OnRightClick;
+            DragBorder.MouseRightButtonUp  += OnRightClick;
         }
         else
         {
             DragBorder.MouseLeftButtonDown -= OnDragStart;
+            DragBorder.MouseRightButtonUp  -= OnRightClick;
         }
     }
 
@@ -267,6 +305,81 @@ public partial class OverlayWindow : Window
         if (!_vm.IsDragEnabled) return;
         DragMove();
         SavePosition();
+    }
+
+    /// Quick access to Settings while free-dragging — the overlay is click-through
+    /// otherwise, so this only applies in drag mode where clicks already reach it.
+    private void OnRightClick(object sender, MouseButtonEventArgs e)
+    {
+        if (!_vm.IsDragEnabled) return;
+
+        var app       = (App)System.Windows.Application.Current;
+        var itemStyle = (Style)FindResource("OverlayMenuItem");
+
+        var menu = new ContextMenu { Style = (Style)FindResource("OverlayContextMenu") };
+
+        var controlPanelItem = new MenuItem { Header = "Open Control Panel", Style = itemStyle };
+        controlPanelItem.Click += (_, _) => app.ShowControlPanel();
+        menu.Items.Add(controlPanelItem);
+
+        var hideOverlayItem = new MenuItem { Header = "Hide Overlay", Style = itemStyle };
+        hideOverlayItem.Click += (_, _) => app.HideOverlay();
+        menu.Items.Add(hideOverlayItem);
+
+        DragBorder.ContextMenu = menu;
+
+        _activeMenu = menu;
+        menu.Closed += (_, _) => { StopMenuMouseHook(); _activeMenu = null; };
+
+        // Opening via IsOpen (rather than the normal right-click-triggered flow) can
+        // leave stale mouse capture behind, which stops the popup's own outside-click
+        // dismissal from engaging for clicks inside this app. Releasing capture first
+        // lets it grab it cleanly.
+        Mouse.Capture(null);
+        menu.IsOpen = true;
+
+        // The Popup's own dismissal can't see clicks on other processes' windows (the
+        // taskbar, other apps) — this hook is what catches those.
+        StartMenuMouseHook();
+    }
+
+    private void StartMenuMouseHook()
+    {
+        if (_menuMouseHook != IntPtr.Zero) return;
+        _menuMouseHookProc = MenuMouseHookProc;
+        _menuMouseHook = SetWindowsHookEx(WH_MOUSE_LL, _menuMouseHookProc, GetModuleHandle(null), 0);
+    }
+
+    private void StopMenuMouseHook()
+    {
+        if (_menuMouseHook == IntPtr.Zero) return;
+        UnhookWindowsHookEx(_menuMouseHook);
+        _menuMouseHook     = IntPtr.Zero;
+        _menuMouseHookProc = null;
+    }
+
+    private IntPtr MenuMouseHookProc(int nCode, IntPtr wParam, IntPtr lParam)
+    {
+        if (nCode >= 0 && (wParam == WM_LBUTTONDOWN || wParam == WM_RBUTTONDOWN)
+            && _activeMenu is { IsOpen: true } menu
+            && PresentationSource.FromVisual(menu) is HwndSource source)
+        {
+            var hook = Marshal.PtrToStructure<MSLLHOOKSTRUCT>(lParam);
+
+            if (GetWindowRect(source.Handle, out var bounds))
+            {
+                bool insideMenu = hook.pt.X >= bounds.Left && hook.pt.X <= bounds.Right
+                                && hook.pt.Y >= bounds.Top  && hook.pt.Y <= bounds.Bottom;
+
+                // Deferred rather than closed inline — we're inside a global low-level
+                // hook callback, and mutating a Popup's visibility synchronously from
+                // there risks re-entering Windows' input pipeline mid-dispatch.
+                if (!insideMenu)
+                    Dispatcher.BeginInvoke(() => menu.IsOpen = false);
+            }
+        }
+
+        return CallNextHookEx(_menuMouseHook, nCode, wParam, lParam);
     }
 
     private void ApplyCompactMode()
@@ -377,6 +490,7 @@ public partial class OverlayWindow : Window
     {
         _topmostTimer?.Stop();
         _topmostTimer = null;
+        StopMenuMouseHook();
         if (_winEventHook != IntPtr.Zero)
         {
             UnhookWinEvent(_winEventHook);
