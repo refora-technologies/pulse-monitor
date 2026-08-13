@@ -130,7 +130,14 @@ public partial class App : WinApplication
         _overlayToggleItem = new System.Windows.Forms.ToolStripMenuItem("Hide Overlay", null,
             (_, _) => ToggleOverlay());
 
-        var menu = new System.Windows.Forms.ContextMenuStrip();
+        var menu = new System.Windows.Forms.ContextMenuStrip
+        {
+            Renderer        = new TrayMenuRenderer(),
+            BackColor       = System.Drawing.ColorTranslator.FromHtml("#16132A"),
+            ForeColor       = System.Drawing.ColorTranslator.FromHtml("#E5E2F4"),
+            Font            = new System.Drawing.Font("Segoe UI", 9F),
+            ShowImageMargin = false,
+        };
         menu.Items.Add("Open Control Panel", null, (_, _) => ShowControlPanel());
         menu.Items.Add(_overlayToggleItem);
         menu.Items.Add("-");
@@ -166,4 +173,52 @@ public partial class App : WinApplication
         try { _mutex?.ReleaseMutex(); _mutex?.Dispose(); } catch { }
         base.OnExit(e);
     }
+}
+
+/// Matches the tray menu to Pulse's dark violet theme — WinForms' ContextMenuStrip has
+/// no XAML-style templating, so this is the ToolStripRenderer equivalent of the WPF
+/// ContextMenu style used for the overlay's own right-click menu.
+internal sealed class TrayMenuRenderer : System.Windows.Forms.ToolStripProfessionalRenderer
+{
+    public TrayMenuRenderer() : base(new TrayMenuColors()) { }
+
+    protected override void OnRenderItemText(System.Windows.Forms.ToolStripItemTextRenderEventArgs e)
+    {
+        e.TextColor = e.Item.Selected
+            ? System.Drawing.ColorTranslator.FromHtml("#C4B5FD")  // VioletText
+            : System.Drawing.ColorTranslator.FromHtml("#E5E2F4"); // TextPrimary
+        base.OnRenderItemText(e);
+    }
+
+    protected override void OnRenderSeparator(System.Windows.Forms.ToolStripSeparatorRenderEventArgs e)
+    {
+        var bounds = e.Item.Bounds;
+        using var pen = new System.Drawing.Pen(System.Drawing.ColorTranslator.FromHtml("#221E3C"));
+        e.Graphics.DrawLine(pen, bounds.Left + 8, bounds.Height / 2, bounds.Right - 8, bounds.Height / 2);
+    }
+
+    protected override void OnRenderToolStripBorder(System.Windows.Forms.ToolStripRenderEventArgs e)
+    {
+        using var pen = new System.Drawing.Pen(System.Drawing.ColorTranslator.FromHtml("#221E3C"));
+        e.Graphics.DrawRectangle(pen, 0, 0, e.ToolStrip.Width - 1, e.ToolStrip.Height - 1);
+    }
+}
+
+internal sealed class TrayMenuColors : System.Windows.Forms.ProfessionalColorTable
+{
+    private static readonly System.Drawing.Color Bg    = System.Drawing.ColorTranslator.FromHtml("#16132A");
+    private static readonly System.Drawing.Color Hover = System.Drawing.ColorTranslator.FromHtml("#1E1A38");
+    private static readonly System.Drawing.Color Border = System.Drawing.ColorTranslator.FromHtml("#221E3C");
+
+    public override System.Drawing.Color ToolStripDropDownBackground     => Bg;
+    public override System.Drawing.Color ImageMarginGradientBegin        => Bg;
+    public override System.Drawing.Color ImageMarginGradientMiddle       => Bg;
+    public override System.Drawing.Color ImageMarginGradientEnd          => Bg;
+    public override System.Drawing.Color MenuItemSelected                => Hover;
+    public override System.Drawing.Color MenuItemSelectedGradientBegin   => Hover;
+    public override System.Drawing.Color MenuItemSelectedGradientEnd     => Hover;
+    public override System.Drawing.Color MenuItemBorder                  => Hover;
+    public override System.Drawing.Color MenuBorder                      => Border;
+    public override System.Drawing.Color SeparatorDark                   => Border;
+    public override System.Drawing.Color SeparatorLight                  => Border;
 }
