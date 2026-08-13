@@ -1,6 +1,8 @@
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Threading;
@@ -47,6 +49,35 @@ public partial class OverlayWindow : Window
     [DllImport("user32.dll")]
     static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter,
         int X, int Y, int cx, int cy, uint uFlags);
+
+    [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+    [DllImport("user32.dll", CharSet = CharSet.Auto)] static extern IntPtr FindWindow(string? lpClassName, string? lpWindowName);
+    [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+    [DllImport("user32.dll")] static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint dwFlags);
+    [DllImport("user32.dll")] static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFO lpmi);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MONITORINFO
+    {
+        public uint cbSize;
+        public RECT rcMonitor;
+        public RECT rcWork;
+        public uint dwFlags;
+    }
+
+    // Windows shell surfaces we should never cover: taskbar, Quick Settings / Action
+    // Center, tray icon overflow flyout, Start menu, search. All modern shell UI is
+    // hosted in one of these processes across Win10/11 builds.
+    private static readonly HashSet<string> ShellProcessNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "explorer",
+        "ShellExperienceHost",
+        "StartMenuExperienceHost",
+        "SearchHost",
+        "ShellHost",
+        "TextInputHost",
+    };
 
     private delegate void WinEventDelegate(IntPtr hWinEventHook, uint eventType,
         IntPtr hwnd, int idObject, int idChild, uint dwEventThread, uint dwmsEventTime);
@@ -96,9 +127,12 @@ public partial class OverlayWindow : Window
 
     /// <summary>
     /// Keep the overlay above every other window (games, launchers, other topmost
-    /// widgets). Setting Topmost once is not enough: when another app creates its own
-    /// topmost window it can push us down, so we re-assert HWND_TOPMOST whenever the
-    /// foreground window changes, plus a low-frequency timer as a safety net.
+    /// widgets) — but not above Windows' own shell UI. Setting Topmost once is not
+    /// enough: when another app creates its own topmost window it can push us down, so
+    /// we re-assert HWND_TOPMOST whenever the foreground window changes, plus a
+    /// low-frequency timer as a safety net. We skip that re-assertion while a shell
+    /// surface (taskbar, Quick Settings, tray overflow, Start menu, search) is
+    /// foreground, so those still render above us instead of getting buried.
     ///
     /// This covers windowed, borderless-windowed and Windows' fullscreen-optimized
     /// games (the vast majority). True DirectX *exclusive* fullscreen bypasses the
@@ -134,8 +168,72 @@ public partial class OverlayWindow : Window
         if (!IsVisible) return;
         var hwnd = new WindowInteropHelper(this).Handle;
         if (hwnd == IntPtr.Zero) return;
-        SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
+
+        // A transient shell flyout (Quick Settings, tray overflow, Start menu, search) is
+        // currently open and focused — don't fight it for the top slot at all.
+        if (IsShellForegroundWindow()) return;
+
+        // Otherwise reassert topmost. During ordinary desktop use we insert ourselves
+        // just behind the taskbar's own window instead of the very top of the z-order,
+        // so its icons/clock are never covered even when it isn't the focused window.
+        //
+        // A foreground window that covers the entire monitor (a fullscreen-ish game) is
+        // a different situation: Windows can demote the taskbar's own z-order in that
+        // case even without true exclusive fullscreen, and since we'd be anchored to it,
+        // we'd get dragged down too. The taskbar isn't meaningfully visible under a
+        // full-monitor window anyway, so there's nothing to protect there — claim the
+        // absolute top slot instead, which is what actually wins against a game.
+        var insertAfter = HWND_TOPMOST;
+        if (!IsForegroundWindowFullScreen())
+        {
+            var taskbar = FindWindow("Shell_TrayWnd", null);
+            if (taskbar != IntPtr.Zero) insertAfter = taskbar;
+        }
+
+        SetWindowPos(hwnd, insertAfter, 0, 0, 0, 0,
             SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    }
+
+    private static bool IsForegroundWindowFullScreen()
+    {
+        try
+        {
+            var fg = GetForegroundWindow();
+            if (fg == IntPtr.Zero) return false;
+            if (!GetWindowRect(fg, out var windowRect)) return false;
+
+            var monitor = MonitorFromWindow(fg, MONITOR_DEFAULTTONEAREST);
+            if (monitor == IntPtr.Zero) return false;
+
+            var mi = new MONITORINFO { cbSize = (uint)Marshal.SizeOf<MONITORINFO>() };
+            if (!GetMonitorInfo(monitor, ref mi)) return false;
+
+            return windowRect.Left   <= mi.rcMonitor.Left
+                && windowRect.Top    <= mi.rcMonitor.Top
+                && windowRect.Right  >= mi.rcMonitor.Right
+                && windowRect.Bottom >= mi.rcMonitor.Bottom;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool IsShellForegroundWindow()
+    {
+        try
+        {
+            var fg = GetForegroundWindow();
+            if (fg == IntPtr.Zero) return false;
+            GetWindowThreadProcessId(fg, out uint pid);
+            if (pid == 0) return false;
+            using var process = Process.GetProcessById((int)pid);
+            return ShellProcessNames.Contains(process.ProcessName);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private void SetClickThrough(bool enabled)
