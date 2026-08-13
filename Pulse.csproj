@@ -31,4 +31,10 @@
     <Resource Include="Resources\Fonts\**" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Bundled as a loose file (not a WPF-embedded Resource) since it has to be
+         launched as a real external process, not read from within the assembly. -->
+    <None Include="Resources\PresentMon\PresentMon-2.5.1-x64.exe" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

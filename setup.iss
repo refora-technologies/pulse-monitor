@@ -41,6 +41,7 @@ Source: "publish\Pulse.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "THIRD-PARTY-NOTICES.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "PawnIO_setup.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
+Source: "Resources\PresentMon\PresentMon-2.5.1-x64.exe"; DestDir: "{app}\Resources\PresentMon"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\Pulse"; Filename: "{app}\Pulse.exe"; IconFilename: "{app}\Pulse.exe"

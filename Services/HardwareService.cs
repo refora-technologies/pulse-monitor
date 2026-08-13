@@ -20,6 +20,7 @@ public class SensorData
     public float? NetUpload { get; set; }
     public float? NetDownload { get; set; }
     public float? DiskActivity { get; set; }
+    public float? Fps { get; set; }
     public float TotalRamGb { get; set; }
     public float TotalVramGb { get; set; }
 
@@ -39,6 +40,7 @@ public class SensorData
         "net_upload"   => NetUpload,
         "net_download" => NetDownload,
         "disk_activity"=> DiskActivity,
+        "fps"          => Fps,
         _ => null
     };
 }
@@ -51,6 +53,7 @@ public class HardwareService : IDisposable
     private readonly Computer _computer;
     private readonly DispatcherTimer _timer;
     private readonly UpdateVisitor _updateVisitor = new();
+    private bool _isPolling;
 
     public SensorData Current { get; private set; } = new();
     public event EventHandler<SensorData>? SensorsUpdated;
@@ -77,10 +80,10 @@ public class HardwareService : IDisposable
         {
             Interval = TimeSpan.FromSeconds(PollingIntervalSeconds)
         };
-        _timer.Tick += (_, _) => Poll();
+        _timer.Tick += async (_, _) => await PollAsync();
         _timer.Start();
 
-        Poll(); // immediate first read
+        _ = PollAsync(); // immediate first read
     }
 
     public void SetInterval(double seconds)
@@ -89,33 +92,78 @@ public class HardwareService : IDisposable
         _timer.Interval = TimeSpan.FromSeconds(seconds);
     }
 
-    private void Poll()
+    /// <summary>
+    /// Runs the sensor read on a background thread so a slow driver/device can't freeze the
+    /// UI (this timer ticks on the dispatcher thread). The re-entrancy guard skips a tick if
+    /// the previous read hasn't finished yet, instead of piling up overlapping reads.
+    /// </summary>
+    private async Task PollAsync()
+    {
+        if (_isPolling) return;
+        _isPolling = true;
+        try
+        {
+            var data = await Task.Run(ReadAll);
+
+            if (data.TotalRamGb > 0) TotalRamGb = data.TotalRamGb;
+            if (data.TotalVramGb > 0) TotalVramGb = data.TotalVramGb;
+
+            Current = data;
+            SensorsUpdated?.Invoke(this, data); // resumes on the UI thread via the captured SynchronizationContext
+        }
+        finally
+        {
+            _isPolling = false;
+        }
+    }
+
+    private SensorData ReadAll()
     {
         var data = new SensorData();
 
         try
         {
+            IHardware? primaryGpu = null;
+
             foreach (var hw in _computer.Hardware)
             {
                 hw.Accept(_updateVisitor);
                 ReadHardware(hw, data);
+                if (IsGpu(hw.HardwareType)) primaryGpu = PreferGpu(primaryGpu, hw);
+
                 foreach (var sub in hw.SubHardware)
                 {
                     sub.Accept(_updateVisitor);
                     ReadHardware(sub, data);
+                    if (IsGpu(sub.HardwareType)) primaryGpu = PreferGpu(primaryGpu, sub);
                 }
             }
+
+            // Read GPU fields from a single chosen device so temp/power/clock/usage never
+            // get mixed across an iGPU and a dGPU on the same poll.
+            if (primaryGpu != null) ReadGpu(primaryGpu, data);
         }
         catch { }
 
         data.SysPower = (data.CpuPower ?? 0) + (data.GpuPower ?? 0);
         if (data.SysPower == 0) data.SysPower = null;
 
-        if (data.TotalRamGb > 0) TotalRamGb = data.TotalRamGb;
-        if (data.TotalVramGb > 0) TotalVramGb = data.TotalVramGb;
+        data.Fps = FpsService.Instance.CurrentFps;
 
-        Current = data;
-        SensorsUpdated?.Invoke(this, data);
+        return data;
+    }
+
+    private static bool IsGpu(HardwareType type) =>
+        type is HardwareType.GpuNvidia or HardwareType.GpuAmd or HardwareType.GpuIntel;
+
+    /// Prefers a discrete GPU (Nvidia/AMD) over an integrated one (Intel) when a laptop or
+    /// desktop exposes both, so all GPU tiles consistently describe the same physical device.
+    private static IHardware PreferGpu(IHardware? current, IHardware candidate)
+    {
+        if (current == null) return candidate;
+        bool currentIsDiscrete   = current.HardwareType   != HardwareType.GpuIntel;
+        bool candidateIsDiscrete = candidate.HardwareType != HardwareType.GpuIntel;
+        return !currentIsDiscrete && candidateIsDiscrete ? candidate : current;
     }
 
     private static void ReadHardware(IHardware hw, SensorData data)
@@ -124,11 +172,6 @@ public class HardwareService : IDisposable
         {
             case HardwareType.Cpu:
                 ReadCpu(hw, data);
-                break;
-            case HardwareType.GpuNvidia:
-            case HardwareType.GpuAmd:
-            case HardwareType.GpuIntel:
-                ReadGpu(hw, data);
                 break;
             case HardwareType.Memory:
                 ReadMemory(hw, data);
