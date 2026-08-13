@@ -33,7 +33,7 @@ public class SettingsService
         {
             var exePath = Environment.ProcessPath;
             if (!string.IsNullOrEmpty(exePath))
-                RunSchTasks($"/Create /TN \"{TaskName}\" /TR \"\\\"{exePath}\\\"\" /SC ONLOGON /RL HIGHEST /F");
+                RunSchTasks($"/Create /TN \"{TaskName}\" /TR \"\\\"{exePath}\\\" --startup\" /SC ONLOGON /RL HIGHEST /F");
         }
         else
         {
@@ -41,6 +41,44 @@ public class SettingsService
         }
 
         Save();
+    }
+
+    /// <summary>
+    /// Corrects Settings.StartWithWindows if it disagrees with the actual scheduled task —
+    /// e.g. the installer's "Start Pulse when Windows starts" checkbox creates the task
+    /// directly without touching settings.json. Only updates our own record; never touches
+    /// the task itself, so it can't change real startup behavior.
+    /// </summary>
+    public void SyncStartWithWindowsFromSystem()
+    {
+        bool exists = TaskExists();
+        if (Settings.StartWithWindows != exists)
+        {
+            Settings.StartWithWindows = exists;
+            Save();
+        }
+    }
+
+    private static bool TaskExists()
+    {
+        try
+        {
+            var process = Process.Start(new ProcessStartInfo
+            {
+                FileName        = "schtasks.exe",
+                Arguments       = $"/Query /TN \"{TaskName}\"",
+                CreateNoWindow  = true,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError  = true,
+            });
+            process?.WaitForExit(5000);
+            return process?.ExitCode == 0;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static void RemoveLegacyRunEntry()
