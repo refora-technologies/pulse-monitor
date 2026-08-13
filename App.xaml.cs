@@ -31,8 +31,14 @@ public partial class App : WinApplication
 
         base.OnStartup(e);
 
+        // Reconcile settings.json with the real scheduled-task state before anything
+        // reads Settings.StartWithWindows (the installer can create the task without
+        // ever touching settings.json).
+        SettingsService.Instance.SyncStartWithWindowsFromSystem();
+
         // Initialise singletons (starts hardware polling)
         _ = HardwareService.Instance;
+        _ = FpsService.Instance;
         _ = OverlayViewModel.Instance;
         _ = SettingsViewModel.Instance;
 
@@ -163,6 +169,7 @@ public partial class App : WinApplication
     {
         _trayIcon?.Dispose();
         HardwareService.Instance.Dispose();
+        FpsService.Instance.Dispose();
         Dispatcher.Invoke(() => Shutdown());
     }
 
@@ -170,6 +177,7 @@ public partial class App : WinApplication
     {
         _trayIcon?.Dispose();
         try { HardwareService.Instance.Dispose(); } catch { }
+        try { FpsService.Instance.Dispose(); } catch { }
         try { _mutex?.ReleaseMutex(); _mutex?.Dispose(); } catch { }
         base.OnExit(e);
     }
