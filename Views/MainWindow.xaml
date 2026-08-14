@@ -1049,6 +1049,9 @@
                                             <Style TargetType="TextBlock">
                                                 <Setter Property="Text" Value="Check for updates"/>
                                                 <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsUpdateAvailable}" Value="True">
+                                                        <Setter Property="Text" Value="{Binding BannerVersion, StringFormat='Download {0}'}"/>
+                                                    </DataTrigger>
                                                     <DataTrigger Binding="{Binding IsCheckingUpdate}" Value="True">
                                                         <Setter Property="Text" Value="Checking…"/>
                                                     </DataTrigger>
