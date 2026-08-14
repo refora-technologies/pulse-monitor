@@ -132,6 +132,13 @@ public class OverlayViewModel : BaseViewModel
     private double _overlayOpacity = 0.85;
     public double OverlayOpacity { get => _overlayOpacity; set => Set(ref _overlayOpacity, value); }
 
+    private double _overlayScale = 1.0;
+    public double OverlayScale
+    {
+        get => _overlayScale;
+        set => Set(ref _overlayScale, Math.Clamp(value, 0.75, 1.5));
+    }
+
     private bool _isCompactMode;
     public bool IsCompactMode
     {
@@ -159,6 +166,7 @@ public class OverlayViewModel : BaseViewModel
         _isCompactMode  = s.IsCompactMode;
         _isDragEnabled  = s.IsDragEnabled;
         _showStatusBar  = s.ShowStatusBar;
+        _overlayScale   = s.OverlayScale;
         LoadActiveTiles();
         HardwareService.Instance.SensorsUpdated += OnSensorsUpdated;
         SettingsService.Instance.SettingsChanged += (_, _) =>

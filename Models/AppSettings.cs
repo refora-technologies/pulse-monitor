@@ -20,6 +20,7 @@ public class AppSettings
     public bool IsDragEnabled { get; set; } = false;
     public int SelectedMonitorIndex { get; set; } = 0;
     public bool ShowMaxValues { get; set; } = false;
+    public double OverlayScale { get; set; } = 1.0;
 
     private static readonly string SettingsPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
