@@ -218,7 +218,12 @@ public partial class MainWindow : Window
 
     private async void BtnCheckUpdates_Click(object sender, RoutedEventArgs e)
     {
-        if (_vm != null) await _vm.CheckForUpdatesAsync(true);
+        if (_vm == null || _vm.IsCheckingUpdate || _vm.IsDownloading) return;
+
+        // Once a check has already found an update, this button switches to actually
+        // starting that download instead of redundantly re-checking GitHub again.
+        if (_vm.IsUpdateAvailable) await _vm.InstallUpdateAsync();
+        else await _vm.CheckForUpdatesAsync(true);
     }
 
     private async void BtnUpdateNow_Click(object sender, RoutedEventArgs e)
