@@ -75,6 +75,15 @@
 
     <Border x:Name="DragBorder" Padding="6" TextElement.FontFamily="{StaticResource Jakarta}">
         <Grid>
+        <!-- Scaled content lives in its own Grid so the resize grip below (a sibling,
+             outside this transform) stays a constant, easily-grabbable size regardless
+             of the current scale. LayoutTransform (not RenderTransform) is required so
+             the window's SizeToContent measures the post-scale size correctly. -->
+        <Grid>
+            <Grid.LayoutTransform>
+                <ScaleTransform ScaleX="{Binding OverlayScale}" ScaleY="{Binding OverlayScale}"/>
+            </Grid.LayoutTransform>
+
             <!-- ═══ NORMAL MODE ═══ -->
             <Border x:Name="NormalPanel" CornerRadius="18"
                     MinWidth="288" MaxWidth="334"
@@ -266,6 +275,26 @@
                     </ItemsControl>
                 </StackPanel>
             </Border>
+        </Grid>
+
+        <!-- ═══ RESIZE GRIP ═══ Only reachable in Free Drag mode, same as the move
+             affordance above — the locked/default experience never shows this. -->
+        <Thumb x:Name="ResizeGrip" Width="18" Height="18"
+               HorizontalAlignment="Right" VerticalAlignment="Bottom"
+               Cursor="SizeNWSE"
+               Visibility="{Binding IsDragEnabled, Converter={StaticResource BoolToVis}}"
+               DragDelta="OnResizeDragDelta"
+               DragCompleted="OnResizeDragCompleted">
+            <Thumb.Template>
+                <ControlTemplate TargetType="Thumb">
+                    <Grid Background="Transparent" Margin="0,0,2,2">
+                        <Path Data="M 14,2 L 14,14 L 2,14" Stroke="#8B5CF6" StrokeThickness="1.75"
+                              StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                              Opacity="0.85"/>
+                    </Grid>
+                </ControlTemplate>
+            </Thumb.Template>
+        </Thumb>
         </Grid>
     </Border>
 </Window>

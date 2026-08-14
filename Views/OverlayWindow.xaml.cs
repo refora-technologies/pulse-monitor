@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Threading;
@@ -305,6 +306,23 @@ public partial class OverlayWindow : Window
         if (!_vm.IsDragEnabled) return;
         DragMove();
         SavePosition();
+    }
+
+    /// Uniform scale (Option B): the whole panel grows/shrinks together via a
+    /// LayoutTransform, so the window's SizeToContent measures the scaled size
+    /// correctly and grows toward bottom-right — the grip's own corner.
+    private void OnResizeDragDelta(object sender, DragDeltaEventArgs e)
+    {
+        if (!_vm.IsDragEnabled) return;
+        double delta = (e.HorizontalChange + e.VerticalChange) / 2.0;
+        _vm.OverlayScale += delta / 300.0;
+    }
+
+    private void OnResizeDragCompleted(object sender, DragCompletedEventArgs e)
+    {
+        var settings = SettingsService.Instance.Settings;
+        settings.OverlayScale = _vm.OverlayScale;
+        SettingsService.Instance.Save();
     }
 
     /// Quick access to Settings while free-dragging — the overlay is click-through
