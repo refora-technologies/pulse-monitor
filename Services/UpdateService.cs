@@ -15,7 +15,7 @@ public class UpdateInfo
     public string? InstallerUrl { get; init; }
     public string? InstallerName { get; init; }
     public long InstallerSize { get; init; }
-    public string? ExpectedSha256 { get; init; }
+    public string? ChecksumUrl { get; init; }
     public string Notes { get; init; } = "";
 
     public string DisplayVersion => $"v{Version.Major}.{Version.Minor}.{Version.Build}";
@@ -111,27 +111,22 @@ public class UpdateService
                 }
             }
 
-            string? expectedSha256 = null;
-            if (checksumUrl != null)
-            {
-                try
-                {
-                    var checksumContent = await ApiHttp.GetStringAsync(checksumUrl);
-                    expectedSha256 = ParseSha256(checksumContent);
-                }
-                catch { /* checksum unavailable — DownloadAndRunAsync fails closed without it */ }
-            }
-
+            // The checksum itself isn't fetched here — only its URL. Every check (including
+            // the automatic one on every launch) used to download the .sha256 file
+            // unconditionally, even when already on the latest version, which meant its
+            // GitHub download count reflected "how many times someone checked" rather than
+            // "how many times someone actually updated". It's now fetched in
+            // DownloadAndRunAsync, which only runs when the user actually installs.
             return (true, new UpdateInfo
             {
-                Version        = version,
-                TagName        = tag,
-                ReleaseUrl     = root.Value<string>("html_url") ?? ReleasesPage,
-                InstallerUrl   = installerUrl,
-                InstallerName  = installerName,
-                InstallerSize  = installerSize,
-                ExpectedSha256 = expectedSha256,
-                Notes          = root.Value<string>("body") ?? "",
+                Version       = version,
+                TagName       = tag,
+                ReleaseUrl    = root.Value<string>("html_url") ?? ReleasesPage,
+                InstallerUrl  = installerUrl,
+                InstallerName = installerName,
+                InstallerSize = installerSize,
+                ChecksumUrl   = checksumUrl,
+                Notes         = root.Value<string>("body") ?? "",
             });
         }
         catch
@@ -169,6 +164,23 @@ public class UpdateService
         if (string.IsNullOrEmpty(info.InstallerUrl))
             return UpdateDownloadStatus.DownloadFailed;
 
+        // Fetched here rather than at check time — no point spending bandwidth on the
+        // installer if we won't be able to verify it anyway, and this way the checksum
+        // asset is only ever requested when an install is actually happening.
+        string? expectedSha256 = null;
+        if (!string.IsNullOrEmpty(info.ChecksumUrl))
+        {
+            try
+            {
+                var checksumContent = await ApiHttp.GetStringAsync(info.ChecksumUrl);
+                expectedSha256 = ParseSha256(checksumContent);
+            }
+            catch { /* left null — fails closed below */ }
+        }
+
+        if (string.IsNullOrEmpty(expectedSha256))
+            return UpdateDownloadStatus.VerificationUnavailable;
+
         var fileName = string.IsNullOrEmpty(info.InstallerName)
             ? $"PulseSetup-{info.TagName}.exe"
             : info.InstallerName;
@@ -201,19 +213,13 @@ public class UpdateService
             return UpdateDownloadStatus.DownloadFailed;
         }
 
-        if (string.IsNullOrEmpty(info.ExpectedSha256))
-        {
-            TryDelete(target);
-            return UpdateDownloadStatus.VerificationUnavailable;
-        }
-
         try
         {
             await using var verifyStream = File.OpenRead(target);
             var hashBytes    = await SHA256.HashDataAsync(verifyStream);
             var actualSha256 = Convert.ToHexString(hashBytes).ToLowerInvariant();
 
-            if (!string.Equals(actualSha256, info.ExpectedSha256, StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(actualSha256, expectedSha256, StringComparison.OrdinalIgnoreCase))
             {
                 TryDelete(target);
                 return UpdateDownloadStatus.VerificationFailed;
