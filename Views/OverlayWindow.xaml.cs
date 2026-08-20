@@ -138,8 +138,29 @@ public partial class OverlayWindow : Window
         DataContext = _vm;
 
         Loaded += OnLoaded;
+        IsVisibleChanged += OnIsVisibleChanged;
         SettingsService.Instance.SettingsChanged += OnSettingsChanged;
         _vm.PropertyChanged += OnViewModelPropertyChanged;
+    }
+
+    /// <summary>
+    /// Stops the overlay auto-sizing while it is hidden.
+    ///
+    /// This window is layered (AllowsTransparency="True"), so WPF composes it into an
+    /// off-screen bitmap pushed through a device context. A hidden window still runs
+    /// layout, so every sensor update still changed the text width and drove a
+    /// SizeToContent resize — and while hidden that DC + bitmap pair is never reclaimed,
+    /// leaking roughly one GDI object per poll. Left running for a few hours that
+    /// exhausts the process GDI quota, after which Windows cannot create any more GDI
+    /// objects for Pulse: the tray menu stops opening and the app appears frozen while
+    /// still sitting at 0% CPU.
+    ///
+    /// Freezing the size while hidden removes the resize entirely. Sizing is restored on
+    /// show, so tiles stay live and correct the moment the overlay comes back.
+    /// </summary>
+    private void OnIsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
+    {
+        SizeToContent = IsVisible ? SizeToContent.WidthAndHeight : SizeToContent.Manual;
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
