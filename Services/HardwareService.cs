@@ -74,6 +74,9 @@ public class HardwareService : IDisposable
     /// Every GPU detected on this machine, for the settings picker.
     public IReadOnlyList<GpuInfo> AvailableGpus { get; private set; } = Array.Empty<GpuInfo>();
 
+    /// Accumulates adapters seen this session, keyed by identifier. See PublishGpuList.
+    private readonly Dictionary<string, GpuInfo> _seenGpus = new();
+
     /// Name of the GPU the GPU tiles are currently reading from.
     public string ActiveGpuName { get; private set; } = "";
 
@@ -181,28 +184,35 @@ public class HardwareService : IDisposable
     private static bool IsGpu(HardwareType type) =>
         type is HardwareType.GpuNvidia or HardwareType.GpuAmd or HardwareType.GpuIntel;
 
+    /// <summary>
+    /// Publishes the GPU picker list. Adapters are accumulated for the lifetime of the
+    /// process rather than replaced each poll: LibreHardwareMonitor stops enumerating an
+    /// integrated GPU entirely while a game has the discrete one active, so rebuilding
+    /// from each poll would make the picker empty itself mid-session and reappear later.
+    /// </summary>
     private void PublishGpuList(List<IHardware> gpus)
     {
-        var list = new List<GpuInfo>(gpus.Count);
+        bool changed = false;
+
         foreach (var g in gpus)
         {
-            list.Add(new GpuInfo
+            var id = g.Identifier.ToString();
+            if (_seenGpus.ContainsKey(id)) continue;
+
+            _seenGpus[id] = new GpuInfo
             {
-                Id         = g.Identifier.ToString(),
+                Id         = id,
                 Name       = g.Name,
                 IsDiscrete = GetDedicatedVramMb(g) > 0,
-            });
+            };
+            changed = true;
         }
 
-        // Only republish when the set actually changes, so the settings UI isn't
-        // rebuilt on every poll.
-        if (list.Count == AvailableGpus.Count)
-        {
-            bool same = true;
-            for (int i = 0; i < list.Count; i++)
-                if (list[i].Id != AvailableGpus[i].Id) { same = false; break; }
-            if (same) return;
-        }
+        if (!changed) return;
+
+        // Discrete first, so the picker reads in the order people expect.
+        var list = new List<GpuInfo>(_seenGpus.Values);
+        list.Sort((a, b) => b.IsDiscrete.CompareTo(a.IsDiscrete));
 
         AvailableGpus = list;
         GpuListChanged?.Invoke(this, EventArgs.Empty);
@@ -369,11 +379,20 @@ public class HardwareService : IDisposable
 
     private static void ReadGpu(IHardware hw, SensorData data)
     {
+        // Intel integrated GPUs have no "GPU Core" load sensor — they report per-engine
+        // D3D loads instead ("D3D 3D", "D3D Video Decode", ...). Fall back to the 3D
+        // engine so GPU Usage isn't permanently blank when an iGPU is selected.
+        float? d3dEngineLoad = null;
+
         foreach (var s in hw.Sensors)
         {
             if (s.Value is null) continue;
             switch (s.SensorType)
             {
+                case SensorType.Load when s.Name.Equals("D3D 3D", StringComparison.OrdinalIgnoreCase)
+                                       && d3dEngineLoad is null:
+                    d3dEngineLoad = s.Value;
+                    break;
                 case SensorType.Temperature when data.GpuTemp is null:
                     data.GpuTemp = s.Value;
                     break;
@@ -394,6 +413,8 @@ public class HardwareService : IDisposable
                     break;
             }
         }
+
+        data.GpuUsage ??= d3dEngineLoad;
     }
 
     private static void ReadMemory(IHardware hw, SensorData data)
