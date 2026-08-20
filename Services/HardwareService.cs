@@ -45,6 +45,15 @@ public class SensorData
     };
 }
 
+/// A GPU Pulse can read from, as offered in the settings GPU picker.
+public class GpuInfo
+{
+    public string Id { get; init; } = "";
+    public string Name { get; init; } = "";
+    /// True when the adapter has its own dedicated video memory.
+    public bool IsDiscrete { get; init; }
+}
+
 public class HardwareService : IDisposable
 {
     private static HardwareService? _instance;
@@ -61,6 +70,15 @@ public class HardwareService : IDisposable
 
     public float TotalRamGb { get; private set; } = 16f;
     public float TotalVramGb { get; private set; } = 6f;
+
+    /// Every GPU detected on this machine, for the settings picker.
+    public IReadOnlyList<GpuInfo> AvailableGpus { get; private set; } = Array.Empty<GpuInfo>();
+
+    /// Name of the GPU the GPU tiles are currently reading from.
+    public string ActiveGpuName { get; private set; } = "";
+
+    /// Raised when the set of detected GPUs changes (first poll, or an eGPU appearing).
+    public event EventHandler? GpuListChanged;
 
     private HardwareService()
     {
@@ -123,25 +141,32 @@ public class HardwareService : IDisposable
 
         try
         {
-            IHardware? primaryGpu = null;
+            var gpus = new List<IHardware>();
 
             foreach (var hw in _computer.Hardware)
             {
                 hw.Accept(_updateVisitor);
                 ReadHardware(hw, data);
-                if (IsGpu(hw.HardwareType)) primaryGpu = PreferGpu(primaryGpu, hw);
+                if (IsGpu(hw.HardwareType)) gpus.Add(hw);
 
                 foreach (var sub in hw.SubHardware)
                 {
                     sub.Accept(_updateVisitor);
                     ReadHardware(sub, data);
-                    if (IsGpu(sub.HardwareType)) primaryGpu = PreferGpu(primaryGpu, sub);
+                    if (IsGpu(sub.HardwareType)) gpus.Add(sub);
                 }
             }
 
+            PublishGpuList(gpus);
+
             // Read GPU fields from a single chosen device so temp/power/clock/usage never
             // get mixed across an iGPU and a dGPU on the same poll.
-            if (primaryGpu != null) ReadGpu(primaryGpu, data);
+            var chosen = SelectGpu(gpus);
+            if (chosen != null)
+            {
+                ActiveGpuName = chosen.Name;
+                ReadGpu(chosen, data);
+            }
         }
         catch { }
 
@@ -156,14 +181,110 @@ public class HardwareService : IDisposable
     private static bool IsGpu(HardwareType type) =>
         type is HardwareType.GpuNvidia or HardwareType.GpuAmd or HardwareType.GpuIntel;
 
-    /// Prefers a discrete GPU (Nvidia/AMD) over an integrated one (Intel) when a laptop or
-    /// desktop exposes both, so all GPU tiles consistently describe the same physical device.
-    private static IHardware PreferGpu(IHardware? current, IHardware candidate)
+    private void PublishGpuList(List<IHardware> gpus)
     {
-        if (current == null) return candidate;
-        bool currentIsDiscrete   = current.HardwareType   != HardwareType.GpuIntel;
-        bool candidateIsDiscrete = candidate.HardwareType != HardwareType.GpuIntel;
-        return !currentIsDiscrete && candidateIsDiscrete ? candidate : current;
+        var list = new List<GpuInfo>(gpus.Count);
+        foreach (var g in gpus)
+        {
+            list.Add(new GpuInfo
+            {
+                Id         = g.Identifier.ToString(),
+                Name       = g.Name,
+                IsDiscrete = GetDedicatedVramMb(g) > 0,
+            });
+        }
+
+        // Only republish when the set actually changes, so the settings UI isn't
+        // rebuilt on every poll.
+        if (list.Count == AvailableGpus.Count)
+        {
+            bool same = true;
+            for (int i = 0; i < list.Count; i++)
+                if (list[i].Id != AvailableGpus[i].Id) { same = false; break; }
+            if (same) return;
+        }
+
+        AvailableGpus = list;
+        GpuListChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// Chooses which GPU every GPU tile reads from. An explicit user choice always wins.
+    /// Otherwise we prefer the adapter with real dedicated video memory, because that is
+    /// what actually distinguishes a discrete GPU from integrated graphics. Vendor alone
+    /// is not a reliable signal: an AMD APU's Radeon iGPU reports as HardwareType.GpuAmd
+    /// exactly like a discrete Radeon does, which previously caused Pulse to lock onto
+    /// the integrated GPU on Ryzen laptops that also have an NVIDIA card.
+    /// </summary>
+    private static IHardware? SelectGpu(List<IHardware> gpus)
+    {
+        if (gpus.Count == 0) return null;
+
+        var pinned = SettingsService.Instance.Settings.SelectedGpuId;
+        if (!string.IsNullOrEmpty(pinned))
+        {
+            foreach (var g in gpus)
+                if (g.Identifier.ToString() == pinned) return g;
+            // Pinned GPU is gone (eGPU unplugged, driver change) — fall through to auto.
+        }
+
+        IHardware? best = null;
+        float bestVram = -1f;
+        int   bestVendor = -1;
+
+        foreach (var g in gpus)
+        {
+            float vram   = GetDedicatedVramMb(g);
+            int   vendor = VendorRank(g);
+
+            if (vram > bestVram || (vram == bestVram && vendor > bestVendor))
+            {
+                best       = g;
+                bestVram   = vram;
+                bestVendor = vendor;
+            }
+        }
+
+        return best;
+    }
+
+    /// Dedicated video memory in MB, or 0 for an adapter that only carves out of system
+    /// RAM. Integrated graphics report shared memory only ("D3D Shared Memory *"), while
+    /// a discrete card reports "GPU Memory Total" and/or "D3D Dedicated Memory Used".
+    private static float GetDedicatedVramMb(IHardware gpu)
+    {
+        float total = 0f, dedicated = 0f;
+
+        foreach (var s in gpu.Sensors)
+        {
+            if (s.SensorType != SensorType.SmallData || s.Value is null) continue;
+
+            // Exact match so "D3D Shared Memory Total" can never be mistaken for this.
+            if (s.Name.Equals("GPU Memory Total", StringComparison.OrdinalIgnoreCase))
+                total = s.Value.Value;
+            else if (s.Name.Contains("Dedicated Memory", StringComparison.OrdinalIgnoreCase))
+                dedicated = MathF.Max(dedicated, s.Value.Value);
+        }
+
+        return total > 0f ? total : dedicated;
+    }
+
+    /// Tiebreaker only, used when two adapters report the same dedicated memory (usually
+    /// when neither reports any). There are no integrated NVIDIA parts in this context.
+    private static int VendorRank(IHardware gpu)
+    {
+        // LibreHardwareMonitor tags integrated adapters in the identifier itself,
+        // e.g. "/gpu-intel-integrated/...". Trust that when it is present.
+        if (gpu.Identifier.ToString().Contains("integrated", StringComparison.OrdinalIgnoreCase))
+            return 0;
+
+        return gpu.HardwareType switch
+        {
+            HardwareType.GpuNvidia => 3,
+            HardwareType.GpuAmd    => 2,
+            HardwareType.GpuIntel  => 1,
+            _                      => 0,
+        };
     }
 
     private static void ReadHardware(IHardware hw, SensorData data)

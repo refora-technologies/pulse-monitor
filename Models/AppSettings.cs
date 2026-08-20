@@ -22,6 +22,9 @@ public class AppSettings
     public bool ShowMaxValues { get; set; } = false;
     public double OverlayScale { get; set; } = 1.0;
 
+    /// LibreHardwareMonitor identifier of the GPU to monitor. Empty means auto-detect.
+    public string SelectedGpuId { get; set; } = "";
+
     private static readonly string SettingsPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "Refora", "Pulse", "settings.json");
