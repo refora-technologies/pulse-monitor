@@ -932,7 +932,8 @@
                                 <ComboBox x:Name="GpuCombo"
                                           Style="{StaticResource DarkCombo}"
                                           ItemsSource="{Binding GpuChoices}"
-                                          SelectedItem="{Binding SelectedGpuChoice, Mode=TwoWay}"/>
+                                          SelectedItem="{Binding SelectedGpuChoice, Mode=TwoWay}"
+                                          PreviewMouseWheel="GpuCombo_PreviewMouseWheel"/>
                             </StackPanel>
                         </Border>
                         <TextBlock Text="Auto picks the GPU with dedicated video memory, which is the discrete one on a laptop."
