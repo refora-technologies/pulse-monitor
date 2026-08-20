@@ -293,6 +293,28 @@ public partial class MainWindow : Window
     private void BtnDismissBanner_Click(object sender, RoutedEventArgs e)
         => _vm?.DismissBanner();
 
+    /// Opens an About-section link in the user's default browser. The URL lives in the
+    /// button's Tag so the markup stays the single source of truth for these.
+    private void BtnExternalLink_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not WpfButton btn) return;
+        var url = btn.Tag?.ToString();
+        if (string.IsNullOrWhiteSpace(url)) return;
+
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName        = url,
+                UseShellExecute = true,
+            });
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Failed to open {url}: {ex.Message}");
+        }
+    }
+
     protected override void OnClosed(EventArgs e)
     {
         // HardwareService is a singleton and this window is recreated every time the
