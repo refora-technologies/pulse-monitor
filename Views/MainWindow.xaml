@@ -485,6 +485,39 @@
             <Setter Property="BorderBrush" Value="#6D28D9"/>
         </Style>
 
+        <!-- ═══ EXTERNAL LINK BUTTON ═══ secondary, sits below the accent update button -->
+        <Style x:Key="LinkBtn" TargetType="Button">
+            <Setter Property="Background" Value="#0E0C1C"/>
+            <Setter Property="Foreground" Value="#8E8AB0"/>
+            <Setter Property="BorderBrush" Value="#1C1A30"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="10,6"/>
+            <Setter Property="FontSize" Value="10.5"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="FontFamily" Value="{StaticResource Jakarta}"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd" CornerRadius="7"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#151230"/>
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="#3A2870"/>
+                                <Setter Property="Foreground" Value="#C4B5FD"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <!-- ═══ GPU PICKER ROW ═══ full width, left aligned (device names are long) -->
         <Style x:Key="GpuBtn" TargetType="Button" BasedOn="{StaticResource MonitorBtn}">
             <Setter Property="HorizontalAlignment" Value="Stretch"/>
@@ -1055,11 +1088,11 @@
                         </StackPanel>
                     </Border>
 
-                    <!-- ══ UPDATES ══ -->
+                    <!-- ══ ABOUT ══ -->
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                        <TextBlock Text="&#xE777;" FontFamily="Segoe MDL2 Assets" FontSize="11"
+                        <TextBlock Text="&#xE946;" FontFamily="Segoe MDL2 Assets" FontSize="11"
                                    Foreground="#5C597E" VerticalAlignment="Center" Margin="0,0,7,0"/>
-                        <TextBlock Text="UPDATES" FontSize="10" FontWeight="Bold"
+                        <TextBlock Text="ABOUT" FontSize="10" FontWeight="Bold"
                                    Foreground="#5C597E" VerticalAlignment="Center"/>
                     </StackPanel>
                     <Border Background="#111020" CornerRadius="13" Padding="18,16"
@@ -1116,6 +1149,47 @@
                             </Grid>
                             <TextBlock Text="Pulse checks automatically on startup"
                                        FontSize="10.5" FontWeight="Medium" Foreground="#524E6C"/>
+
+                            <TextBlock FontSize="10.5" FontWeight="Medium" Foreground="#3E3C58"
+                                       Margin="0,7,0,0">
+                                <Run Text="Windows"/>
+                                <Run Text="  ·  " Foreground="#2A2842"/>
+                                <Run Text="GPLv3"/>
+                                <Run Text="  ·  " Foreground="#2A2842"/>
+                                <Run Text="Refora Technologies"/>
+                            </TextBlock>
+
+                            <Border Height="1" Background="#1A1830" Margin="0,13,0,13"/>
+
+                            <StackPanel Orientation="Horizontal">
+                                <Button Style="{StaticResource LinkBtn}" Margin="0,0,7,0"
+                                        Tag="https://pulse.reforatech.com"
+                                        Click="BtnExternalLink_Click">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="&#xE774;" FontFamily="Segoe MDL2 Assets"
+                                                   FontSize="10" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                        <TextBlock Text="Website" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+                                <Button Style="{StaticResource LinkBtn}" Margin="0,0,7,0"
+                                        Tag="https://github.com/refora-technologies/pulse-monitor"
+                                        Click="BtnExternalLink_Click">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="&#xE943;" FontFamily="Segoe MDL2 Assets"
+                                                   FontSize="10" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                        <TextBlock Text="GitHub" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+                                <Button Style="{StaticResource LinkBtn}"
+                                        Tag="https://github.com/refora-technologies/pulse-monitor/issues/new"
+                                        Click="BtnExternalLink_Click">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="&#xE7BA;" FontFamily="Segoe MDL2 Assets"
+                                                   FontSize="10" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                        <TextBlock Text="Report an Issue" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+                            </StackPanel>
                         </StackPanel>
                     </Border>
 
