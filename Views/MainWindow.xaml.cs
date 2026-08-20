@@ -8,6 +8,7 @@ using Pulse.ViewModels;
 using WpfApplication = System.Windows.Application;
 using WpfButton = System.Windows.Controls.Button;
 using WpfStyle = System.Windows.Style;
+using WpfComboBox = System.Windows.Controls.ComboBox;
 
 namespace Pulse.Views;
 
@@ -207,6 +208,31 @@ public partial class MainWindow : Window
 
     private void OnGpuListChanged(object? sender, EventArgs e)
         => Dispatcher.Invoke(PopulateGpuButtons);
+
+    /// <summary>
+    /// Stops the mouse wheel changing the GPU selection.
+    ///
+    /// A WPF ComboBox changes its selected item on scroll even while closed, so simply
+    /// scrolling the settings panel with the cursor over this control would silently
+    /// repoint every GPU tile at a different adapter. The wheel is forwarded to the
+    /// parent instead, so the panel still scrolls normally; the selection can only be
+    /// changed by opening the dropdown and picking an entry.
+    /// </summary>
+    private void GpuCombo_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        if (sender is not WpfComboBox combo || combo.IsDropDownOpen) return;
+
+        e.Handled = true;
+
+        if (combo.Parent is UIElement parent)
+        {
+            parent.RaiseEvent(new MouseWheelEventArgs(e.MouseDevice, e.Timestamp, e.Delta)
+            {
+                RoutedEvent = UIElement.MouseWheelEvent,
+                Source      = combo,
+            });
+        }
+    }
 
     private void PopulateGpuButtons()
     {
