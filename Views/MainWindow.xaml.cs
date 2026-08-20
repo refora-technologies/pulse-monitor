@@ -210,53 +210,16 @@ public partial class MainWindow : Window
 
     private void PopulateGpuButtons()
     {
-        if (_vm == null || GpuPanel == null || GpuSourceSection == null) return;
+        if (_vm == null || GpuSourceSection == null) return;
 
-        var gpus = Pulse.Services.HardwareService.Instance.AvailableGpus;
+        _vm.RefreshGpuChoices();
 
-        // Nothing to choose between on a single-GPU machine, so don't add noise.
-        if (gpus.Count < 2)
-        {
-            GpuSourceSection.Visibility = System.Windows.Visibility.Collapsed;
-            return;
-        }
-
-        GpuSourceSection.Visibility = System.Windows.Visibility.Visible;
-        GpuPanel.Children.Clear();
-
-        AddGpuButton("Auto", "", gpus.Count > 0);
-        foreach (var gpu in gpus)
-            AddGpuButton(gpu.Name + (gpu.IsDiscrete ? "" : "  (integrated)"), gpu.Id, true);
-    }
-
-    private void AddGpuButton(string label, string id, bool _)
-    {
-        var activeStyle = (WpfStyle)FindResource("GpuBtnActive");
-        var normalStyle = (WpfStyle)FindResource("GpuBtn");
-
-        var btn = new WpfButton
-        {
-            Content = label,
-            Tag     = id,
-            Style   = id == _vm!.SelectedGpuId ? activeStyle : normalStyle,
-            Margin  = new System.Windows.Thickness(0, 0, 0, 6),
-        };
-        btn.Click += Gpu_Click;
-        GpuPanel.Children.Add(btn);
-    }
-
-    private void Gpu_Click(object sender, RoutedEventArgs e)
-    {
-        if (sender is not WpfButton btn || _vm == null) return;
-        _vm.SelectedGpuId = btn.Tag?.ToString() ?? "";
-
-        var activeStyle = (WpfStyle)FindResource("GpuBtnActive");
-        var normalStyle = (WpfStyle)FindResource("GpuBtn");
-        foreach (var child in GpuPanel.Children)
-        {
-            if (child is WpfButton b)
-                b.Style = (b.Tag?.ToString() ?? "") == _vm.SelectedGpuId ? activeStyle : normalStyle;
-        }
+        // Nothing to choose between on a single-GPU machine, so don't add noise. Once a
+        // second adapter has been seen the section stays put, because LibreHardwareMonitor
+        // stops reporting an iGPU while a game holds the discrete card.
+        GpuSourceSection.Visibility = _vm.HasMultipleGpus
+            ? System.Windows.Visibility.Visible
+            : System.Windows.Visibility.Collapsed;
     }
 
     private void Monitor_Click(object sender, RoutedEventArgs e)
@@ -281,13 +244,27 @@ public partial class MainWindow : Window
 
         // Once a check has already found an update, this button switches to actually
         // starting that download instead of redundantly re-checking GitHub again.
-        if (_vm.IsUpdateAvailable) await _vm.InstallUpdateAsync();
+        if (_vm.IsUpdateAvailable) await ConfirmThenInstallAsync();
         else await _vm.CheckForUpdatesAsync(true);
     }
 
     private async void BtnUpdateNow_Click(object sender, RoutedEventArgs e)
+        => await ConfirmThenInstallAsync();
+
+    /// Shows the release notes first so the user knows what they are getting, and only
+    /// downloads if they confirm.
+    private async Task ConfirmThenInstallAsync()
     {
-        if (_vm != null) await _vm.InstallUpdateAsync();
+        if (_vm?.PendingUpdate == null)
+        {
+            if (_vm != null) await _vm.InstallUpdateAsync();
+            return;
+        }
+
+        var dialog = new WhatsNewWindow(_vm.PendingUpdate) { Owner = this };
+        dialog.ShowDialog();
+
+        if (dialog.Accepted) await _vm.InstallUpdateAsync();
     }
 
     private void BtnDismissBanner_Click(object sender, RoutedEventArgs e)

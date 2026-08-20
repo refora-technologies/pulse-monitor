@@ -188,6 +188,57 @@ public class SettingsViewModel : BaseViewModel
 
     public IReadOnlyList<GpuInfo> AvailableGpus => HardwareService.Instance.AvailableGpus;
 
+    /// Entries shown in the GPU dropdown, including the leading "Automatic" option.
+    public ObservableCollection<GpuChoice> GpuChoices { get; } = new();
+
+    public GpuChoice? SelectedGpuChoice
+    {
+        get
+        {
+            foreach (var c in GpuChoices)
+                if (c.Id == SelectedGpuId) return c;
+            return GpuChoices.Count > 0 ? GpuChoices[0] : null;
+        }
+        set
+        {
+            if (value == null) return;
+            SelectedGpuId = value.Id;
+            OnPropertyChanged();
+        }
+    }
+
+    /// True once more than one adapter has been seen, which is the only time the
+    /// picker is worth showing at all.
+    public bool HasMultipleGpus => AvailableGpus.Count > 1;
+
+    /// Rebuilds the dropdown entries from the adapters detected so far.
+    public void RefreshGpuChoices()
+    {
+        var previous = SelectedGpuId;
+
+        GpuChoices.Clear();
+        GpuChoices.Add(new GpuChoice { Id = "", Label = "Automatic", Detail = "Picks the discrete GPU" });
+
+        foreach (var gpu in AvailableGpus)
+        {
+            GpuChoices.Add(new GpuChoice
+            {
+                Id     = gpu.Id,
+                Label  = gpu.Name,
+                Detail = gpu.IsDiscrete ? "Discrete" : "Integrated",
+            });
+        }
+
+        // A pinned GPU that is no longer present would otherwise leave the box blank.
+        bool stillThere = false;
+        foreach (var c in GpuChoices)
+            if (c.Id == previous) { stillThere = true; break; }
+        if (!stillThere) SelectedGpuId = "";
+
+        OnPropertyChanged(nameof(HasMultipleGpus));
+        OnPropertyChanged(nameof(SelectedGpuChoice));
+    }
+
     private bool _showMaxValues;
     public bool ShowMaxValues
     {
@@ -269,6 +320,9 @@ public class SettingsViewModel : BaseViewModel
             if (manual) UpdateStatus = success ? "You're on the latest version" : "Couldn't check for updates — try again later";
         }
     }
+
+    /// The update currently offered, so the caller can show its release notes.
+    public UpdateInfo? PendingUpdate => _pendingUpdate;
 
     public async Task InstallUpdateAsync()
     {
