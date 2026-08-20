@@ -172,6 +172,22 @@ public class SettingsViewModel : BaseViewModel
         }
     }
 
+    /// Empty string means auto-detect. Setting this repoints every GPU tile at the
+    /// chosen adapter on the next poll.
+    public string SelectedGpuId
+    {
+        get => SettingsService.Instance.Settings.SelectedGpuId;
+        set
+        {
+            if (SettingsService.Instance.Settings.SelectedGpuId == value) return;
+            SettingsService.Instance.Settings.SelectedGpuId = value;
+            SettingsService.Instance.Save();
+            OnPropertyChanged();
+        }
+    }
+
+    public IReadOnlyList<GpuInfo> AvailableGpus => HardwareService.Instance.AvailableGpus;
+
     private bool _showMaxValues;
     public bool ShowMaxValues
     {

@@ -485,6 +485,37 @@
             <Setter Property="BorderBrush" Value="#6D28D9"/>
         </Style>
 
+        <!-- ═══ GPU PICKER ROW ═══ full width, left aligned (device names are long) -->
+        <Style x:Key="GpuBtn" TargetType="Button" BasedOn="{StaticResource MonitorBtn}">
+            <Setter Property="HorizontalAlignment" Value="Stretch"/>
+            <Setter Property="HorizontalContentAlignment" Value="Left"/>
+            <Setter Property="Padding" Value="12,8"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd" CornerRadius="8"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Left" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="#3A2870"/>
+                                <Setter Property="Foreground" Value="#9C98C8"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="GpuBtnActive" TargetType="Button" BasedOn="{StaticResource GpuBtn}">
+            <Setter Property="Background" Value="#1C1540"/>
+            <Setter Property="Foreground" Value="#C4B5FD"/>
+            <Setter Property="BorderBrush" Value="#6D28D9"/>
+        </Style>
+
         <!-- ═══ ACCENT BUTTON ═══ -->
         <Style x:Key="AccentBtn" TargetType="Button">
             <Setter Property="Foreground" Value="White"/>
@@ -782,6 +813,28 @@
                     <TextBlock Text="Select sensors to display. The overlay updates live."
                                FontSize="10.5" Foreground="#3E3C58" FontWeight="Medium"
                                Margin="0,0,0,22" TextWrapping="Wrap"/>
+
+                    <!-- ══ GPU SOURCE ══ (hidden when only one GPU is present) -->
+                    <StackPanel x:Name="GpuSourceSection" Visibility="Collapsed">
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                            <TextBlock Text="&#xF211;" FontFamily="Segoe MDL2 Assets" FontSize="11"
+                                       Foreground="#5C597E" VerticalAlignment="Center" Margin="0,0,7,0"/>
+                            <TextBlock Text="GPU SOURCE" FontSize="10" FontWeight="Bold"
+                                       Foreground="#5C597E" VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <Border Background="#111020" CornerRadius="13" Padding="18,16"
+                                BorderBrush="#1C1A30" BorderThickness="1" Margin="0,0,0,8">
+                            <StackPanel>
+                                <TextBlock Text="Which GPU the GPU tiles read from"
+                                           FontSize="10.5" FontWeight="Medium"
+                                           Foreground="#4E4A6C" Margin="0,0,0,12"/>
+                                <StackPanel x:Name="GpuPanel"/>
+                            </StackPanel>
+                        </Border>
+                        <TextBlock Text="Auto picks the GPU with dedicated video memory, which is the discrete one on a laptop."
+                                   FontSize="10.5" Foreground="#3E3C58" FontWeight="Medium"
+                                   Margin="0,0,0,22" TextWrapping="Wrap"/>
+                    </StackPanel>
 
                     <!-- ══ APPEARANCE ══ -->
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,8">

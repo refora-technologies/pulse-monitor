@@ -39,6 +39,11 @@ public partial class MainWindow : Window
             HighlightActivePosition();
             UpdateOverlayButton();
             PopulateMonitorButtons();
+            PopulateGpuButtons();
+
+            // The GPU list isn't known until the first sensor poll completes, so rebuild
+            // the picker when it arrives (and if an eGPU is plugged in later).
+            Pulse.Services.HardwareService.Instance.GpuListChanged += OnGpuListChanged;
 
             PollRatePanel.SizeChanged += (_, _) => UpdateSegIndicator(false);
             Dispatcher.InvokeAsync(() => UpdateSegIndicator(false),
@@ -200,6 +205,60 @@ public partial class MainWindow : Window
         }
     }
 
+    private void OnGpuListChanged(object? sender, EventArgs e)
+        => Dispatcher.Invoke(PopulateGpuButtons);
+
+    private void PopulateGpuButtons()
+    {
+        if (_vm == null || GpuPanel == null || GpuSourceSection == null) return;
+
+        var gpus = Pulse.Services.HardwareService.Instance.AvailableGpus;
+
+        // Nothing to choose between on a single-GPU machine, so don't add noise.
+        if (gpus.Count < 2)
+        {
+            GpuSourceSection.Visibility = System.Windows.Visibility.Collapsed;
+            return;
+        }
+
+        GpuSourceSection.Visibility = System.Windows.Visibility.Visible;
+        GpuPanel.Children.Clear();
+
+        AddGpuButton("Auto", "", gpus.Count > 0);
+        foreach (var gpu in gpus)
+            AddGpuButton(gpu.Name + (gpu.IsDiscrete ? "" : "  (integrated)"), gpu.Id, true);
+    }
+
+    private void AddGpuButton(string label, string id, bool _)
+    {
+        var activeStyle = (WpfStyle)FindResource("GpuBtnActive");
+        var normalStyle = (WpfStyle)FindResource("GpuBtn");
+
+        var btn = new WpfButton
+        {
+            Content = label,
+            Tag     = id,
+            Style   = id == _vm!.SelectedGpuId ? activeStyle : normalStyle,
+            Margin  = new System.Windows.Thickness(0, 0, 0, 6),
+        };
+        btn.Click += Gpu_Click;
+        GpuPanel.Children.Add(btn);
+    }
+
+    private void Gpu_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not WpfButton btn || _vm == null) return;
+        _vm.SelectedGpuId = btn.Tag?.ToString() ?? "";
+
+        var activeStyle = (WpfStyle)FindResource("GpuBtnActive");
+        var normalStyle = (WpfStyle)FindResource("GpuBtn");
+        foreach (var child in GpuPanel.Children)
+        {
+            if (child is WpfButton b)
+                b.Style = (b.Tag?.ToString() ?? "") == _vm.SelectedGpuId ? activeStyle : normalStyle;
+        }
+    }
+
     private void Monitor_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not WpfButton btn || _vm == null) return;
@@ -233,4 +292,13 @@ public partial class MainWindow : Window
 
     private void BtnDismissBanner_Click(object sender, RoutedEventArgs e)
         => _vm?.DismissBanner();
+
+    protected override void OnClosed(EventArgs e)
+    {
+        // HardwareService is a singleton and this window is recreated every time the
+        // control panel is reopened, so leaving this attached would pin every closed
+        // instance in memory for the lifetime of the app.
+        Pulse.Services.HardwareService.Instance.GpuListChanged -= OnGpuListChanged;
+        base.OnClosed(e);
+    }
 }
