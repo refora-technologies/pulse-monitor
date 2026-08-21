@@ -9,6 +9,11 @@ using WpfApplication = System.Windows.Application;
 using WpfButton = System.Windows.Controls.Button;
 using WpfStyle = System.Windows.Style;
 using WpfComboBox = System.Windows.Controls.ComboBox;
+using WpfMouseEventArgs = System.Windows.Input.MouseEventArgs;
+using WpfDragEventArgs = System.Windows.DragEventArgs;
+using WpfDataObject = System.Windows.DataObject;
+using WpfDragDropEffects = System.Windows.DragDropEffects;
+using WpfBorder = System.Windows.Controls.Border;
 
 namespace Pulse.Views;
 
@@ -208,6 +213,80 @@ public partial class MainWindow : Window
 
     private void OnGpuListChanged(object? sender, EventArgs e)
         => Dispatcher.Invoke(PopulateGpuButtons);
+
+    // ── Tile reordering ────────────────────────────────────────────────────────────
+    // Dragging is started from the grip rather than the tile body so that clicking a
+    // tile still toggles it. The list order in settings is the overlay order.
+
+    private const string TileDragFormat = "PulseTileId";
+
+    private System.Windows.Point _tileDragStart;
+    private string? _pendingDragTileId;
+
+    private void Grip_MouseDown(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is not FrameworkElement grip) return;
+        _tileDragStart     = e.GetPosition(null);
+        _pendingDragTileId = grip.Tag?.ToString();
+        e.Handled = true;   // don't let the click reach the checkbox underneath
+    }
+
+    private void Grip_MouseMove(object sender, WpfMouseEventArgs e)
+    {
+        if (e.LeftButton != MouseButtonState.Pressed || _pendingDragTileId is null) return;
+
+        // Wait for the system drag threshold so a click on the grip isn't treated as a drag.
+        var pos = e.GetPosition(null);
+        if (Math.Abs(pos.X - _tileDragStart.X) < SystemParameters.MinimumHorizontalDragDistance &&
+            Math.Abs(pos.Y - _tileDragStart.Y) < SystemParameters.MinimumVerticalDragDistance) return;
+
+        var id = _pendingDragTileId;
+        _pendingDragTileId = null;   // guard against re-entering while the drag runs
+
+        DragDrop.DoDragDrop((DependencyObject)sender,
+            new WpfDataObject(TileDragFormat, id), WpfDragDropEffects.Move);
+    }
+
+    private void Tile_DragOver(object sender, WpfDragEventArgs e)
+    {
+        bool ours = e.Data.GetDataPresent(TileDragFormat);
+        e.Effects = ours ? WpfDragDropEffects.Move : WpfDragDropEffects.None;
+        e.Handled = true;
+
+        if (ours && sender is WpfBorder border)
+            border.BorderBrush = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x8B, 0x5C, 0xF6));
+    }
+
+    private void Tile_DragLeave(object sender, WpfDragEventArgs e)
+    {
+        if (sender is WpfBorder border)
+            border.BorderBrush = System.Windows.Media.Brushes.Transparent;
+    }
+
+    private void Tile_Drop(object sender, WpfDragEventArgs e)
+    {
+        if (sender is WpfBorder border)
+            border.BorderBrush = System.Windows.Media.Brushes.Transparent;
+
+        if (_vm == null || !e.Data.GetDataPresent(TileDragFormat)) return;
+
+        var draggedId = e.Data.GetData(TileDragFormat) as string;
+        var targetId  = (sender as FrameworkElement)?.Tag?.ToString();
+        if (string.IsNullOrEmpty(draggedId) || string.IsNullOrEmpty(targetId) || draggedId == targetId) return;
+
+        // Dropping onto a tile takes that tile's position; everything else shuffles along.
+        for (int i = 0; i < _vm.AllTiles.Count; i++)
+        {
+            if (_vm.AllTiles[i].Definition.Id != targetId) continue;
+            _vm.MoveTile(draggedId, i);
+            break;
+        }
+
+        e.Handled = true;
+    }
+
+    private void BtnResetTileOrder_Click(object sender, RoutedEventArgs e)
+        => _vm?.ResetTileOrder();
 
     /// <summary>
     /// Stops the mouse wheel changing the GPU selection.

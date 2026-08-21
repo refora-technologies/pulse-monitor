@@ -5,7 +5,12 @@ namespace Pulse.Models;
 
 public class AppSettings
 {
-    public List<string> ActiveTileIds { get; set; } = new() { "cpu_temp", "gpu_temp", "gpu_power", "ram_used", "gpu_usage" };
+    public List<string> ActiveTileIds { get; set; } = new() { "cpu_usage", "cpu_temp", "gpu_usage", "gpu_temp", "ram_used" };
+
+    /// Every known tile id in the user's chosen display order, including ones that are
+    /// currently switched off. Empty means "use the catalog order". Tiles missing from
+    /// this list (because a newer version added them) are appended on load.
+    public List<string> TileOrder { get; set; } = new();
     public double OverlayOpacity { get; set; } = 0.85;
     public string OverlayPosition { get; set; } = "TopRight"; // TopLeft, TopRight, BottomLeft, BottomRight, Custom
     public double OverlayCustomX { get; set; } = -1;

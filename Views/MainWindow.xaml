@@ -884,10 +884,16 @@
                             <TextBlock Text="ACTIVE TILES" FontSize="10" FontWeight="Bold"
                                        Foreground="#5C597E" VerticalAlignment="Center"/>
                         </StackPanel>
-                        <TextBlock Grid.Column="1" FontSize="10.5" FontWeight="SemiBold" VerticalAlignment="Center">
-                            <Run Text="{Binding SelectedCount, Mode=OneWay}" Foreground="#7C5CCC"/>
-                            <Run Text=" selected" Foreground="#46445E"/>
-                        </TextBlock>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                            <Button Content="Reset order" Style="{StaticResource LinkBtn}"
+                                    Padding="8,3" FontSize="10"
+                                    Margin="0,0,10,0" Click="BtnResetTileOrder_Click"
+                                    ToolTip="Put the tiles back to the default arrangement"/>
+                            <TextBlock FontSize="10.5" FontWeight="SemiBold" VerticalAlignment="Center">
+                                <Run Text="{Binding SelectedCount, Mode=OneWay}" Foreground="#7C5CCC"/>
+                                <Run Text=" selected" Foreground="#46445E"/>
+                            </TextBlock>
+                        </StackPanel>
                     </Grid>
                     <Border Background="#111020" CornerRadius="13" Padding="5"
                             BorderBrush="#1C1A30" BorderThickness="1" Margin="0,0,0,6">
@@ -897,21 +903,47 @@
                             </ItemsControl.ItemsPanel>
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
-                                    <CheckBox Style="{StaticResource TileToggle}"
-                                              IsChecked="{Binding IsSelected, Mode=TwoWay}" Margin="3">
-                                        <TextBlock FontSize="11.5">
-                                            <Run Text="{Binding Definition.Label, Mode=OneWay}"
-                                                 Foreground="#DBD7F2" FontWeight="Medium"/>
-                                            <Run Text=" "/>
-                                            <Run Text="{Binding Definition.Unit, Mode=OneWay}"
-                                                 Foreground="#2E2C48" FontSize="10"/>
-                                        </TextBlock>
-                                    </CheckBox>
+                                    <!-- Drop target. The border only becomes visible while a
+                                         tile is dragged over it, marking the insert position. -->
+                                    <Border AllowDrop="True" Background="Transparent"
+                                            BorderThickness="1.5" BorderBrush="Transparent"
+                                            CornerRadius="10" Margin="1.5"
+                                            Tag="{Binding Definition.Id}"
+                                            DragOver="Tile_DragOver"
+                                            DragLeave="Tile_DragLeave"
+                                            Drop="Tile_Drop">
+                                        <Grid>
+                                            <CheckBox Style="{StaticResource TileToggle}"
+                                                      IsChecked="{Binding IsSelected, Mode=TwoWay}">
+                                                <TextBlock FontSize="11.5" Margin="0,0,14,0">
+                                                    <Run Text="{Binding Definition.Label, Mode=OneWay}"
+                                                         Foreground="#DBD7F2" FontWeight="Medium"/>
+                                                    <Run Text=" "/>
+                                                    <Run Text="{Binding Definition.Unit, Mode=OneWay}"
+                                                         Foreground="#2E2C48" FontSize="10"/>
+                                                </TextBlock>
+                                            </CheckBox>
+
+                                            <!-- Drag handle. Kept separate from the checkbox so a
+                                                 click still toggles and only the grip reorders. -->
+                                            <Border x:Name="Grip" Background="Transparent"
+                                                    HorizontalAlignment="Right" VerticalAlignment="Stretch"
+                                                    Padding="7,0,8,0" Cursor="SizeAll"
+                                                    ToolTip="Drag to reorder"
+                                                    Tag="{Binding Definition.Id}"
+                                                    PreviewMouseLeftButtonDown="Grip_MouseDown"
+                                                    PreviewMouseMove="Grip_MouseMove">
+                                                <TextBlock Text="&#x28FF;" FontSize="12"
+                                                           Foreground="#332F52"
+                                                           VerticalAlignment="Center"/>
+                                            </Border>
+                                        </Grid>
+                                    </Border>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
                     </Border>
-                    <TextBlock Text="Select sensors to display. The overlay updates live."
+                    <TextBlock Text="Select sensors to display, and drag the handle on a tile to reorder. The overlay uses this order."
                                FontSize="10.5" Foreground="#3E3C58" FontWeight="Medium"
                                Margin="0,0,0,22" TextWrapping="Wrap"/>
 
