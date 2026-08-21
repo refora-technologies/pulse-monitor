@@ -93,6 +93,7 @@ public partial class OverlayWindow : Window
     private WinEventDelegate? _winEventProc;
     private IntPtr            _winEventHook = IntPtr.Zero;
     private DispatcherTimer?  _topmostTimer;
+    private DispatcherTimer?  _displayChangeTimer;
 
     // --- Menu outside-click dismissal (cross-process) -------------------------------
     // WPF's own Popup light-dismiss only sees mouse-down events that pass through this
@@ -141,6 +142,7 @@ public partial class OverlayWindow : Window
         IsVisibleChanged += OnIsVisibleChanged;
         SettingsService.Instance.SettingsChanged += OnSettingsChanged;
         _vm.PropertyChanged += OnViewModelPropertyChanged;
+        Microsoft.Win32.SystemEvents.DisplaySettingsChanged += OnDisplaySettingsChanged;
     }
 
     /// <summary>
@@ -161,6 +163,75 @@ public partial class OverlayWindow : Window
     private void OnIsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
     {
         SizeToContent = IsVisible ? SizeToContent.WidthAndHeight : SizeToContent.Manual;
+
+        // The resolution may have changed while we were hidden, which would leave the
+        // saved position outside the new desktop.
+        if (IsVisible) Dispatcher.InvokeAsync(ClampIntoView, DispatcherPriority.Loaded);
+    }
+
+    /// <summary>
+    /// Repositions the overlay after a display change.
+    ///
+    /// A fullscreen game switching to a lower resolution changes the actual Windows
+    /// display mode, so a position computed for the previous resolution can end up
+    /// outside the desktop entirely — the overlay does not move or rescale, it simply
+    /// stops being visible. Pulse previously only positioned itself at startup and when
+    /// settings changed, so it never recovered.
+    /// </summary>
+    private void OnDisplaySettingsChanged(object? sender, EventArgs e)
+    {
+        // Raised on a system thread, and Windows fires it several times while a mode
+        // change settles — with the work area often still reporting stale values on the
+        // first notification. Debounce and re-apply once things are stable.
+        Dispatcher.InvokeAsync(() =>
+        {
+            _displayChangeTimer ??= BuildDisplayChangeTimer();
+            _displayChangeTimer.Stop();
+            _displayChangeTimer.Start();
+        });
+    }
+
+    private DispatcherTimer BuildDisplayChangeTimer()
+    {
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(700) };
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            ApplyPosition();
+            ClampIntoView();
+        };
+        return timer;
+    }
+
+    /// Pulls the overlay back onto the visible desktop. Corner presets are already
+    /// recomputed by ApplyPosition; this exists for custom drag positions, which are
+    /// absolute and can fall off-screen when the resolution shrinks.
+    private void ClampIntoView()
+    {
+        var settings = SettingsService.Instance.Settings;
+        var screen   = GetMonitorWorkAreaDip(settings.SelectedMonitorIndex);
+
+        double w = ActualWidth  > 0 ? ActualWidth  : 200;
+        double h = ActualHeight > 0 ? ActualHeight : 200;
+
+        const double margin = 8;
+        double minLeft = screen.Left + margin;
+        double minTop  = screen.Top  + margin;
+        double maxLeft = Math.Max(minLeft, screen.Right  - w - margin);
+        double maxTop  = Math.Max(minTop,  screen.Bottom - h - margin);
+
+        double left = Math.Clamp(Left, minLeft, maxLeft);
+        double top  = Math.Clamp(Top,  minTop,  maxTop);
+
+        if (Math.Abs(left - Left) < 0.5 && Math.Abs(top - Top) < 0.5) return;
+
+        Left = left;
+        Top  = top;
+
+        // Deliberately not saved. The stored position is still valid for the resolution
+        // the user chose it at, so overwriting it here would mean a temporary drop to
+        // 1080p permanently moved an overlay the user had placed at 1440p. Leaving it
+        // alone means the original spot is restored when the resolution comes back.
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
@@ -168,7 +239,12 @@ public partial class OverlayWindow : Window
         ApplyCompactMode();
         ApplyDragState();
         // Defer position until after first render so ActualWidth/ActualHeight are correct
-        Dispatcher.InvokeAsync(ApplyPosition, System.Windows.Threading.DispatcherPriority.Render);
+        Dispatcher.InvokeAsync(() =>
+        {
+            ApplyPosition();
+            // Covers launching while the resolution is lower than when the position was saved.
+            ClampIntoView();
+        }, System.Windows.Threading.DispatcherPriority.Render);
     }
 
     protected override void OnSourceInitialized(EventArgs e)
@@ -536,6 +612,13 @@ public partial class OverlayWindow : Window
             _winEventHook = IntPtr.Zero;
         }
         _winEventProc = null;
+
+        _displayChangeTimer?.Stop();
+        _displayChangeTimer = null;
+
+        // SystemEvents is static, so failing to detach here would pin this window for
+        // the lifetime of the process.
+        Microsoft.Win32.SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;
 
         SettingsService.Instance.SettingsChanged -= OnSettingsChanged;
         _vm.PropertyChanged -= OnViewModelPropertyChanged;
