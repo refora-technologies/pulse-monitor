@@ -392,7 +392,7 @@ public class SettingsViewModel : BaseViewModel
 
         HardwareService.Instance.SetInterval(_pollingInterval);
 
-        foreach (var def in SensorTileDefinition.All)
+        foreach (var def in OrderedDefinitions(settings.TileOrder))
         {
             var item = new TileSelectionItem(def, settings.ActiveTileIds.Contains(def.Id));
             item.PropertyChanged += (_, e) =>
@@ -411,12 +411,85 @@ public class SettingsViewModel : BaseViewModel
             OnPropertyChanged(nameof(StatusColor));
         };
 
+        // Write the order back once at startup so the overlay always matches what the
+        // settings list shows. Without this, an install upgrading from a version that
+        // had no saved order would show the new arrangement in settings while the
+        // overlay still rendered the old one until something was toggled.
+        ApplyTileSelection();
+    }
+
+    /// <summary>
+    /// Returns tile definitions in the user's saved order. Anything the saved order
+    /// doesn't mention is appended in catalog order, which is what allows a newer
+    /// version to introduce tiles (as FPS was) without discarding someone's layout.
+    /// </summary>
+    private static IEnumerable<SensorTileDefinition> OrderedDefinitions(List<string> savedOrder)
+    {
+        if (savedOrder.Count == 0) return SensorTileDefinition.All;
+
+        var ordered = new List<SensorTileDefinition>(SensorTileDefinition.All.Count);
+
+        foreach (var id in savedOrder)
+        {
+            var def = SensorTileDefinition.All.FirstOrDefault(d => d.Id == id);
+            if (def != null && !ordered.Contains(def)) ordered.Add(def);
+        }
+
+        foreach (var def in SensorTileDefinition.All)
+            if (!ordered.Contains(def)) ordered.Add(def);
+
+        return ordered;
+    }
+
+    /// <summary>
+    /// Moves a tile to a new position. The list order here is the overlay order, so this
+    /// is what lets someone group related metrics together.
+    /// </summary>
+    public void MoveTile(string tileId, int newIndex)
+    {
+        int oldIndex = -1;
+        for (int i = 0; i < AllTiles.Count; i++)
+            if (AllTiles[i].Definition.Id == tileId) { oldIndex = i; break; }
+
+        if (oldIndex < 0) return;
+
+        newIndex = Math.Clamp(newIndex, 0, AllTiles.Count - 1);
+        if (newIndex == oldIndex) return;
+
+        AllTiles.Move(oldIndex, newIndex);
+        ApplyTileSelection();
+    }
+
+    /// Puts the tiles back to the shipped default arrangement.
+    public void ResetTileOrder()
+    {
+        var selectedIds = AllTiles.Where(t => t.IsSelected).Select(t => t.Definition.Id).ToHashSet();
+
+        AllTiles.Clear();
+        foreach (var def in SensorTileDefinition.All)
+        {
+            var item = new TileSelectionItem(def, selectedIds.Contains(def.Id));
+            item.PropertyChanged += (_, e) =>
+            {
+                if (e.PropertyName != nameof(TileSelectionItem.IsSelected)) return;
+                OnPropertyChanged(nameof(SelectedCount));
+                ApplyTileSelection();
+            };
+            AllTiles.Add(item);
+        }
+
+        ApplyTileSelection();
     }
 
     private void ApplyTileSelection()
     {
-        var selected = AllTiles.Where(t => t.IsSelected).Select(t => t.Definition.Id).ToList();
-        SettingsService.Instance.Settings.ActiveTileIds = selected;
+        var settings = SettingsService.Instance.Settings;
+
+        // Both lists follow AllTiles, so the order shown in settings is the order the
+        // overlay renders.
+        settings.ActiveTileIds = AllTiles.Where(t => t.IsSelected).Select(t => t.Definition.Id).ToList();
+        settings.TileOrder     = AllTiles.Select(t => t.Definition.Id).ToList();
+
         SettingsService.Instance.Save();
         OverlayViewModel.Instance.LoadActiveTiles();
         OnPropertyChanged(nameof(ActiveTileVMs));
