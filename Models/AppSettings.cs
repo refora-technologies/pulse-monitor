@@ -29,14 +29,33 @@ public class AppSettings
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "Refora", "Pulse", "settings.json");
 
+    /// <summary>
+    /// Newtonsoft defaults to ObjectCreationHandling.Auto, which reuses the list created
+    /// by a property initialiser and *appends* the saved values to it instead of
+    /// replacing them. That silently re-added the five default tiles on every launch, so
+    /// those tiles could never be turned off and ActiveTileIds grew on every run.
+    /// Replace is the correct behaviour for settings.
+    /// </summary>
+    private static readonly JsonSerializerSettings LoadSettings = new()
+    {
+        ObjectCreationHandling = ObjectCreationHandling.Replace,
+    };
+
     public static AppSettings Load()
     {
         try
         {
             if (File.Exists(SettingsPath))
             {
-                var json = File.ReadAllText(SettingsPath);
-                return JsonConvert.DeserializeObject<AppSettings>(json) ?? new AppSettings();
+                var json     = File.ReadAllText(SettingsPath);
+                var settings = JsonConvert.DeserializeObject<AppSettings>(json, LoadSettings) ?? new AppSettings();
+
+                // Existing installs already have duplicates written to disk from the old
+                // behaviour, so clean them up on the way in.
+                if (settings.ActiveTileIds.Count > 0)
+                    settings.ActiveTileIds = settings.ActiveTileIds.Distinct().ToList();
+
+                return settings;
             }
         }
         catch { }
