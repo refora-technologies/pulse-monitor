@@ -211,8 +211,18 @@ public partial class MainWindow : Window
         }
     }
 
+    private bool _gpuRefreshPending;
+
     private void OnGpuListChanged(object? sender, EventArgs e)
         => Dispatcher.Invoke(PopulateGpuButtons);
+
+    /// Applies any GPU list change that arrived while the dropdown was open.
+    private void GpuCombo_DropDownClosed(object? sender, EventArgs e)
+    {
+        if (!_gpuRefreshPending) return;
+        _gpuRefreshPending = false;
+        PopulateGpuButtons();
+    }
 
     // ── Tile reordering ────────────────────────────────────────────────────────────
     // Dragging is started from the grip rather than the tile body so that clicking a
@@ -245,43 +255,46 @@ public partial class MainWindow : Window
 
         DragDrop.DoDragDrop((DependencyObject)sender,
             new WpfDataObject(TileDragFormat, id), WpfDragDropEffects.Move);
+
+        // Commit once the gesture ends, including when it's cancelled — the tiles have
+        // already moved on screen, so saving keeps what the user sees and what's stored
+        // in agreement.
+        _vm?.CommitTileOrder();
     }
 
+    /// Reorders live as the pointer passes over a tile, so the layout previews itself
+    /// instead of only rearranging on release. Nothing is saved until the drop.
     private void Tile_DragOver(object sender, WpfDragEventArgs e)
     {
         bool ours = e.Data.GetDataPresent(TileDragFormat);
         e.Effects = ours ? WpfDragDropEffects.Move : WpfDragDropEffects.None;
         e.Handled = true;
 
-        if (ours && sender is WpfBorder border)
-            border.BorderBrush = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x8B, 0x5C, 0xF6));
-    }
-
-    private void Tile_DragLeave(object sender, WpfDragEventArgs e)
-    {
-        if (sender is WpfBorder border)
-            border.BorderBrush = System.Windows.Media.Brushes.Transparent;
-    }
-
-    private void Tile_Drop(object sender, WpfDragEventArgs e)
-    {
-        if (sender is WpfBorder border)
-            border.BorderBrush = System.Windows.Media.Brushes.Transparent;
-
-        if (_vm == null || !e.Data.GetDataPresent(TileDragFormat)) return;
+        if (!ours || _vm == null) return;
 
         var draggedId = e.Data.GetData(TileDragFormat) as string;
         var targetId  = (sender as FrameworkElement)?.Tag?.ToString();
         if (string.IsNullOrEmpty(draggedId) || string.IsNullOrEmpty(targetId) || draggedId == targetId) return;
 
-        // Dropping onto a tile takes that tile's position; everything else shuffles along.
         for (int i = 0; i < _vm.AllTiles.Count; i++)
         {
             if (_vm.AllTiles[i].Definition.Id != targetId) continue;
-            _vm.MoveTile(draggedId, i);
+            _vm.MoveTile(draggedId, i, persist: false);
             break;
         }
+    }
 
+    private void Tile_DragLeave(object sender, WpfDragEventArgs e)
+    {
+        // Nothing to undo — the live move already reflects the current position.
+    }
+
+    private void Tile_Drop(object sender, WpfDragEventArgs e)
+    {
+        if (_vm == null || !e.Data.GetDataPresent(TileDragFormat)) return;
+
+        // The order is already correct from the live preview; just make it stick.
+        _vm.CommitTileOrder();
         e.Handled = true;
     }
 
@@ -316,6 +329,16 @@ public partial class MainWindow : Window
     private void PopulateGpuButtons()
     {
         if (_vm == null || GpuSourceSection == null) return;
+
+        // Rebuilding the item source while the popup is open forces WPF to tear down and
+        // regenerate the open dropdown, which shows up as a freeze right as the user
+        // clicks it. GPU enumeration is intermittent, so this fires at awkward moments.
+        // Defer until the dropdown closes.
+        if (GpuCombo is { IsDropDownOpen: true })
+        {
+            _gpuRefreshPending = true;
+            return;
+        }
 
         _vm.RefreshGpuChoices();
 
