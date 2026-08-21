@@ -1,4 +1,4 @@
-using System.Windows;
+﻿using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
@@ -255,46 +255,44 @@ public partial class MainWindow : Window
 
         DragDrop.DoDragDrop((DependencyObject)sender,
             new WpfDataObject(TileDragFormat, id), WpfDragDropEffects.Move);
-
-        // Commit once the gesture ends, including when it's cancelled — the tiles have
-        // already moved on screen, so saving keeps what the user sees and what's stored
-        // in agreement.
-        _vm?.CommitTileOrder();
     }
 
-    /// Reorders live as the pointer passes over a tile, so the layout previews itself
-    /// instead of only rearranging on release. Nothing is saved until the drop.
     private void Tile_DragOver(object sender, WpfDragEventArgs e)
     {
         bool ours = e.Data.GetDataPresent(TileDragFormat);
         e.Effects = ours ? WpfDragDropEffects.Move : WpfDragDropEffects.None;
         e.Handled = true;
 
-        if (!ours || _vm == null) return;
+        // Marks the slot the tile will take. The reorder itself happens on drop.
+        if (ours && sender is WpfBorder border)
+            border.BorderBrush = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x8B, 0x5C, 0xF6));
+    }
+
+    private void Tile_DragLeave(object sender, WpfDragEventArgs e)
+    {
+        if (sender is WpfBorder border)
+            border.BorderBrush = System.Windows.Media.Brushes.Transparent;
+    }
+
+    private void Tile_Drop(object sender, WpfDragEventArgs e)
+    {
+        if (sender is WpfBorder border)
+            border.BorderBrush = System.Windows.Media.Brushes.Transparent;
+
+        if (_vm == null || !e.Data.GetDataPresent(TileDragFormat)) return;
 
         var draggedId = e.Data.GetData(TileDragFormat) as string;
         var targetId  = (sender as FrameworkElement)?.Tag?.ToString();
         if (string.IsNullOrEmpty(draggedId) || string.IsNullOrEmpty(targetId) || draggedId == targetId) return;
 
+        // Dropping onto a tile takes that tile's position; everything else shuffles along.
         for (int i = 0; i < _vm.AllTiles.Count; i++)
         {
             if (_vm.AllTiles[i].Definition.Id != targetId) continue;
-            _vm.MoveTile(draggedId, i, persist: false);
+            _vm.MoveTile(draggedId, i);
             break;
         }
-    }
 
-    private void Tile_DragLeave(object sender, WpfDragEventArgs e)
-    {
-        // Nothing to undo — the live move already reflects the current position.
-    }
-
-    private void Tile_Drop(object sender, WpfDragEventArgs e)
-    {
-        if (_vm == null || !e.Data.GetDataPresent(TileDragFormat)) return;
-
-        // The order is already correct from the live preview; just make it stick.
-        _vm.CommitTileOrder();
         e.Handled = true;
     }
 

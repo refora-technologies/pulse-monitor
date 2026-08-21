@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using System.Windows;
 using Pulse.Models;
 using Pulse.Services;
@@ -445,13 +445,7 @@ public class SettingsViewModel : BaseViewModel
     /// Moves a tile to a new position. The list order here is the overlay order, so this
     /// is what lets someone group related metrics together.
     /// </summary>
-    /// <param name="persist">
-    /// False while a drag is in progress. The list moves so the user sees tiles shuffle
-    /// live, but nothing is written to disk and the overlay isn't rebuilt until the drag
-    /// finishes — DragOver fires many times a second, and saving on each would be
-    /// needless disk and rendering work.
-    /// </param>
-    public void MoveTile(string tileId, int newIndex, bool persist = true)
+    public void MoveTile(string tileId, int newIndex)
     {
         int oldIndex = -1;
         for (int i = 0; i < AllTiles.Count; i++)
@@ -463,11 +457,8 @@ public class SettingsViewModel : BaseViewModel
         if (newIndex == oldIndex) return;
 
         AllTiles.Move(oldIndex, newIndex);
-        if (persist) ApplyTileSelection();
+        ApplyTileSelection();
     }
-
-    /// Commits an order arrived at by dragging.
-    public void CommitTileOrder() => ApplyTileSelection();
 
     /// Puts the tiles back to the shipped default arrangement.
     public void ResetTileOrder()
