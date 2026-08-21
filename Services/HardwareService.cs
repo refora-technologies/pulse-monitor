@@ -85,17 +85,13 @@ public class HardwareService : IDisposable
 
     private HardwareService()
     {
-        _computer = new Computer
-        {
-            IsCpuEnabled         = true,
-            IsGpuEnabled         = true,
-            IsMemoryEnabled      = true,
-            IsMotherboardEnabled = false,
-            IsStorageEnabled     = true,
-            IsNetworkEnabled     = true,
-        };
+        _computer = new Computer();
+        ConfigureSubsystems(_computer, RequiredSubsystems());
 
-        try { _computer.Open(); } catch { }
+        // Opening enumerates every device and loads the sensor driver, which takes long
+        // enough to visibly stall the window if it runs inline. Do it in the background
+        // and let polls skip until it's ready.
+        _openTask = Task.Run(() => { try { _computer.Open(); } catch { } });
 
         _timer = new DispatcherTimer
         {
@@ -104,7 +100,74 @@ public class HardwareService : IDisposable
         _timer.Tick += async (_, _) => await PollAsync();
         _timer.Start();
 
+        // Reconfigure if the user turns a whole category of tiles on or off.
+        SettingsService.Instance.SettingsChanged += (_, _) => SyncSubsystems();
+
         _ = PollAsync(); // immediate first read
+    }
+
+    private readonly Task _openTask;
+    private readonly object _computerLock = new();
+    private Subsystems _activeSubsystems;
+
+    [Flags]
+    private enum Subsystems
+    {
+        None = 0, Cpu = 1, Gpu = 2, Memory = 4, Storage = 8, Network = 16,
+    }
+
+    /// <summary>
+    /// Works out which sensor groups are actually needed for the tiles in use.
+    ///
+    /// LibreHardwareMonitor updates every sensor in an enabled group on each poll, and
+    /// that isn't cheap — reading the discrete GPU alone dominates a poll. Enabling only
+    /// what the visible tiles require avoids paying for data nothing displays.
+    /// </summary>
+    private static Subsystems RequiredSubsystems()
+    {
+        var active = SettingsService.Instance.Settings.ActiveTileIds;
+        var needed = Subsystems.None;
+
+        foreach (var id in active)
+        {
+            needed |= id switch
+            {
+                "cpu_usage" or "cpu_temp" or "cpu_clock" or "cpu_power" => Subsystems.Cpu,
+                "gpu_usage" or "gpu_temp" or "gpu_clock" or "gpu_power" or "gpu_vram" => Subsystems.Gpu,
+                "ram_used"      => Subsystems.Memory,
+                "disk_activity" => Subsystems.Storage,
+                "net_upload" or "net_download" => Subsystems.Network,
+                // Total power is derived from both chips, so it needs each of them.
+                "sys_power"     => Subsystems.Cpu | Subsystems.Gpu,
+                _               => Subsystems.None,
+            };
+        }
+
+        return needed;
+    }
+
+    private void ConfigureSubsystems(Computer computer, Subsystems s)
+    {
+        computer.IsCpuEnabled         = s.HasFlag(Subsystems.Cpu);
+        computer.IsGpuEnabled         = s.HasFlag(Subsystems.Gpu);
+        computer.IsMemoryEnabled      = s.HasFlag(Subsystems.Memory);
+        computer.IsStorageEnabled     = s.HasFlag(Subsystems.Storage);
+        computer.IsNetworkEnabled     = s.HasFlag(Subsystems.Network);
+        computer.IsMotherboardEnabled = false;
+        _activeSubsystems             = s;
+    }
+
+    /// Applies a change in which sensor groups are needed. Toggling the flags makes
+    /// LibreHardwareMonitor add or drop that hardware, so no reopen is required.
+    private void SyncSubsystems()
+    {
+        var needed = RequiredSubsystems();
+        if (needed == _activeSubsystems) return;
+
+        lock (_computerLock)
+        {
+            ConfigureSubsystems(_computer, needed);
+        }
     }
 
     public void SetInterval(double seconds)
@@ -121,6 +184,7 @@ public class HardwareService : IDisposable
     private async Task PollAsync()
     {
         if (_isPolling) return;
+        if (!_openTask.IsCompleted) return;   // still enumerating hardware
         _isPolling = true;
         try
         {
@@ -142,6 +206,8 @@ public class HardwareService : IDisposable
     {
         var data = new SensorData();
 
+        // Held so a subsystem change can't alter the hardware list mid-enumeration.
+        lock (_computerLock)
         try
         {
             var gpus = new List<IHardware>();
