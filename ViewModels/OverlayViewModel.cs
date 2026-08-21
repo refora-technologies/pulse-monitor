@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using Pulse.Models;
 using Pulse.Services;
 
@@ -68,21 +68,54 @@ public class TileViewModel : BaseViewModel
     /// Compact HUD line: "CPU Temp  68 °C"
     public string CompactLine => $"{DisplayValue} {Definition.Unit}";
 
-    public WpfColor ValueColor
+    // Tile values only ever take one of four states, so the colours and brushes are
+    // shared and frozen rather than allocated per read. Previously every binding
+    // evaluation built a new SolidColorBrush, which at fifteen tiles and several
+    // notifications per poll produced a steady stream of garbage for no benefit.
+    internal static readonly WpfColor NeutralColor = WpfColor.FromRgb(0xF4, 0xF2, 0xFC);
+    internal static readonly WpfColor DangerColor  = WpfColor.FromRgb(0xFF, 0x5C, 0x6C);
+    internal static readonly WpfColor WarnColor    = WpfColor.FromRgb(0xFF, 0xB4, 0x54);
+    internal static readonly WpfColor NormalColor  = WpfColor.FromRgb(0x3D, 0xDC, 0x97);
+
+    internal static readonly WpfBrush NeutralBrush = Frozen(NeutralColor);
+    internal static readonly WpfBrush DangerBrush  = Frozen(DangerColor);
+    internal static readonly WpfBrush WarnBrush    = Frozen(WarnColor);
+    internal static readonly WpfBrush NormalBrush  = Frozen(NormalColor);
+
+    internal static WpfBrush Frozen(WpfColor color)
+    {
+        var brush = new WpfBrush(color);
+        brush.Freeze();   // freezing lets WPF share it across threads without cloning
+        return brush;
+    }
+
+    /// 0 = neutral, 1 = normal, 2 = warning, 3 = danger.
+    private int State
     {
         get
         {
-            if (!_value.HasValue || Definition.DangerThreshold == 0)
-                return WpfColor.FromRgb(0xF4, 0xF2, 0xFC);
-            if (_value >= Definition.DangerThreshold)
-                return WpfColor.FromRgb(0xFF, 0x5C, 0x6C);   // Red
-            if (_value >= Definition.WarnThreshold)
-                return WpfColor.FromRgb(0xFF, 0xB4, 0x54);   // Amber
-            return WpfColor.FromRgb(0x3D, 0xDC, 0x97);        // Green
+            if (!_value.HasValue || Definition.DangerThreshold == 0) return 0;
+            if (_value >= Definition.DangerThreshold) return 3;
+            if (_value >= Definition.WarnThreshold)   return 2;
+            return 1;
         }
     }
 
-    public WpfBrush ValueBrush => new(ValueColor);
+    public WpfColor ValueColor => State switch
+    {
+        3 => DangerColor,
+        2 => WarnColor,
+        1 => NormalColor,
+        _ => NeutralColor,
+    };
+
+    public WpfBrush ValueBrush => State switch
+    {
+        3 => DangerBrush,
+        2 => WarnBrush,
+        1 => NormalBrush,
+        _ => NeutralBrush,
+    };
 
     public double BarFraction
     {
@@ -124,10 +157,19 @@ public class OverlayViewModel : BaseViewModel
         private set
         {
             if (Set(ref _statusColor, value))
+            {
+                _statusBrush = value == TileViewModel.DangerColor ? TileViewModel.DangerBrush
+                             : value == TileViewModel.WarnColor   ? TileViewModel.WarnBrush
+                             : value == TileViewModel.NormalColor ? TileViewModel.NormalBrush
+                             : TileViewModel.Frozen(value);
                 OnPropertyChanged(nameof(StatusBrush));
+            }
         }
     }
-    public WpfBrush StatusBrush => new(_statusColor);
+    // Frozen, like the tile brushes, so the status dot and text don't allocate on
+    // every sensor update.
+    private WpfBrush _statusBrush = TileViewModel.Frozen(WpfColors.Gray);
+    public WpfBrush StatusBrush => _statusBrush;
 
     private double _overlayOpacity = 0.85;
     public double OverlayOpacity { get => _overlayOpacity; set => Set(ref _overlayOpacity, value); }
@@ -213,17 +255,17 @@ public class OverlayViewModel : BaseViewModel
         if (maxTemp >= cpuDanger)
         {
             StatusText  = $"Running hot — {maxTemp:F0}°C peak";
-            StatusColor = WpfColor.FromRgb(0xFF, 0x5C, 0x6C);
+            StatusColor = TileViewModel.DangerColor;
         }
         else if (maxTemp >= cpuWarn)
         {
             StatusText  = $"Warming up — {maxTemp:F0}°C peak";
-            StatusColor = WpfColor.FromRgb(0xFF, 0xB4, 0x54);
+            StatusColor = TileViewModel.WarnColor;
         }
         else
         {
             StatusText  = "All systems nominal";
-            StatusColor = WpfColor.FromRgb(0x3D, 0xDC, 0x97);
+            StatusColor = TileViewModel.NormalColor;
         }
     }
 }
