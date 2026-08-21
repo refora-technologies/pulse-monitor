@@ -36,13 +36,54 @@ public class FpsService : IDisposable
 
     private FpsService()
     {
-        StartCapture();
-
         // Runs independently of the hardware polling interval so a focus change (e.g.
         // alt-tabbing into or out of a game) is picked up quickly and consistently.
         _targetTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
         _targetTimer.Tick += (_, _) => RefreshForegroundTarget();
-        _targetTimer.Start();
+
+        ApplyCaptureState();
+        SettingsService.Instance.SettingsChanged += (_, _) => ApplyCaptureState();
+    }
+
+    /// <summary>
+    /// Starts or stops frame capture to match whether the FPS tile is actually shown.
+    ///
+    /// PresentMon captures system-wide, so every present from every process arrives on
+    /// stdout and gets parsed. Running that when nobody is looking at an FPS number is
+    /// pure waste — a whole extra process plus continuous line parsing — so capture is
+    /// tied to the tile being enabled.
+    /// </summary>
+    private void ApplyCaptureState()
+    {
+        bool wanted = SettingsService.Instance.Settings.ActiveTileIds.Contains("fps");
+
+        if (wanted && _process is null)
+        {
+            StartCapture();
+            _targetTimer.Start();
+        }
+        else if (!wanted && _process is not null)
+        {
+            StopCapture();
+            _targetTimer.Stop();
+        }
+    }
+
+    private void StopCapture()
+    {
+        try { _process?.Kill(); } catch { }
+        try { _process?.Dispose(); } catch { }
+        _process = null;
+
+        // Header indices belong to the stream we just ended.
+        _headerProcessIdIndex = -1;
+        _headerFrameTimeIndex = -1;
+
+        lock (_lock)
+        {
+            _recentFrameTimesMs.Clear();
+            CurrentFps = null;
+        }
     }
 
     private void StartCapture()
@@ -136,7 +177,6 @@ public class FpsService : IDisposable
     public void Dispose()
     {
         _targetTimer.Stop();
-        try { _process?.Kill(); } catch { }
-        _process?.Dispose();
+        StopCapture();
     }
 }
