@@ -965,7 +965,8 @@
                                           Style="{StaticResource DarkCombo}"
                                           ItemsSource="{Binding GpuChoices}"
                                           SelectedItem="{Binding SelectedGpuChoice, Mode=TwoWay}"
-                                          PreviewMouseWheel="GpuCombo_PreviewMouseWheel"/>
+                                          PreviewMouseWheel="GpuCombo_PreviewMouseWheel"
+                                          DropDownClosed="GpuCombo_DropDownClosed"/>
                             </StackPanel>
                         </Border>
                         <TextBlock Text="Auto picks the GPU with dedicated video memory, which is the discrete one on a laptop."
