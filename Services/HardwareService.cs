@@ -21,6 +21,7 @@ public class SensorData
     public float? NetDownload { get; set; }
     public float? DiskActivity { get; set; }
     public float? Fps { get; set; }
+    public float? Fps1Low { get; set; }
     public float TotalRamGb { get; set; }
     public float TotalVramGb { get; set; }
 
@@ -41,6 +42,7 @@ public class SensorData
         "net_download" => NetDownload,
         "disk_activity"=> DiskActivity,
         "fps"          => Fps,
+        "fps_1low"     => Fps1Low,
         _ => null
     };
 }
@@ -257,7 +259,8 @@ public class HardwareService : IDisposable
         data.SysPower = (data.CpuPower ?? 0) + (data.GpuPower ?? 0);
         if (data.SysPower == 0) data.SysPower = null;
 
-        data.Fps = FpsService.Instance.CurrentFps;
+        data.Fps     = FpsService.Instance.CurrentFps;
+        data.Fps1Low = FpsService.Instance.OnePercentLowFps;
 
         return data;
     }
@@ -463,10 +466,21 @@ public class HardwareService : IDisposable
 
     private static void ReadGpu(IHardware hw, SensorData data)
     {
-        // Intel integrated GPUs have no "GPU Core" load sensor — they report per-engine
-        // D3D loads instead ("D3D 3D", "D3D Video Decode", ...). Fall back to the 3D
-        // engine so GPU Usage isn't permanently blank when an iGPU is selected.
+        // GPU Usage comes from the D3D 3D engine counter in preference to the vendor's own
+        // "GPU Core" load.
+        //
+        // Measured on an RTX 3050 under sustained load: D3D 3D averaged 80.9% while GPU Core
+        // averaged 99.3%. Task Manager read 79% and NVIDIA's overlay 82% — both agree with
+        // the engine counter, so reporting the vendor figure made Pulse look wrong against
+        // every other tool a user can check it against.
+        //
+        // It also makes the number mean the same thing on every vendor. Intel iGPUs expose
+        // no Core load at all, so they were already being read this way, and GPU Usage
+        // silently changed meaning depending on which GPU was selected.
+        //
+        // Core load is kept as the fallback for any adapter that reports no engine counters.
         float? d3dEngineLoad = null;
+        float? coreLoad      = null;
 
         foreach (var s in hw.Sensors)
         {
@@ -492,13 +506,13 @@ public class HardwareService : IDisposable
                 case SensorType.SmallData when s.Name.Contains("Memory Total", StringComparison.OrdinalIgnoreCase) && data.TotalVramGb == 0:
                     data.TotalVramGb = MathF.Round(s.Value.Value / 1024f, 0);
                     break;
-                case SensorType.Load when s.Name.Contains("Core", StringComparison.OrdinalIgnoreCase) && data.GpuUsage is null:
-                    data.GpuUsage = s.Value;
+                case SensorType.Load when s.Name.Contains("Core", StringComparison.OrdinalIgnoreCase) && coreLoad is null:
+                    coreLoad = s.Value;
                     break;
             }
         }
 
-        data.GpuUsage ??= d3dEngineLoad;
+        data.GpuUsage = d3dEngineLoad ?? coreLoad;
     }
 
     private static void ReadMemory(IHardware hw, SensorData data)
