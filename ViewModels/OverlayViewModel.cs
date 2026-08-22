@@ -89,14 +89,41 @@ public class TileViewModel : BaseViewModel
         return brush;
     }
 
+    /// <summary>
+    /// Warning and danger points for this tile.
+    ///
+    /// For capacity tiles these scale with the hardware actually fitted. The catalogue
+    /// values assume 16 GB of RAM and 6 GB of VRAM, so on a 64 GB machine 14.5 GB used —
+    /// under a quarter of it — was being coloured as dangerous, and on a 24 GB card the
+    /// same nonsense at 5.5 GB. The ratios are taken from those defaults, roughly three
+    /// quarters full for a warning and ninety percent for danger.
+    /// </summary>
+    private (float Warn, float Danger) Thresholds
+    {
+        get
+        {
+            if (!Definition.HasKnownMax) return (Definition.WarnThreshold, Definition.DangerThreshold);
+
+            double capacity = KnownMax;
+            if (capacity <= 0 || Definition.BarMax <= 0)
+                return (Definition.WarnThreshold, Definition.DangerThreshold);
+
+            double scale = capacity / Definition.BarMax;
+            return ((float)(Definition.WarnThreshold * scale), (float)(Definition.DangerThreshold * scale));
+        }
+    }
+
     /// 0 = neutral, 1 = normal, 2 = warning, 3 = danger.
     private int State
     {
         get
         {
-            if (!_value.HasValue || Definition.DangerThreshold == 0) return 0;
-            if (_value >= Definition.DangerThreshold) return 3;
-            if (_value >= Definition.WarnThreshold)   return 2;
+            if (!_value.HasValue) return 0;
+
+            var (warn, danger) = Thresholds;
+            if (danger == 0) return 0;
+            if (_value >= danger) return 3;
+            if (_value >= warn)   return 2;
             return 1;
         }
     }
@@ -236,6 +263,15 @@ public class OverlayViewModel : BaseViewModel
         UpdateStatus(data);
     }
 
+    /// <summary>
+    /// Summarises the tiles that are actually on screen.
+    ///
+    /// This used to look only at CPU and GPU temperature, so an overlay showing just RAM,
+    /// disk and network sat on "Reading sensors…" forever — the sensors were being read
+    /// perfectly well, there simply were no temperatures among them. Now the summary
+    /// reflects whichever tiles are enabled, and only reports waiting when nothing has
+    /// arrived at all.
+    /// </summary>
     private void UpdateStatus(SensorData data)
     {
         var temps = new[] { data.CpuTemp, data.GpuTemp }
@@ -243,8 +279,10 @@ public class OverlayViewModel : BaseViewModel
 
         if (!temps.Any())
         {
-            StatusText  = "Reading sensors...";
-            StatusColor = WpfColors.Gray;
+            bool anyReading = ActiveTiles.Any(t => t.HasValue);
+
+            StatusText  = anyReading ? "All systems nominal" : "Reading sensors...";
+            StatusColor = anyReading ? TileViewModel.NormalColor : WpfColors.Gray;
             return;
         }
 
