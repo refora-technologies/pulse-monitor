@@ -159,6 +159,10 @@ public partial class OverlayWindow : Window
     {
         SizeToContent = IsVisible ? SizeToContent.WidthAndHeight : SizeToContent.Manual;
 
+        // No point re-asserting a z-order the user cannot see.
+        if (IsVisible) _topmostTimer?.Start();
+        else           _topmostTimer?.Stop();
+
         // The resolution may have changed while we were hidden, which would leave the
         // saved position outside the new desktop.
         if (IsVisible) Dispatcher.InvokeAsync(ApplyPosition, DispatcherPriority.Loaded);
@@ -302,12 +306,20 @@ public partial class OverlayWindow : Window
             IntPtr.Zero, _winEventProc, 0, 0,
             WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
 
+        // One second, measured at 0.047ms per tick — around 170ms of CPU per hour, which is
+        // far below the sensor polling this app does anyway. The interval was reviewed for
+        // being wasteful and the numbers did not support changing it: a slower safety net
+        // would mean the overlay staying buried for longer whenever the event hook misses a
+        // z-order change, which is the only reason this timer exists.
         _topmostTimer = new DispatcherTimer(DispatcherPriority.Background)
         {
             Interval = TimeSpan.FromSeconds(1)
         };
         _topmostTimer.Tick += (_, _) => ForceTopmost();
-        _topmostTimer.Start();
+
+        // Only runs while the overlay is actually on screen. ForceTopmost returns
+        // immediately when hidden, so ticking then was pure wakeups for nothing.
+        if (IsVisible) _topmostTimer.Start();
     }
 
     private void OnForegroundChanged(IntPtr hWinEventHook, uint eventType, IntPtr hwnd,
@@ -826,7 +838,10 @@ public partial class OverlayWindow : Window
     {
         Dispatcher.Invoke(() =>
         {
-            Opacity = SettingsService.Instance.Settings.OverlayOpacity;
+            // Opacity is deliberately not assigned here. The window binds it to the view
+            // model, and assigning the property in code replaces that binding with a local
+            // value — after which opacity only moved when settings were saved. Once saving
+            // became debounced that turned into a visible delay behind the slider.
             if (SettingsService.Instance.Settings.OverlayPosition != "Custom")
                 ApplyPosition();
         });
