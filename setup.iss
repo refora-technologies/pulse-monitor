@@ -5,8 +5,8 @@
 [Setup]
 AppId={{B8F3E2A4-9D1C-4F7E-A5B2-3C8D6E9F1A2B}
 AppName=Pulse
-AppVersion=1.0.7
-AppVerName=Pulse v1.0.7
+AppVersion=1.1.0
+AppVerName=Pulse v1.1.0
 AppPublisher=Refora Technologies
 AppPublisherURL=https://reforatech.com
 AppSupportURL=https://reforatech.com
