@@ -119,8 +119,12 @@ public class SettingsViewModel : BaseViewModel
         get => _startWithWindows;
         set
         {
-            if (Set(ref _startWithWindows, value))
-                SettingsService.Instance.UpdateStartWithWindows(value);
+            if (!Set(ref _startWithWindows, value)) return;
+
+            // Snap back if Windows refused. An enabled-looking toggle that does nothing at
+            // logon is worse than one that visibly refuses to stay on.
+            if (!SettingsService.Instance.UpdateStartWithWindows(value))
+                Set(ref _startWithWindows, !value);
         }
     }
 
@@ -148,10 +152,26 @@ public class SettingsViewModel : BaseViewModel
             {
                 var s = SettingsService.Instance.Settings;
                 s.SelectedMonitorIndex = value;
-                s.OverlayCustomX = -1;
-                s.OverlayCustomY = -1;
+
+                // A saved position belongs to the monitor it was set on, so moving to a
+                // different monitor retires it rather than carrying the offsets across.
+                s.OverlayCustomX   = -1;
+                s.OverlayCustomY   = -1;
+                s.OverlayAnchorFx  = -1;
+                s.OverlayAnchorFy  = -1;
+                s.OverlayMonitorId = "";
+
                 if (s.OverlayPosition == "Custom")
+                {
                     s.OverlayPosition = "TopRight";
+
+                    // Keep our own property in step. Updating only the model left the corner
+                    // buttons still showing "Custom" selected while the overlay had actually
+                    // snapped to the top right.
+                    _overlayPosition = "TopRight";
+                    OnPropertyChanged(nameof(OverlayPosition));
+                }
+
                 SettingsService.Instance.Save();
             }
         }
@@ -197,7 +217,13 @@ public class SettingsViewModel : BaseViewModel
         {
             foreach (var c in GpuChoices)
                 if (c.Id == SelectedGpuId) return c;
-            return GpuChoices.Count > 0 ? GpuChoices[0] : null;
+
+            // Null, not "Automatic". Falling back to the first entry made the ComboBox
+            // report Automatic as the selection, and WPF then wrote that straight back
+            // through the setter — so a pinned GPU that had not been detected yet was
+            // quietly converted into a real choice of Automatic. Blank for a moment during
+            // startup is harmless; it fills in as soon as the adapter is found.
+            return null;
         }
         set
         {
@@ -214,8 +240,6 @@ public class SettingsViewModel : BaseViewModel
     /// Rebuilds the dropdown entries from the adapters detected so far.
     public void RefreshGpuChoices()
     {
-        var previous = SelectedGpuId;
-
         GpuChoices.Clear();
         GpuChoices.Add(new GpuChoice { Id = "", Label = "Automatic", Detail = "Picks the discrete GPU" });
 
@@ -229,11 +253,15 @@ public class SettingsViewModel : BaseViewModel
             });
         }
 
-        // A pinned GPU that is no longer present would otherwise leave the box blank.
-        bool stillThere = false;
-        foreach (var c in GpuChoices)
-            if (c.Id == previous) { stillThere = true; break; }
-        if (!stillThere) SelectedGpuId = "";
+        // The pinned GPU is deliberately never cleared here.
+        //
+        // This runs at startup before LibreHardwareMonitor has finished enumerating, when
+        // the only entry is "Automatic" — so resetting a selection that is merely "not
+        // found yet" wiped the user's choice on every single launch. It also fires while a
+        // game has the discrete GPU active and the integrated one stops being reported.
+        // HardwareService.SelectGpu already falls back to auto-detection when a pinned id
+        // does not resolve, so leaving the setting alone costs nothing and the choice
+        // survives until the user changes it.
 
         OnPropertyChanged(nameof(HasMultipleGpus));
         OnPropertyChanged(nameof(SelectedGpuChoice));
@@ -356,6 +384,10 @@ public class SettingsViewModel : BaseViewModel
             case UpdateDownloadStatus.VerificationUnavailable:
                 IsDownloading = false;
                 UpdateStatus = "Can't verify this update yet — download it manually from the release page";
+                break;
+            case UpdateDownloadStatus.LocationNotSecurable:
+                IsDownloading = false;
+                UpdateStatus = "Can't secure the download folder — install manually from the release page";
                 break;
             default:
                 IsDownloading = false;
@@ -500,8 +532,14 @@ public class SettingsViewModel : BaseViewModel
         var s = SettingsService.Instance.Settings;
         s.OverlayPosition  = position;
         s.IsDragEnabled    = false;
+
+        // Choosing a corner discards any dragged position, old format and new.
         s.OverlayCustomX   = -1;
         s.OverlayCustomY   = -1;
+        s.OverlayAnchorFx  = -1;
+        s.OverlayAnchorFy  = -1;
+        s.OverlayMonitorId = "";
+
         _overlayPosition   = position;
         _isDragEnabled     = false;
         OverlayViewModel.Instance.IsDragEnabled = false;
