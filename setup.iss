@@ -134,6 +134,21 @@ end;
   Politely first, so Pulse can finish writing settings and release the driver handle;
   forcefully only if it is still there. Settings are written as they change, so nothing is
   lost either way. }
+{ Kills a frame capture process left behind by an older Pulse.
+
+  From 1.1.0 the capture is tied to Pulse's lifetime and cannot outlive it, but a version
+  being upgraded or removed may predate that. Its capture process holds
+  Resources\PresentMon\PresentMon-2.5.1-x64.exe open, which is what made installs stall on a
+  "the file is in use, try again" prompt and left the Resources folder behind afterwards. }
+procedure CloseOrphanedCapture();
+var
+  ResultCode: Integer;
+begin
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM PresentMon-2.5.1-x64.exe /F',
+       '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Sleep(400);
+end;
+
 procedure CloseRunningPulse();
 var
   ResultCode: Integer;
@@ -145,6 +160,16 @@ begin
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM Pulse.exe /F',
        '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Sleep(800);
+
+  CloseOrphanedCapture();
+end;
+
+{ Runs after the wizard and Restart Manager have done their work but before any file is
+  written, which is the only point where clearing the orphan actually helps. }
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  CloseOrphanedCapture();
+  Result := '';
 end;
 
 { Burn bootstrappers report 3010 when the removal succeeded but wants a reboot. }
