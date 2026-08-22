@@ -41,9 +41,13 @@ public partial class MainWindow : Window
 
         Loaded += (_, _) =>
         {
-            WindowBorder.Clip = new RectangleGeometry(
-                new System.Windows.Rect(0, 0, WindowBorder.ActualWidth, WindowBorder.ActualHeight),
-                18, 18);
+            FitToWorkArea();   // before the clip is measured, so it matches the final size
+            RefreshCornerClip();
+
+            // The panel is resizable now, and the clip that rounds its corners is a fixed
+            // rectangle — left alone it would keep the old dimensions and either crop the
+            // content or leave square corners showing.
+            WindowBorder.SizeChanged += (_, _) => RefreshCornerClip();
 
             HighlightActivePollingRate();
             HighlightActivePosition();
@@ -79,12 +83,96 @@ public partial class MainWindow : Window
     private void BtnMinimize_Click(object sender, RoutedEventArgs e)
         => WindowState = WindowState.Minimized;
 
-    private void BtnClose_Click(object sender, RoutedEventArgs e)
+    private void RefreshCornerClip()
     {
-        if (_vm?.MinimizeToTray == true)
+        if (WindowBorder.ActualWidth <= 0 || WindowBorder.ActualHeight <= 0) return;
+
+        WindowBorder.Clip = new RectangleGeometry(
+            new System.Windows.Rect(0, 0, WindowBorder.ActualWidth, WindowBorder.ActualHeight),
+            18, 18);
+    }
+
+    /// <summary>
+    /// Shrinks the panel to fit the screen it opens on.
+    ///
+    /// The design size is 520x740 device-independent units, which is 1110 physical pixels
+    /// tall at 150% scaling and 1480 at 200%. On a 1080p laptop at those settings the window
+    /// was taller than the desktop, and because it is borderless with no resize there was no
+    /// way to drag it smaller or reach what had fallen off the bottom. The content already
+    /// scrolls, so shrinking costs nothing.
+    /// </summary>
+    private void FitToWorkArea()
+    {
+        try
+        {
+            var handle = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+            if (handle == IntPtr.Zero) return;
+
+            var work = System.Windows.Forms.Screen.FromHandle(handle).WorkingArea;
+            var dpi  = VisualTreeHelper.GetDpi(this);
+            if (dpi.DpiScaleX <= 0 || dpi.DpiScaleY <= 0) return;
+
+            // Work area is in physical pixels; the window's size and position are not.
+            double availableWidth  = work.Width  / dpi.DpiScaleX;
+            double availableHeight = work.Height / dpi.DpiScaleY;
+
+            const double margin = 24;
+            double width  = Math.Max(MinWidth,  Math.Min(Width,  availableWidth  - margin));
+            double height = Math.Max(MinHeight, Math.Min(Height, availableHeight - margin));
+
+            if (Math.Abs(width - Width) < 1 && Math.Abs(height - Height) < 1) return;
+
+            Width  = width;
+            Height = height;
+
+            // Re-centre, since the window was placed for its original size.
+            Left = work.Left / dpi.DpiScaleX + (availableWidth  - width)  / 2;
+            Top  = work.Top  / dpi.DpiScaleY + (availableHeight - height) / 2;
+        }
+        catch (Exception ex)
+        {
+            LogService.Error(nameof(MainWindow), "Could not fit the panel to the screen", ex);
+        }
+    }
+
+    /// Moving the panel to a differently scaled monitor changes its physical size, so the
+    /// fit has to be reconsidered.
+    protected override void OnDpiChanged(DpiScale oldDpi, DpiScale newDpi)
+    {
+        base.OnDpiChanged(oldDpi, newDpi);
+        Dispatcher.InvokeAsync(FitToWorkArea, System.Windows.Threading.DispatcherPriority.Loaded);
+    }
+
+    private void BtnClose_Click(object sender, RoutedEventArgs e) => CloseOrHide();
+
+    /// <summary>
+    /// Honours "minimize to tray" for every way of closing this window, not just the ✕.
+    ///
+    /// Only the custom close button consulted the setting, so Alt+F4 — and the taskbar's
+    /// close item, and the system menu — quit Pulse outright even with the preference on.
+    /// A preference that only some paths respect is worse than not having one.
+    /// </summary>
+    protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
+    {
+        // A slider adjustment made moments ago may still be waiting on its debounce.
+        _vm?.FlushPendingSave();
+
+        // Never block the real exit: Shutdown closes windows through this same path, so
+        // cancelling here would make "Exit Pulse" do nothing at all.
+        if (!App.IsExiting && _vm?.MinimizeToTray == true)
+        {
+            e.Cancel = true;
             Hide();
-        else
-            WpfApplication.Current.Shutdown();
+            return;
+        }
+
+        base.OnClosing(e);
+    }
+
+    private void CloseOrHide()
+    {
+        if (_vm?.MinimizeToTray == true) Hide();
+        else WpfApplication.Current.Shutdown();
     }
 
     private void BtnOverlayToggle_Click(object sender, RoutedEventArgs e)
@@ -385,6 +473,79 @@ public partial class MainWindow : Window
     // Dragging is started from the grip rather than the tile body so that clicking a
     // tile still toggles it. The list order in settings is the overlay order.
 
+    /// <summary>
+    /// Moves a tile with Alt and an arrow key.
+    ///
+    /// Reordering was drag-only, which left it unreachable for anyone using the keyboard —
+    /// and awkward for anyone who simply finds dragging fiddly. Alt is the modifier because
+    /// the arrows alone move focus between tiles, and Space still toggles them.
+    ///
+    /// The list is laid out two per row, so Left/Right step by one and Up/Down step by two,
+    /// which matches what the user sees rather than the underlying index.
+    /// </summary>
+    private void Tile_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (_vm == null) return;
+        if (e.KeyboardDevice.Modifiers != System.Windows.Input.ModifierKeys.Alt) return;
+        if (sender is not WpfBorder border || border.Tag is not string tileId) return;
+
+        const int columns = 2;
+
+        // With Alt held, WPF reports Key.System and puts the real key in SystemKey. Reading
+        // e.Key alone matched nothing, which is why the shortcut did nothing at all.
+        var key = e.Key == System.Windows.Input.Key.System ? e.SystemKey : e.Key;
+
+        int delta = key switch
+        {
+            System.Windows.Input.Key.Left  => -1,
+            System.Windows.Input.Key.Right => +1,
+            System.Windows.Input.Key.Up    => -columns,
+            System.Windows.Input.Key.Down  => +columns,
+            _ => 0,
+        };
+
+        if (delta == 0) return;
+
+        int index = -1;
+        for (int i = 0; i < _vm.AllTiles.Count; i++)
+            if (_vm.AllTiles[i].Definition.Id == tileId) { index = i; break; }
+
+        if (index < 0) return;
+
+        _vm.MoveTile(tileId, index + delta);
+        e.Handled = true;
+
+        // The panel rebuilds its items, so focus has to be put back on the tile that moved
+        // or the user loses their place after every keystroke.
+        Dispatcher.InvokeAsync(() => FocusTile(tileId), System.Windows.Threading.DispatcherPriority.Loaded);
+    }
+
+    private void FocusTile(string tileId)
+    {
+        foreach (var border in FindVisualChildren<WpfBorder>(this))
+        {
+            if (border.Tag as string != tileId || !border.AllowDrop) continue;
+
+            foreach (var box in FindVisualChildren<System.Windows.Controls.CheckBox>(border))
+            {
+                box.Focus();
+                return;
+            }
+        }
+    }
+
+    private static IEnumerable<T> FindVisualChildren<T>(DependencyObject parent) where T : DependencyObject
+    {
+        int count = VisualTreeHelper.GetChildrenCount(parent);
+        for (int i = 0; i < count; i++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, i);
+            if (child is T match) yield return match;
+
+            foreach (var nested in FindVisualChildren<T>(child)) yield return nested;
+        }
+    }
+
     private const string TileDragFormat = "PulseTileId";
 
     private System.Windows.Point _tileDragStart;
@@ -525,11 +686,66 @@ public partial class MainWindow : Window
     {
         if (_vm == null || _vm.IsCheckingUpdate || _vm.IsDownloading) return;
 
+#if DEBUG
+        // Debug builds preview this version's own release notes instead of checking GitHub,
+        // so the What's New dialog can be reviewed without publishing a release first.
+        // Compiled out of Release builds entirely.
+        await Task.Yield();
+        ShowReleaseNotesPreview();
+#else
         // Once a check has already found an update, this button switches to actually
         // starting that download instead of redundantly re-checking GitHub again.
         if (_vm.IsUpdateAvailable) await ConfirmThenInstallAsync();
         else await _vm.CheckForUpdatesAsync(true);
+#endif
     }
+
+#if DEBUG
+    /// Renders the notes for the version currently running, purely so the dialog's layout,
+    /// colours and scrolling can be checked during development.
+    private void ShowReleaseNotesPreview()
+    {
+        var preview = new UpdateInfo
+        {
+            Version    = UpdateService.CurrentVersion,
+            TagName    = UpdateService.CurrentVersionLabel,
+            ReleaseUrl = "https://github.com/refora-technologies/pulse-monitor/releases",
+            Notes      = ReleaseNotesPreviewText,
+        };
+
+        new WhatsNewWindow(preview) { Owner = this }.ShowDialog();
+    }
+
+    /// Stored as separate lines rather than a raw string literal: inside an excluded
+    /// #if region the preprocessor still scans each line, and a markdown heading at the
+    /// start of a line looks exactly like a preprocessor directive to it.
+    private static readonly string[] ReleaseNotesPreviewLines =
+    {
+        "## What's new in v1.1.0",
+        "",
+        "### New",
+        "- **1% low FPS** - a new tile showing the average of your slowest frames, which is what makes stutter visible when the headline frame rate looks fine",
+        "- **Exact overlay position** - type an X and Y position, or drag the fields to slide the overlay across the screen",
+        "- **Reorder tiles with the keyboard** - hold Alt and use the arrow keys",
+        "- **Save diagnostics** - writes a log to your desktop that you can attach to a bug report",
+        "",
+        "### Fixes",
+        "- **GPU usage now matches Task Manager** - Pulse was reading a sensor no other tool uses and reporting roughly 20 points higher than everything else",
+        "- **Frame rate is no longer capped at your refresh rate** - it now reports the frames your GPU actually renders",
+        "- **FPS on non-English systems** - on any machine using a comma as the decimal separator the reading was wildly wrong or blank",
+        "- **Integrated GPU readings** no longer disappear when every CPU tile is switched off",
+        "- **The overlay keeps its place** when you change resolution, and returns to the same relative spot",
+        "- **Installing and uninstalling** no longer leave files behind or refuse to close Pulse",
+        "",
+        "### Under the hood",
+        "- Sensor polling can no longer deadlock against changing tiles",
+        "- Updates download to a folder only administrators can write to",
+        "- Settings survive corruption and are written atomically",
+        "- Text throughout the app now meets contrast guidelines",
+    };
+
+    private static string ReleaseNotesPreviewText => string.Join(Environment.NewLine, ReleaseNotesPreviewLines);
+#endif
 
     private async void BtnUpdateNow_Click(object sender, RoutedEventArgs e)
         => await ConfirmThenInstallAsync();

@@ -4,11 +4,11 @@
         xmlns:conv="clr-namespace:Pulse.Converters"
         Title="Pulse — Control Panel"
         Width="520" Height="740"
-        MinWidth="460" MinHeight="580"
+        MinWidth="420" MinHeight="420"
         WindowStyle="None"
         AllowsTransparency="True"
         Background="Transparent"
-        ResizeMode="NoResize"
+        ResizeMode="CanResizeWithGrip"
         Icon="pack://application:,,,/Resources/Icons/pulse.ico"
         WindowStartupLocation="CenterScreen"
         TextOptions.TextFormattingMode="Ideal"
@@ -91,6 +91,14 @@
                             <Trigger Property="IsPressed" Value="True">
                                 <Setter Property="RenderTransform">
                                     <Setter.Value><ScaleTransform ScaleX="0.88" ScaleY="0.88"/></Setter.Value>
+                                </Setter>
+                            </Trigger>
+                            <!-- No border to outline here, so keyboard focus reuses the hover
+                                 treatment: the glyph appears and the dot grows. -->
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="Symbol" Property="Opacity" Value="1"/>
+                                <Setter Property="RenderTransform">
+                                    <Setter.Value><ScaleTransform ScaleX="1.12" ScaleY="1.12"/></Setter.Value>
                                 </Setter>
                             </Trigger>
                         </ControlTemplate.Triggers>
@@ -182,6 +190,13 @@
                                         </Storyboard>
                                     </BeginStoryboard>
                                 </Trigger.ExitActions>
+                            </Trigger>
+                                                    <!-- Without this there is no way to tell which tile the keyboard
+                                 is on, which made Alt+arrow reordering impossible to aim. -->
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="Pill" Property="BorderBrush" Value="#A78BFA"/>
+                                <Setter TargetName="Pill" Property="BorderThickness" Value="2"/>
+                                <Setter TargetName="Pill" Property="Padding" Value="9,7"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -337,7 +352,7 @@
         <!-- ═══ SEGMENT BUTTON (polling rate) ═══ -->
         <Style x:Key="SegBtn" TargetType="Button">
             <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="Foreground" Value="#6E6B8C"/>
+            <Setter Property="Foreground" Value="#A9A4CE"/>
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="Padding" Value="0,9"/>
             <Setter Property="FontSize" Value="12"/>
@@ -363,6 +378,10 @@
                                     <Setter.Value><ScaleTransform ScaleX="0.95" ScaleY="0.95"/></Setter.Value>
                                 </Setter>
                             </Trigger>
+                                                    <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="#A78BFA"/>
+                                <Setter TargetName="Bd" Property="BorderThickness" Value="2"/>
+                            </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
@@ -382,7 +401,7 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border CornerRadius="8" Background="Transparent"
+                        <Border x:Name="Bd" CornerRadius="8" Background="Transparent"
                                 Padding="{TemplateBinding Padding}">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
@@ -391,6 +410,10 @@
                                 <Setter Property="RenderTransform">
                                     <Setter.Value><ScaleTransform ScaleX="0.95" ScaleY="0.95"/></Setter.Value>
                                 </Setter>
+                            </Trigger>
+                                                    <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="#A78BFA"/>
+                                <Setter TargetName="Bd" Property="BorderThickness" Value="2"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -430,6 +453,10 @@
                                     <Setter.Value><ScaleTransform ScaleX="0.94" ScaleY="0.94"/></Setter.Value>
                                 </Setter>
                             </Trigger>
+                                                    <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="#A78BFA"/>
+                                <Setter TargetName="Bd" Property="BorderThickness" Value="2"/>
+                            </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
@@ -444,7 +471,7 @@
         <!-- ═══ MONITOR BUTTON ═══ -->
         <Style x:Key="MonitorBtn" TargetType="Button">
             <Setter Property="Background" Value="#0E0C1C"/>
-            <Setter Property="Foreground" Value="#6E6B8C"/>
+            <Setter Property="Foreground" Value="#A9A4CE"/>
             <Setter Property="BorderBrush" Value="#1C1A30"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Padding" Value="13,6"/>
@@ -474,6 +501,10 @@
                                     <Setter.Value><ScaleTransform ScaleX="0.96" ScaleY="0.96"/></Setter.Value>
                                 </Setter>
                             </Trigger>
+                                                    <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="#A78BFA"/>
+                                <Setter TargetName="Bd" Property="BorderThickness" Value="2"/>
+                            </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
@@ -499,7 +530,7 @@
                                 <TextBlock Text="{Binding Label}" FontSize="12" FontWeight="SemiBold"
                                            Foreground="{TemplateBinding Foreground}" TextTrimming="CharacterEllipsis"/>
                                 <TextBlock Text="{Binding Detail}" FontSize="10" FontWeight="Medium"
-                                           Foreground="#5C597E" Margin="0,2,0,0"/>
+                                           Foreground="#A9A4CE" Margin="0,2,0,0"/>
                             </StackPanel>
                         </Border>
                         <ControlTemplate.Triggers>
@@ -577,7 +608,7 @@
                                                                Foreground="#DBD7F2" TextTrimming="CharacterEllipsis"/>
                                                     <TextBlock Text="{Binding SelectedGpuChoice.Detail}"
                                                                FontSize="10" FontWeight="Medium"
-                                                               Foreground="#5C597E" Margin="0,2,0,0"/>
+                                                               Foreground="#A9A4CE" Margin="0,2,0,0"/>
                                                 </StackPanel>
                                                 <Path Grid.Column="1" Data="M 0,0 L 5,5 L 10,0"
                                                       Stroke="#7C77A0" StrokeThickness="1.6"
@@ -682,6 +713,10 @@
                                 <Setter TargetName="Bd" Property="BorderBrush" Value="#3A2870"/>
                                 <Setter Property="Foreground" Value="#C4B5FD"/>
                             </Trigger>
+                                                    <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="#A78BFA"/>
+                                <Setter TargetName="Bd" Property="BorderThickness" Value="2"/>
+                            </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
@@ -727,6 +762,10 @@
                                     <Setter.Value><ScaleTransform ScaleX="0.97" ScaleY="0.97"/></Setter.Value>
                                 </Setter>
                             </Trigger>
+                                                    <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="#A78BFA"/>
+                                <Setter TargetName="Bd" Property="BorderThickness" Value="2"/>
+                            </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
@@ -736,7 +775,7 @@
         <!-- ═══ PILL BUTTON (secondary) ═══ -->
         <Style x:Key="PillBtn" TargetType="Button">
             <Setter Property="Background" Value="#0E0C1C"/>
-            <Setter Property="Foreground" Value="#6E6B8C"/>
+            <Setter Property="Foreground" Value="#A9A4CE"/>
             <Setter Property="BorderBrush" Value="#1C1A30"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Padding" Value="14,7"/>
@@ -769,6 +808,10 @@
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter Property="Opacity" Value="0.4"/>
+                            </Trigger>
+                                                    <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="#A78BFA"/>
+                                <Setter TargetName="Bd" Property="BorderThickness" Value="2"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -805,16 +848,18 @@
                         <TextBlock Text="PULSE" FontSize="11.5" FontWeight="ExtraBold"
                                    Foreground="#BDB5F5" VerticalAlignment="Center" Margin="0,0,7,0"/>
                         <TextBlock Text="Monitor" FontSize="11" FontWeight="Medium"
-                                   Foreground="#3C3960" VerticalAlignment="Center"/>
+                                   Foreground="#A9A4CE" VerticalAlignment="Center"/>
                     </StackPanel>
                     <!-- macOS-style dot buttons -->
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
                         <Button Style="{StaticResource DotBtn}" Background="#FFBD2E"
-                                Click="BtnMinimize_Click" Margin="0,0,4,0" ToolTip="Minimize">
+                                AutomationProperties.Name="Minimize the control panel"
+                                            Click="BtnMinimize_Click" Margin="0,0,4,0" ToolTip="Minimize">
                             <TextBlock Text="─" FontSize="6" FontWeight="Black" Foreground="#7F4000" Margin="0,1,0,0"/>
                         </Button>
                         <Button Style="{StaticResource DotBtn}" Background="#FF5F57"
-                                Click="BtnClose_Click" ToolTip="Close">
+                                AutomationProperties.Name="Close the control panel"
+                                            Click="BtnClose_Click" ToolTip="Close">
                             <TextBlock Text="✕" FontSize="6" FontWeight="Black" Foreground="#7F0014" Margin="0,0.5,0,0"/>
                         </Button>
                     </StackPanel>
@@ -829,7 +874,7 @@
                     <TextBlock Text="Control Panel" FontSize="22" FontWeight="ExtraBold"
                                Foreground="#F0EEF8" Margin="0,0,0,3"/>
                     <TextBlock Text="Configure sensors, overlay style, and preferences."
-                               FontSize="11.5" FontWeight="Medium" Foreground="#524E6C"
+                               FontSize="11.5" FontWeight="Medium" Foreground="#8B86B4"
                                Margin="0,0,0,22" TextWrapping="Wrap"/>
 
                     <!-- UPDATE BANNER -->
@@ -869,7 +914,7 @@
                                     <Run Text=" is available"/>
                                 </TextBlock>
                                 <TextBlock Text="Click Update Now to download and install"
-                                           FontSize="10.5" FontWeight="Medium" Foreground="#7870A8"/>
+                                           FontSize="10.5" FontWeight="Medium" Foreground="#A78BFA"/>
                             </StackPanel>
                             <!-- Update button -->
                             <Button Grid.Column="2" Content="Update Now" Style="{StaticResource AccentBtn}"
@@ -877,7 +922,7 @@
                             <!-- Dismiss -->
                             <Button Grid.Column="3" Style="{StaticResource DotBtn}" Background="#2E2A52"
                                     VerticalAlignment="Center" Click="BtnDismissBanner_Click" ToolTip="Dismiss">
-                                <TextBlock Text="✕" FontSize="6" FontWeight="Black" Foreground="#6E6A94"/>
+                                <TextBlock Text="✕" FontSize="6" FontWeight="Black" Foreground="#A9A4CE"/>
                             </Button>
                         </Grid>
                     </Border>
@@ -914,7 +959,7 @@
                                                FontWeight="SemiBold" Foreground="#CEC8F8" VerticalAlignment="Center"/>
                                 </StackPanel>
                                 <TextBlock HorizontalAlignment="Right" VerticalAlignment="Center"
-                                           FontSize="13" FontWeight="Bold" Foreground="#7C3AED"
+                                           FontSize="13" FontWeight="Bold" Foreground="#A78BFA"
                                            FontFamily="Consolas">
                                     <Run Text="{Binding DownloadProgress, Mode=OneWay}"/>
                                     <Run Text="%"/>
@@ -939,7 +984,7 @@
                                 </Border>
                             </Grid>
                             <TextBlock Text="The installer will open automatically when ready."
-                                       FontSize="10.5" FontWeight="Medium" Foreground="#4A4768"
+                                       FontSize="10.5" FontWeight="Medium" Foreground="#8B86B4"
                                        TextWrapping="Wrap"/>
                         </StackPanel>
                     </Border>
@@ -952,9 +997,9 @@
                         </Grid.ColumnDefinitions>
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                             <TextBlock Text="&#xE8A9;" FontFamily="Segoe MDL2 Assets" FontSize="11"
-                                       Foreground="#5C597E" VerticalAlignment="Center" Margin="0,0,7,0"/>
+                                       Foreground="#A9A4CE" VerticalAlignment="Center" Margin="0,0,7,0"/>
                             <TextBlock Text="ACTIVE TILES" FontSize="10" FontWeight="Bold"
-                                       Foreground="#5C597E" VerticalAlignment="Center"/>
+                                       Foreground="#A9A4CE" VerticalAlignment="Center"/>
                         </StackPanel>
                         <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                             <Button Content="Reset order" Style="{StaticResource LinkBtn}"
@@ -962,8 +1007,8 @@
                                     Margin="0,0,10,0" Click="BtnResetTileOrder_Click"
                                     ToolTip="Put the tiles back to the default arrangement"/>
                             <TextBlock FontSize="10.5" FontWeight="SemiBold" VerticalAlignment="Center">
-                                <Run Text="{Binding SelectedCount, Mode=OneWay}" Foreground="#7C5CCC"/>
-                                <Run Text=" selected" Foreground="#46445E"/>
+                                <Run Text="{Binding SelectedCount, Mode=OneWay}" Foreground="#A78BFA"/>
+                                <Run Text=" selected" Foreground="#8B86B4"/>
                             </TextBlock>
                         </StackPanel>
                     </Grid>
@@ -983,16 +1028,20 @@
                                             Tag="{Binding Definition.Id}"
                                             DragOver="Tile_DragOver"
                                             DragLeave="Tile_DragLeave"
-                                            Drop="Tile_Drop">
+                                            Drop="Tile_Drop"
+                                            KeyDown="Tile_KeyDown">
                                         <Grid>
                                             <CheckBox Style="{StaticResource TileToggle}"
-                                                      IsChecked="{Binding IsSelected, Mode=TwoWay}">
+                                                      IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                                      AutomationProperties.Name="{Binding Definition.Label, Mode=OneWay}"
+                                                      AutomationProperties.HelpText="Space toggles this tile. Alt with an arrow key moves it."
+                                                      ToolTip="Alt + arrow keys move this tile">
                                                 <TextBlock FontSize="11.5" Margin="0,0,14,0">
                                                     <Run Text="{Binding Definition.Label, Mode=OneWay}"
                                                          Foreground="#DBD7F2" FontWeight="Medium"/>
                                                     <Run Text=" "/>
                                                     <Run Text="{Binding Definition.Unit, Mode=OneWay}"
-                                                         Foreground="#2E2C48" FontSize="10"/>
+                                                         Foreground="#8B86B4" FontSize="10"/>
                                                 </TextBlock>
                                             </CheckBox>
 
@@ -1016,23 +1065,23 @@
                         </ItemsControl>
                     </Border>
                     <TextBlock Text="Select sensors to display, and drag the handle on a tile to reorder. The overlay uses this order."
-                               FontSize="10.5" Foreground="#3E3C58" FontWeight="Medium"
+                               FontSize="10.5" Foreground="#8B86B4" FontWeight="Medium"
                                Margin="0,0,0,22" TextWrapping="Wrap"/>
 
                     <!-- ══ GPU SOURCE ══ (hidden when only one GPU is present) -->
                     <StackPanel x:Name="GpuSourceSection" Visibility="Collapsed">
                         <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                             <TextBlock Text="&#xF211;" FontFamily="Segoe MDL2 Assets" FontSize="11"
-                                       Foreground="#5C597E" VerticalAlignment="Center" Margin="0,0,7,0"/>
+                                       Foreground="#A9A4CE" VerticalAlignment="Center" Margin="0,0,7,0"/>
                             <TextBlock Text="GPU SOURCE" FontSize="10" FontWeight="Bold"
-                                       Foreground="#5C597E" VerticalAlignment="Center"/>
+                                       Foreground="#A9A4CE" VerticalAlignment="Center"/>
                         </StackPanel>
                         <Border Background="#111020" CornerRadius="13" Padding="18,16"
                                 BorderBrush="#1C1A30" BorderThickness="1" Margin="0,0,0,8">
                             <StackPanel>
                                 <TextBlock Text="Which GPU the GPU tiles read from"
                                            FontSize="10.5" FontWeight="Medium"
-                                           Foreground="#4E4A6C" Margin="0,0,0,12"/>
+                                           Foreground="#8B86B4" Margin="0,0,0,12"/>
                                 <ComboBox x:Name="GpuCombo"
                                           Style="{StaticResource DarkCombo}"
                                           ItemsSource="{Binding GpuChoices}"
@@ -1042,16 +1091,16 @@
                             </StackPanel>
                         </Border>
                         <TextBlock Text="Auto picks the GPU with dedicated video memory, which is the discrete one on a laptop."
-                                   FontSize="10.5" Foreground="#3E3C58" FontWeight="Medium"
+                                   FontSize="10.5" Foreground="#8B86B4" FontWeight="Medium"
                                    Margin="0,0,0,22" TextWrapping="Wrap"/>
                     </StackPanel>
 
                     <!-- ══ APPEARANCE ══ -->
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                         <TextBlock Text="&#xEA3A;" FontFamily="Segoe MDL2 Assets" FontSize="11"
-                                   Foreground="#5C597E" VerticalAlignment="Center" Margin="0,0,7,0"/>
+                                   Foreground="#A9A4CE" VerticalAlignment="Center" Margin="0,0,7,0"/>
                         <TextBlock Text="APPEARANCE" FontSize="10" FontWeight="Bold"
-                                   Foreground="#5C597E" VerticalAlignment="Center"/>
+                                   Foreground="#A9A4CE" VerticalAlignment="Center"/>
                     </StackPanel>
                     <Border Background="#111020" CornerRadius="13" BorderBrush="#1C1A30"
                             BorderThickness="1" Margin="0,0,0,22">
@@ -1061,13 +1110,13 @@
                             <StackPanel Margin="18,15,18,15">
                                 <Grid Margin="0,0,0,4">
                                     <TextBlock Text="Opacity" FontSize="13" FontWeight="SemiBold" Foreground="#DBD7F2"/>
-                                    <TextBlock HorizontalAlignment="Right" FontSize="15" FontWeight="Bold" Foreground="#7C5CCC">
+                                    <TextBlock HorizontalAlignment="Right" FontSize="15" FontWeight="Bold" Foreground="#A78BFA">
                                         <Run Text="{Binding OpacityPercent, Mode=OneWay}"/>
-                                        <Run Text="%" Foreground="#42406A" FontSize="11"/>
+                                        <Run Text="%" Foreground="#8B86B4" FontSize="11"/>
                                     </TextBlock>
                                 </Grid>
                                 <TextBlock Text="How visible the overlay is over your games"
-                                           FontSize="10.5" FontWeight="Medium" Foreground="#4E4A6C" Margin="0,0,0,12"/>
+                                           FontSize="10.5" FontWeight="Medium" Foreground="#8B86B4" Margin="0,0,0,12"/>
                                 <Slider Style="{StaticResource VioletSlider}"
                                         Minimum="0.2" Maximum="1.0" SmallChange="0.05"
                                         Value="{Binding Opacity, Mode=TwoWay}"/>
@@ -1080,7 +1129,7 @@
                                 <TextBlock Text="Polling Rate" FontSize="13" FontWeight="SemiBold"
                                            Foreground="#DBD7F2" Margin="0,0,0,2"/>
                                 <TextBlock Text="How often sensor values refresh"
-                                           FontSize="10.5" FontWeight="Medium" Foreground="#4E4A6C" Margin="0,0,0,12"/>
+                                           FontSize="10.5" FontWeight="Medium" Foreground="#8B86B4" Margin="0,0,0,12"/>
                                 <Border Background="#0A0918" CornerRadius="10"
                                         BorderBrush="#181530" BorderThickness="1" Padding="3">
                                     <Grid>
@@ -1120,7 +1169,7 @@
                                     <TextBlock Text="Compact HUD" FontSize="13" FontWeight="SemiBold"
                                                Foreground="#DBD7F2" Margin="0,0,0,2"/>
                                     <TextBlock Text="Minimal list — values only, no bars"
-                                               FontSize="10.5" FontWeight="Medium" Foreground="#4E4A6C"
+                                               FontSize="10.5" FontWeight="Medium" Foreground="#8B86B4"
                                                TextWrapping="Wrap"/>
                                 </StackPanel>
                             </CheckBox>
@@ -1134,7 +1183,7 @@
                                     <TextBlock Text="Status Bar" FontSize="13" FontWeight="SemiBold"
                                                Foreground="#DBD7F2" Margin="0,0,0,2"/>
                                     <TextBlock Text="Health summary at the bottom of the overlay"
-                                               FontSize="10.5" FontWeight="Medium" Foreground="#4E4A6C"
+                                               FontSize="10.5" FontWeight="Medium" Foreground="#8B86B4"
                                                TextWrapping="Wrap"/>
                                 </StackPanel>
                             </CheckBox>
@@ -1148,7 +1197,7 @@
                                     <TextBlock Text="Show Max Values" FontSize="13" FontWeight="SemiBold"
                                                Foreground="#DBD7F2" Margin="0,0,0,2"/>
                                     <TextBlock Text="RAM and VRAM show as used / total"
-                                               FontSize="10.5" FontWeight="Medium" Foreground="#4E4A6C"
+                                               FontSize="10.5" FontWeight="Medium" Foreground="#8B86B4"
                                                TextWrapping="Wrap"/>
                                 </StackPanel>
                             </CheckBox>
@@ -1158,9 +1207,9 @@
                     <!-- ══ POSITION ══ -->
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                         <TextBlock Text="&#xE759;" FontFamily="Segoe MDL2 Assets" FontSize="11"
-                                   Foreground="#5C597E" VerticalAlignment="Center" Margin="0,0,7,0"/>
+                                   Foreground="#A9A4CE" VerticalAlignment="Center" Margin="0,0,7,0"/>
                         <TextBlock Text="POSITION" FontSize="10" FontWeight="Bold"
-                                   Foreground="#5C597E" VerticalAlignment="Center"/>
+                                   Foreground="#A9A4CE" VerticalAlignment="Center"/>
                     </StackPanel>
                     <Border Background="#111020" CornerRadius="13" BorderBrush="#1C1A30"
                             BorderThickness="1" Margin="0,0,0,22">
@@ -1171,7 +1220,7 @@
                                     <TextBlock Text="Free Drag" FontSize="13" FontWeight="SemiBold"
                                                Foreground="#DBD7F2" Margin="0,0,0,2"/>
                                     <TextBlock Text="Unlock the overlay to drag it anywhere on screen"
-                                               FontSize="10.5" FontWeight="Medium" Foreground="#4E4A6C"
+                                               FontSize="10.5" FontWeight="Medium" Foreground="#8B86B4"
                                                TextWrapping="Wrap"/>
                                 </StackPanel>
                             </CheckBox>
@@ -1189,16 +1238,17 @@
                                                    Foreground="#DBD7F2" Margin="0,0,0,2"/>
                                         <TextBlock Text="Which monitor to place the overlay on"
                                                    FontSize="10.5" FontWeight="Medium"
-                                                   Foreground="#4E4A6C"/>
+                                                   Foreground="#8B86B4"/>
                                     </StackPanel>
                                     <StackPanel x:Name="MonitorPanel" Grid.Column="1"
                                                 Orientation="Horizontal" VerticalAlignment="Center"/>
                                 </Grid>
 
                                 <TextBlock Text="Snap to corner" FontSize="12" FontWeight="SemiBold"
-                                           Foreground="#6E6B8C" Margin="0,0,0,10"/>
+                                           Foreground="#A9A4CE" Margin="0,0,0,10"/>
                                 <StackPanel x:Name="PositionPanel" Orientation="Horizontal">
                                     <Button Style="{StaticResource CornerBtn}"
+                                            AutomationProperties.Name="Snap overlay to the top left"
                                             Click="Position_Click" Tag="TopLeft" Margin="0,0,8,0">
                                         <Path Data="M 13,13 L 2,2 L 8,2 M 2,2 L 2,8"
                                               Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
@@ -1206,6 +1256,7 @@
                                               Width="16" Height="16"/>
                                     </Button>
                                     <Button Style="{StaticResource CornerBtn}"
+                                            AutomationProperties.Name="Snap overlay to the top right"
                                             Click="Position_Click" Tag="TopRight" Margin="0,0,8,0">
                                         <Path Data="M 2,13 L 13,2 L 7,2 M 13,2 L 13,8"
                                               Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
@@ -1213,6 +1264,7 @@
                                               Width="16" Height="16"/>
                                     </Button>
                                     <Button Style="{StaticResource CornerBtn}"
+                                            AutomationProperties.Name="Snap overlay to the bottom left"
                                             Click="Position_Click" Tag="BottomLeft" Margin="0,0,8,0">
                                         <Path Data="M 13,2 L 2,13 L 8,13 M 2,13 L 2,7"
                                               Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
@@ -1220,6 +1272,7 @@
                                               Width="16" Height="16"/>
                                     </Button>
                                     <Button Style="{StaticResource CornerBtn}"
+                                            AutomationProperties.Name="Snap overlay to the bottom right"
                                             Click="Position_Click" Tag="BottomRight">
                                         <Path Data="M 2,2 L 13,13 L 7,13 M 13,13 L 13,7"
                                               Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
@@ -1230,14 +1283,14 @@
 
                                 <!-- Exact placement, for anything a corner or a drag can't hit -->
                                 <TextBlock Text="Exact position" FontSize="12" FontWeight="SemiBold"
-                                           Foreground="#6E6B8C" Margin="0,18,0,4"/>
+                                           Foreground="#A9A4CE" Margin="0,18,0,4"/>
                                 <TextBlock x:Name="PositionHint"
                                            Text="Pixels from the top-left of the display"
-                                           FontSize="10.5" FontWeight="Medium" Foreground="#4E4A6C"
+                                           FontSize="10.5" FontWeight="Medium" Foreground="#8B86B4"
                                            Margin="0,0,0,10" TextWrapping="Wrap"/>
                                 <StackPanel Orientation="Horizontal">
                                     <TextBlock Text="X" FontSize="12" FontWeight="SemiBold"
-                                               Foreground="#6E6B8C" VerticalAlignment="Center"
+                                               Foreground="#A9A4CE" VerticalAlignment="Center"
                                                Margin="0,0,8,0"/>
                                     <TextBox x:Name="PositionXBox" Style="{StaticResource DarkNumberBox}"
                                              Cursor="SizeWE"
@@ -1249,7 +1302,7 @@
                                              PreviewMouseMove="PositionBox_PreviewMouseMove"
                                              PreviewMouseLeftButtonUp="PositionBox_PreviewMouseUp"/>
                                     <TextBlock Text="Y" FontSize="12" FontWeight="SemiBold"
-                                               Foreground="#6E6B8C" VerticalAlignment="Center"
+                                               Foreground="#A9A4CE" VerticalAlignment="Center"
                                                Margin="16,0,8,0"/>
                                     <TextBox x:Name="PositionYBox" Style="{StaticResource DarkNumberBox}"
                                              Cursor="SizeNS"
@@ -1268,9 +1321,9 @@
                     <!-- ══ SYSTEM ══ -->
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                         <TextBlock Text="&#xE713;" FontFamily="Segoe MDL2 Assets" FontSize="11"
-                                   Foreground="#5C597E" VerticalAlignment="Center" Margin="0,0,7,0"/>
+                                   Foreground="#A9A4CE" VerticalAlignment="Center" Margin="0,0,7,0"/>
                         <TextBlock Text="SYSTEM" FontSize="10" FontWeight="Bold"
-                                   Foreground="#5C597E" VerticalAlignment="Center"/>
+                                   Foreground="#A9A4CE" VerticalAlignment="Center"/>
                     </StackPanel>
                     <Border Background="#111020" CornerRadius="13" BorderBrush="#1C1A30"
                             BorderThickness="1" Margin="0,0,0,22">
@@ -1281,7 +1334,7 @@
                                     <TextBlock Text="Launch with Windows" FontSize="13" FontWeight="SemiBold"
                                                Foreground="#DBD7F2" Margin="0,0,0,2"/>
                                     <TextBlock Text="Pulse starts automatically when you sign in"
-                                               FontSize="10.5" FontWeight="Medium" Foreground="#4E4A6C"
+                                               FontSize="10.5" FontWeight="Medium" Foreground="#8B86B4"
                                                TextWrapping="Wrap"/>
                                 </StackPanel>
                             </CheckBox>
@@ -1292,7 +1345,7 @@
                                     <TextBlock Text="Minimize to tray" FontSize="13" FontWeight="SemiBold"
                                                Foreground="#DBD7F2" Margin="0,0,0,2"/>
                                     <TextBlock Text="Closing keeps Pulse running in the system tray"
-                                               FontSize="10.5" FontWeight="Medium" Foreground="#4E4A6C"
+                                               FontSize="10.5" FontWeight="Medium" Foreground="#8B86B4"
                                                TextWrapping="Wrap"/>
                                 </StackPanel>
                             </CheckBox>
@@ -1302,9 +1355,9 @@
                     <!-- ══ ABOUT ══ -->
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                         <TextBlock Text="&#xE946;" FontFamily="Segoe MDL2 Assets" FontSize="11"
-                                   Foreground="#5C597E" VerticalAlignment="Center" Margin="0,0,7,0"/>
+                                   Foreground="#A9A4CE" VerticalAlignment="Center" Margin="0,0,7,0"/>
                         <TextBlock Text="ABOUT" FontSize="10" FontWeight="Bold"
-                                   Foreground="#5C597E" VerticalAlignment="Center"/>
+                                   Foreground="#A9A4CE" VerticalAlignment="Center"/>
                     </StackPanel>
                     <Border Background="#111020" CornerRadius="13" Padding="18,16"
                             BorderBrush="#1C1A30" BorderThickness="1" Margin="0,0,0,8">
@@ -1320,11 +1373,11 @@
                                                    Foreground="#DBD7F2" Margin="0,0,8,0"/>
                                         <Border CornerRadius="5" Background="#16103A" Padding="7,2">
                                             <TextBlock Text="{Binding AppVersionLabel}" FontSize="11"
-                                                       FontWeight="Bold" Foreground="#8B5CF6"/>
+                                                       FontWeight="Bold" Foreground="#A78BFA"/>
                                         </Border>
                                     </StackPanel>
                                     <TextBlock Text="{Binding UpdateStatus}" FontSize="10.5"
-                                               FontWeight="Medium" Foreground="#6E6B8C">
+                                               FontWeight="Medium" Foreground="#A9A4CE">
                                         <TextBlock.Style>
                                             <Style TargetType="TextBlock">
                                                 <Setter Property="Visibility" Value="Visible"/>
@@ -1359,9 +1412,9 @@
                                 </Button>
                             </Grid>
                             <TextBlock Text="Pulse checks automatically on startup"
-                                       FontSize="10.5" FontWeight="Medium" Foreground="#524E6C"/>
+                                       FontSize="10.5" FontWeight="Medium" Foreground="#8B86B4"/>
 
-                            <TextBlock FontSize="10.5" FontWeight="Medium" Foreground="#3E3C58"
+                            <TextBlock FontSize="10.5" FontWeight="Medium" Foreground="#8B86B4"
                                        Margin="0,7,0,0">
                                 <Run Text="Windows"/>
                                 <Run Text="  ·  " Foreground="#2A2842"/>
@@ -1379,7 +1432,7 @@
                                  made it read as unrelated rather than as a different kind of
                                  action. -->
                             <TextBlock Text="Links" FontSize="10.5" FontWeight="SemiBold"
-                                       Foreground="#524E6C" Margin="0,0,0,7"/>
+                                       Foreground="#8B86B4" Margin="0,0,0,7"/>
                             <WrapPanel>
                                 <Button Style="{StaticResource LinkBtn}" Margin="0,0,7,7"
                                         Tag="https://pulse.reforatech.com"
@@ -1417,7 +1470,7 @@
                             </WrapPanel>
 
                             <TextBlock Text="Troubleshooting" FontSize="10.5" FontWeight="SemiBold"
-                                       Foreground="#524E6C" Margin="0,11,0,7"/>
+                                       Foreground="#8B86B4" Margin="0,11,0,7"/>
                             <Button Style="{StaticResource ActionBtn}" HorizontalAlignment="Left"
                                     ToolTip="Writes a log file to your desktop that you can attach to a bug report"
                                     AutomationProperties.Name="Save a diagnostics file to your desktop"
@@ -1431,7 +1484,7 @@
                             </Button>
                             <TextBlock x:Name="DiagnosticsHint"
                                        Text="Creates a text file describing recent errors. Nothing is sent anywhere."
-                                       FontSize="10" FontWeight="Medium" Foreground="#3E3C58"
+                                       FontSize="10" FontWeight="Medium" Foreground="#8B86B4"
                                        TextWrapping="Wrap" Margin="0,6,0,0"/>
                         </StackPanel>
                     </Border>
@@ -1443,13 +1496,14 @@
             <Border Grid.Row="2" BorderBrush="#161330" BorderThickness="0,1,0,0" CornerRadius="0,0,17,17">
                 <Border.Background><SolidColorBrush Color="#0B0A14" Opacity="0.9"/></Border.Background>
                 <Grid Margin="20,0">
-                    <TextBlock VerticalAlignment="Center" Foreground="#6E6B8C"
+                    <TextBlock VerticalAlignment="Center" Foreground="#A9A4CE"
                                FontSize="10.5" FontWeight="Medium">
                         <Run Text="© 2026 Refora Technologies  ·  "/>
                         <Run Text="{Binding AppVersionLabel, Mode=OneWay}"/>
                     </TextBlock>
                     <Button x:Name="BtnOverlayToggle" HorizontalAlignment="Right" VerticalAlignment="Center"
-                            Click="BtnOverlayToggle_Click" Cursor="Hand" Padding="20,11"
+                            AutomationProperties.Name="Show or hide the overlay"
+                                            Click="BtnOverlayToggle_Click" Cursor="Hand" Padding="20,11"
                             FontWeight="Bold" FontSize="12" FontFamily="{StaticResource Jakarta}"
                             Foreground="White" BorderThickness="0" RenderTransformOrigin="0.5,0.5">
                         <Button.RenderTransform><ScaleTransform/></Button.RenderTransform>
