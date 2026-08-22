@@ -135,8 +135,10 @@ public class UpdateService
                 Notes         = root.Value<string>("body") ?? "",
             });
         }
-        catch
+        catch (Exception ex)
         {
+            // Distinguishes "no network" from "you are up to date" after the fact.
+            LogService.Error(nameof(UpdateService), "Update check failed", ex);
             return (false, null);
         }
     }
@@ -181,7 +183,12 @@ public class UpdateService
                 var checksumContent = await ApiHttp.GetStringAsync(info.ChecksumUrl);
                 expectedSha256 = ParseSha256(checksumContent);
             }
-            catch { /* left null — fails closed below */ }
+            catch (Exception ex)
+            {
+                // Left null so we fail closed below, but recorded: this is why an update
+                // refuses to install while the release page clearly has one.
+                LogService.Error(nameof(UpdateService), "Could not fetch the update checksum", ex);
+            }
         }
 
         if (string.IsNullOrEmpty(expectedSha256))
@@ -196,8 +203,9 @@ public class UpdateService
         {
             target = Path.Combine(CreateSecureDownloadDirectory(), fileName);
         }
-        catch
+        catch (Exception ex)
         {
+            LogService.Error(nameof(UpdateService), "Could not create a secure download folder", ex);
             return UpdateDownloadStatus.LocationNotSecurable;
         }
 
@@ -222,8 +230,9 @@ public class UpdateService
                 await dst.FlushAsync();
             }
         }
-        catch
+        catch (Exception ex)
         {
+            LogService.Error(nameof(UpdateService), "Downloading the update failed", ex);
             TryDelete(target);
             return UpdateDownloadStatus.DownloadFailed;
         }
@@ -240,8 +249,9 @@ public class UpdateService
                 return UpdateDownloadStatus.VerificationFailed;
             }
         }
-        catch
+        catch (Exception ex)
         {
+            LogService.Error(nameof(UpdateService), "Verifying the downloaded update failed", ex);
             TryDelete(target);
             return UpdateDownloadStatus.DownloadFailed;
         }
@@ -257,8 +267,9 @@ public class UpdateService
             await Task.Delay(1500);
             return UpdateDownloadStatus.Success;
         }
-        catch
+        catch (Exception ex)
         {
+            LogService.Error(nameof(UpdateService), "Could not launch the downloaded installer", ex);
             return UpdateDownloadStatus.DownloadFailed;
         }
     }

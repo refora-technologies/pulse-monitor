@@ -153,19 +153,33 @@ public class SettingsService
                 UseShellExecute = false,
             });
 
-            if (process is null) return false;
+            if (process is null)
+            {
+                LogService.Warn(nameof(SettingsService), "schtasks did not start; startup setting unchanged.");
+                return false;
+            }
 
             if (!process.WaitForExit(5000))
             {
                 // Never leave an orphan holding a console handle.
                 try { process.Kill(true); } catch { }
+                LogService.Warn(nameof(SettingsService), $"schtasks timed out: {arguments}");
                 return false;
+            }
+
+            if (process.ExitCode != 0)
+            {
+                // "Start with Windows does nothing" is a real support case, and without this
+                // there was no way to tell a refused task from one that was never created.
+                LogService.Warn(nameof(SettingsService),
+                    $"schtasks failed with exit code {process.ExitCode}: {arguments}");
             }
 
             return process.ExitCode == 0;
         }
-        catch
+        catch (Exception ex)
         {
+            LogService.Error(nameof(SettingsService), $"Could not run schtasks: {arguments}", ex);
             return false;
         }
     }
