@@ -58,8 +58,14 @@ public class GpuInfo
 
 public class HardwareService : IDisposable
 {
-    private static HardwareService? _instance;
-    public static HardwareService Instance => _instance ??= new HardwareService();
+    /// Lazy rather than `??=`: that is not atomic, and these are reached from the polling
+    /// thread and the UI thread at the same time during startup. Losing the race builds two
+    /// instances, each with its own event subscribers, so notifications reach an object
+    /// nobody is listening to.
+    private static readonly Lazy<HardwareService> LazyInstance =
+        new(() => new HardwareService(), LazyThreadSafetyMode.ExecutionAndPublication);
+
+    public static HardwareService Instance => LazyInstance.Value;
 
     private readonly Computer _computer;
     private readonly DispatcherTimer _timer;
@@ -310,7 +316,14 @@ public class HardwareService : IDisposable
                 ReadGpu(chosen, data);
             }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            // One misbehaving device aborts the whole enumeration, so unrelated tiles go
+            // blank for that cycle. Still swallowed — a monitoring overlay must not fall over
+            // because one sensor threw — but recorded now, and only once per fault rather
+            // than every poll, which at two-second intervals would bury the log in minutes.
+            ReportPollFailure(ex);
+        }
 
         // Raised only after the lock is released. Subscribers marshal to the UI thread, and
         // the UI thread takes _computerLock whenever the tile selection changes, so firing
@@ -328,6 +341,32 @@ public class HardwareService : IDisposable
         data.Fps1Low = FpsService.Instance.OnePercentLowFps;
 
         return data;
+    }
+
+    private string? _lastPollFault;
+    private int _pollFaultCount;
+
+    /// <summary>
+    /// Logs a polling failure once per distinct fault, with a count when it recurs.
+    ///
+    /// Polling runs every couple of seconds, so logging each occurrence would fill the file
+    /// with the same line and drown anything useful. The first is recorded immediately, then
+    /// every hundredth, which is enough to show it is persistent rather than a one-off.
+    /// </summary>
+    private void ReportPollFailure(Exception ex)
+    {
+        var signature = ex.GetType().Name + ": " + ex.Message;
+
+        if (signature != _lastPollFault)
+        {
+            _lastPollFault  = signature;
+            _pollFaultCount = 1;
+            LogService.Error(nameof(HardwareService), "A sensor read failed; this poll is incomplete", ex);
+            return;
+        }
+
+        if (++_pollFaultCount % 100 == 0)
+            LogService.Warn(nameof(HardwareService), $"Same sensor read has now failed {_pollFaultCount} times: {signature}");
     }
 
     private static bool IsGpu(HardwareType type) =>

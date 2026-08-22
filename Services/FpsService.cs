@@ -15,8 +15,14 @@ namespace Pulse.Services;
 /// </summary>
 public class FpsService : IDisposable
 {
-    private static FpsService? _instance;
-    public static FpsService Instance => _instance ??= new FpsService();
+    /// Lazy rather than `??=`: that is not atomic, and these are reached from the polling
+    /// thread and the UI thread at the same time during startup. Losing the race builds two
+    /// instances, each with its own event subscribers, so notifications reach an object
+    /// nobody is listening to.
+    private static readonly Lazy<FpsService> LazyInstance =
+        new(() => new FpsService(), LazyThreadSafetyMode.ExecutionAndPublication);
+
+    public static FpsService Instance => LazyInstance.Value;
 
     [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);

@@ -6,8 +6,19 @@ namespace Pulse.Services;
 
 public class SettingsService
 {
-    private static SettingsService? _instance;
-    public static SettingsService Instance => _instance ??= new SettingsService();
+    /// <summary>
+    /// Thread-safe by construction.
+    ///
+    /// A plain `??=` is not atomic, and startup reaches this from two threads at once: the
+    /// UI thread building the services while a background task reconciles the startup task.
+    /// Losing that race produced *two* settings services — each with its own SettingsChanged
+    /// subscribers — so the overlay could end up listening to an object nothing ever
+    /// notified, and changes would silently stop being applied.
+    /// </summary>
+    private static readonly Lazy<SettingsService> LazyInstance =
+        new(() => new SettingsService(), LazyThreadSafetyMode.ExecutionAndPublication);
+
+    public static SettingsService Instance => LazyInstance.Value;
 
     private const string TaskName = "PulseMonitor";
 

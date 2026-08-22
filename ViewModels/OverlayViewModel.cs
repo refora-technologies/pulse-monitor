@@ -169,8 +169,14 @@ public class TileViewModel : BaseViewModel
 
 public class OverlayViewModel : BaseViewModel
 {
-    private static OverlayViewModel? _instance;
-    public static OverlayViewModel Instance => _instance ??= new OverlayViewModel();
+    /// Lazy rather than `??=`: that is not atomic, and these are reached from the polling
+    /// thread and the UI thread at the same time during startup. Losing the race builds two
+    /// instances, each with its own event subscribers, so notifications reach an object
+    /// nobody is listening to.
+    private static readonly Lazy<OverlayViewModel> LazyInstance =
+        new(() => new OverlayViewModel(), LazyThreadSafetyMode.ExecutionAndPublication);
+
+    public static OverlayViewModel Instance => LazyInstance.Value;
 
     public ObservableCollection<TileViewModel> ActiveTiles { get; } = new();
 
@@ -274,8 +280,22 @@ public class OverlayViewModel : BaseViewModel
     /// </summary>
     private void UpdateStatus(SensorData data)
     {
-        var temps = new[] { data.CpuTemp, data.GpuTemp }
-            .Where(t => t.HasValue).Select(t => t!.Value).ToList();
+        // A failed sensor driver is the one thing worth saying out loud. Until now it was
+        // recorded internally and never shown, so the user just saw every tile reading "--"
+        // with no indication that anything was wrong or what to do about it.
+        var fault = HardwareService.Instance.HardwareFault;
+        if (fault != null)
+        {
+            StatusText  = "Sensors unavailable — see About for details";
+            StatusColor = TileViewModel.DangerColor;
+            return;
+        }
+
+        // Only temperatures from tiles the user actually has on screen. Reading a hidden
+        // sensor and reporting on it made the summary describe something not shown.
+        var temps = new List<float>();
+        if (data.CpuTemp.HasValue && ActiveTiles.Any(t => t.Definition.Id == "cpu_temp")) temps.Add(data.CpuTemp.Value);
+        if (data.GpuTemp.HasValue && ActiveTiles.Any(t => t.Definition.Id == "gpu_temp")) temps.Add(data.GpuTemp.Value);
 
         if (!temps.Any())
         {
