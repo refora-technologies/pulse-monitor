@@ -34,14 +34,58 @@ public class SettingsViewModel : BaseViewModel
         get => _opacity;
         set
         {
-            if (Set(ref _opacity, value))
-            {
-                OnPropertyChanged(nameof(OpacityPercent));
-                SettingsService.Instance.Settings.OverlayOpacity = value;
-                OverlayViewModel.Instance.OverlayOpacity = value;
-                SettingsService.Instance.Save();
-            }
+            if (!Set(ref _opacity, value)) return;
+
+            OnPropertyChanged(nameof(OpacityPercent));
+            SettingsService.Instance.Settings.OverlayOpacity = value;
+
+            // Applied straight away so the overlay tracks the slider, but written to disk
+            // only once the user stops moving it.
+            OverlayViewModel.Instance.OverlayOpacity = value;
+            ScheduleSettingsSave();
         }
+    }
+
+    private System.Windows.Threading.DispatcherTimer? _saveTimer;
+
+    /// <summary>
+    /// Delays saving until a continuous adjustment settles.
+    ///
+    /// Dragging the opacity slider raised this on every tick, and each one rewrote the whole
+    /// settings file *and* notified every settings subscriber — which repositions the
+    /// overlay and re-evaluates frame capture. A single drag across the slider was hundreds
+    /// of file writes and hundreds of overlay repositions.
+    /// </summary>
+    private void ScheduleSettingsSave()
+    {
+        if (_saveTimer == null)
+        {
+            _saveTimer = new System.Windows.Threading.DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(400),
+            };
+            _saveTimer.Tick += (_, _) =>
+            {
+                _saveTimer!.Stop();
+                SettingsService.Instance.Save();
+            };
+        }
+
+        _saveTimer.Stop();
+        _saveTimer.Start();
+    }
+
+    /// <summary>
+    /// Writes a delayed save immediately. Called when the panel closes and when Pulse exits,
+    /// so an adjustment made in the last fraction of a second before quitting is not lost —
+    /// which is the obvious way a debounce goes wrong.
+    /// </summary>
+    public void FlushPendingSave()
+    {
+        if (_saveTimer is not { IsEnabled: true }) return;
+
+        _saveTimer.Stop();
+        SettingsService.Instance.Save();
     }
 
     private double _pollingInterval;
