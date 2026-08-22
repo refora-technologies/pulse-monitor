@@ -463,6 +463,39 @@ public partial class MainWindow : Window
     private void BtnDismissBanner_Click(object sender, RoutedEventArgs e)
         => _vm?.DismissBanner();
 
+    /// <summary>
+    /// Writes the log files to the desktop and reveals the result, so someone reporting a
+    /// problem has something to attach rather than being asked to reproduce it blind.
+    /// </summary>
+    private void BtnExportDiagnostics_Click(object sender, RoutedEventArgs e)
+    {
+        var path = LogService.Export();
+
+        if (path == null)
+        {
+            DiagnosticsLinkText.Text = "Couldn't save diagnostics";
+            return;
+        }
+
+        DiagnosticsLinkText.Text = "Saved to your desktop";
+
+        try
+        {
+            // Selects the file in Explorer rather than opening it, so it is obvious what to
+            // attach without a text editor stealing focus.
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName        = "explorer.exe",
+                Arguments       = $"/select,\"{path}\"",
+                UseShellExecute = true,
+            });
+        }
+        catch (Exception ex)
+        {
+            LogService.Error(nameof(MainWindow), "Could not reveal the diagnostics file", ex);
+        }
+    }
+
     /// Opens an About-section link in the user's default browser. The URL lives in the
     /// button's Tag so the markup stays the single source of truth for these.
     private void BtnExternalLink_Click(object sender, RoutedEventArgs e)

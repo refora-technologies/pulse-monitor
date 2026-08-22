@@ -1353,6 +1353,20 @@
                                     </StackPanel>
                                 </Button>
                             </StackPanel>
+
+                            <!-- Gives anyone reporting a problem something concrete to attach,
+                                 instead of us asking them to reproduce it blind. -->
+                            <Button Style="{StaticResource LinkBtn}" Margin="18,0,18,16"
+                                    HorizontalAlignment="Left"
+                                    AutomationProperties.Name="Save a diagnostics file to the desktop"
+                                    Click="BtnExportDiagnostics_Click">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="&#xE74E;" FontFamily="Segoe MDL2 Assets"
+                                               FontSize="10" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                    <TextBlock x:Name="DiagnosticsLinkText" Text="Save diagnostics"
+                                               VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
                         </StackPanel>
                     </Border>
 

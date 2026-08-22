@@ -93,8 +93,11 @@ public class AppSettings
             settings.Sanitise();
             return settings;
         }
-        catch
+        catch (Exception ex)
         {
+            // Worth recording: this is the path where a user silently loses every
+            // preference, and without a trace it looks like Pulse simply forgot them.
+            Services.LogService.Error(nameof(AppSettings), $"Could not read settings from {path}", ex);
             return null;
         }
     }
@@ -159,6 +162,9 @@ public class AppSettings
             else
                 File.Move(temp, SettingsPath);
         }
-        catch { }
+        catch (Exception ex)
+        {
+            Services.LogService.Error(nameof(AppSettings), "Could not save settings", ex);
+        }
     }
 }

@@ -226,10 +226,13 @@ public class FpsService : IDisposable
             _process.Start();
             _process.BeginOutputReadLine();
         }
-        catch
+        catch (Exception ex)
         {
             // PresentMon missing, blocked, or capture unavailable — CurrentFps just stays
-            // null and the FPS tile shows "--", same as any other unreadable sensor.
+            // null and the FPS tile shows "--", same as any other unreadable sensor. Worth
+            // a line in the log though: "FPS shows nothing" is otherwise indistinguishable
+            // from a game that simply is not presenting.
+            LogService.Error(nameof(FpsService), "Could not start frame capture", ex);
             _process = null;
         }
     }
