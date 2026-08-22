@@ -45,11 +45,35 @@ Plus Jakarta Sans (embedded font)
   Copyright 2020 The Plus Jakarta Sans Project Authors
 
 
+LibreHardwareMonitorLib ships several libraries of its own, and those travel
+inside Pulse.exe too:
+
+BlackSharp.Core
+  License : Mozilla Public License 2.0
+  Source  : https://github.com/LibreHardwareMonitor/LibreHardwareMonitor
+
+DiskInfoToolkit
+  License : Mozilla Public License 2.0
+  Source  : https://github.com/LibreHardwareMonitor/LibreHardwareMonitor
+
+RAMSPDToolkit
+  License : Mozilla Public License 2.0
+  Source  : https://github.com/LibreHardwareMonitor/LibreHardwareMonitor
+
+HidSharp
+  License : Apache License 2.0
+  Source  : https://github.com/IntergatedCircuits/HidSharp
+
+Mono.Posix.NETStandard
+  License : MIT License
+  Source  : https://github.com/mono/mono
+
 MIT LICENSE TEXT
 ================
 
 The following applies to the MIT-licensed components listed above
-(CommunityToolkit.Mvvm, Newtonsoft.Json and PresentMon), each under its own
+(CommunityToolkit.Mvvm, Newtonsoft.Json, PresentMon and Mono.Posix.NETStandard),
+each under its own
 copyright notice as shown.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
