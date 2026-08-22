@@ -32,6 +32,19 @@ public class FpsService : IDisposable
     private const int FrameWindowMs = 1000;
     private const int StaleAfterMs  = 2000;
 
+    /// <summary>
+    /// Window the 1% low is measured over, and the guard rails around it.
+    ///
+    /// 1% of a one-second window would be well under a single frame, so the low needs its
+    /// own much longer history. Sixty seconds matches what people expect from a live
+    /// overlay, the sample cap keeps memory bounded at very high frame rates, and the
+    /// minimum stops a number appearing before there is enough data for "the slowest 1%"
+    /// to mean anything.
+    /// </summary>
+    private const int LowWindowMs   = 60_000;
+    private const int LowMaxSamples = 20_000;
+    private const int LowMinSamples = 200;
+
     private const int MaxRestarts = 5;
 
     private readonly object _lock = new();
@@ -41,6 +54,10 @@ public class FpsService : IDisposable
     /// number that matched none of them. The busiest chain is the one being played.
     private readonly Dictionary<string, Queue<FrameSample>> _bySwapChain = new();
 
+    /// Long history of the busiest chain's frames, used for the 1% low.
+    private readonly Queue<FrameSample> _lowSamples = new();
+    private string _dominantChain = "";
+
     private readonly DispatcherTimer _targetTimer;
 
     private Process? _process;
@@ -49,10 +66,19 @@ public class FpsService : IDisposable
     private int  _headerSwapChainIndex = -1;
     private uint _foregroundPid;
     private bool _captureWanted;
+    private bool _lowWanted;
     private bool _stopping;
     private int  _restartCount;
 
     public float? CurrentFps { get; private set; }
+
+    /// <summary>
+    /// The average frame rate of the slowest 1% of recent frames — NVIDIA's definition, and
+    /// deliberately not the 1st percentile. Averaging the worst frames keeps a single deep
+    /// stutter visible, where a percentile would report only the value at the boundary and
+    /// hide it. Null until there are enough samples to mean anything.
+    /// </summary>
+    public float? OnePercentLowFps { get; private set; }
 
     private FpsService()
     {
@@ -79,8 +105,21 @@ public class FpsService : IDisposable
     /// </summary>
     private void ApplyCaptureState()
     {
-        bool wanted = SettingsService.Instance.Settings.ActiveTileIds.Contains("fps");
+        var active  = SettingsService.Instance.Settings.ActiveTileIds;
+        bool lowOn  = active.Contains("fps_1low");
+        bool wanted = active.Contains("fps") || lowOn;
 
+        // The 1% low keeps up to a minute of frames; nobody pays for that unless the tile
+        // showing it is actually on.
+        if (_lowWanted && !lowOn)
+        {
+            lock (_lock)
+            {
+                _lowSamples.Clear();
+                OnePercentLowFps = null;
+            }
+        }
+        _lowWanted     = lowOn;
         _captureWanted = wanted;
 
         if (wanted && _process is null)
@@ -169,7 +208,13 @@ public class FpsService : IDisposable
                     FileName               = PresentMonPath,
                     // No --process_name/--process_id: captures every process system-wide.
                     // Pulse already runs elevated, so this child inherits that automatically.
-                    Arguments              = "--output_stdout --no_console_stats --stop_existing_session",
+                    //
+                    // --v1_metrics pins the CSV schema. PresentMon 2.x can emit either the
+                    // 1.x or 2.x metric set and the column names differ between them, so
+                    // relying on whichever happens to be the default would mean a future
+                    // PresentMon silently renaming the columns we look for — and FPS just
+                    // quietly stopping.
+                    Arguments              = "--output_stdout --no_console_stats --stop_existing_session --v1_metrics",
                     RedirectStandardOutput = true,
                     UseShellExecute        = false,
                     CreateNoWindow         = true,
@@ -198,23 +243,29 @@ public class FpsService : IDisposable
         {
             // First line is the CSV header. Columns are located by name rather than a
             // fixed index, since PresentMon's exact schema has shifted across versions.
+            int presents = -1, displayChange = -1;
+
             for (int i = 0; i < fields.Length; i++)
             {
                 if (fields[i].Equals("ProcessID", StringComparison.OrdinalIgnoreCase))
                     _headerProcessIdIndex = i;
                 else if (fields[i].Equals("SwapChainAddress", StringComparison.OrdinalIgnoreCase))
                     _headerSwapChainIndex = i;
+                else if (fields[i].Equals("MsBetweenPresents", StringComparison.OrdinalIgnoreCase))
+                    presents = i;
                 else if (fields[i].Equals("MsBetweenDisplayChange", StringComparison.OrdinalIgnoreCase))
-                    _headerFrameTimeIndex = i;
+                    displayChange = i;
             }
-            if (_headerFrameTimeIndex < 0)
-            {
-                // Fall back to present-to-present timing if display-change timing isn't
-                // in this PresentMon build.
-                for (int i = 0; i < fields.Length; i++)
-                    if (fields[i].Equals("MsBetweenPresents", StringComparison.OrdinalIgnoreCase))
-                        _headerFrameTimeIndex = i;
-            }
+
+            // Presents, not display changes.
+            //
+            // MsBetweenDisplayChange measures the gap between frames the monitor actually
+            // showed, so it is capped by the refresh rate: on a 60Hz panel it can never
+            // report above 60 however fast the game is really running. MsBetweenPresents
+            // measures what the GPU produced, which is the number every other overlay calls
+            // FPS. Preferring display changes gave Pulse an invisible ceiling at the refresh
+            // rate while NVIDIA's overlay sat well above it on the same scene.
+            _headerFrameTimeIndex = presents >= 0 ? presents : displayChange;
             return;
         }
 
@@ -243,8 +294,22 @@ public class FpsService : IDisposable
                 _bySwapChain[swapChain] = samples;
             }
 
-            samples.Enqueue(new FrameSample(ms, Environment.TickCount64));
+            var sample = new FrameSample(ms, Environment.TickCount64);
+            samples.Enqueue(sample);
             Recompute();
+
+            // Only the chain actually being played feeds the 1% low, so a menu or video
+            // layer presenting slowly alongside the game cannot masquerade as stutter.
+            if (_lowWanted && swapChain == _dominantChain)
+            {
+                _lowSamples.Enqueue(sample);
+
+                while (_lowSamples.Count > LowMaxSamples ||
+                       (_lowSamples.Count > 0 && sample.At - _lowSamples.Peek().At > LowWindowMs))
+                {
+                    _lowSamples.Dequeue();
+                }
+            }
         }
     }
 
@@ -257,6 +322,7 @@ public class FpsService : IDisposable
         long now = Environment.TickCount64;
 
         Queue<FrameSample>? busiest = null;
+        string busiestKey = "";
         List<string>? empty = null;
 
         foreach (var (key, samples) in _bySwapChain)
@@ -270,7 +336,19 @@ public class FpsService : IDisposable
                 continue;
             }
 
-            if (samples.Count > (busiest?.Count ?? 0)) busiest = samples;
+            if (samples.Count > (busiest?.Count ?? 0))
+            {
+                busiest    = samples;
+                busiestKey = key;
+            }
+        }
+
+        // Switching chains means the long history belongs to something else now.
+        if (busiestKey != _dominantChain)
+        {
+            _dominantChain = busiestKey;
+            _lowSamples.Clear();
+            OnePercentLowFps = null;
         }
 
         // Chains come and go as menus, videos and overlays open and close.
@@ -299,13 +377,54 @@ public class FpsService : IDisposable
             if (!anyRecent)
             {
                 _bySwapChain.Clear();
-                CurrentFps = null;
+                _lowSamples.Clear();
+                _dominantChain   = "";
+                CurrentFps       = null;
+                OnePercentLowFps = null;
+                return;
             }
-            else
-            {
-                Recompute();
-            }
+
+            Recompute();
+            RecomputeOnePercentLow(now);
         }
+    }
+
+    /// <summary>
+    /// Averages the slowest 1% of frames in the window.
+    ///
+    /// Run from the half-second timer rather than per frame: it sorts the whole window, and
+    /// doing that on every present at 240fps would cost far more than the metric is worth.
+    /// Caller holds <see cref="_lock"/>.
+    /// </summary>
+    private void RecomputeOnePercentLow(long now)
+    {
+        if (!_lowWanted)
+        {
+            OnePercentLowFps = null;
+            return;
+        }
+
+        while (_lowSamples.Count > 0 && now - _lowSamples.Peek().At > LowWindowMs)
+            _lowSamples.Dequeue();
+
+        if (_lowSamples.Count < LowMinSamples)
+        {
+            OnePercentLowFps = null;   // "--" rather than a figure built from too little data
+            return;
+        }
+
+        var times = new double[_lowSamples.Count];
+        int next = 0;
+        foreach (var sample in _lowSamples) times[next++] = sample.Ms;
+        Array.Sort(times);
+
+        // Slowest frames are the longest ones, so take from the top of the sorted array.
+        int worst = Math.Max(1, times.Length / 100);
+        double total = 0;
+        for (int i = times.Length - worst; i < times.Length; i++) total += times[i];
+
+        double averageMs = total / worst;
+        OnePercentLowFps = averageMs > 0 ? (float)(1000.0 / averageMs) : null;
     }
 
     private void RefreshForegroundTarget()
@@ -318,8 +437,14 @@ public class FpsService : IDisposable
         _foregroundPid = pid;
         lock (_lock)
         {
+            // Everything collected belonged to the app we just left, the minute of history
+            // behind the 1% low included — otherwise alt-tabbing out of a game blanked FPS
+            // but left the game's 1% low sitting there next to it.
             _bySwapChain.Clear();
-            CurrentFps = null;
+            _lowSamples.Clear();
+            _dominantChain   = "";
+            CurrentFps       = null;
+            OnePercentLowFps = null;
         }
     }
 
