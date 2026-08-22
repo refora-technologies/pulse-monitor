@@ -87,10 +87,6 @@ Filename: "{app}\Pulse.exe"; Description: "Launch Pulse"; Flags: nowait postinst
 ; broke "start with Windows" for the copy the user kept.
 Filename: "schtasks.exe"; Parameters: "/Delete /TN ""PulseMonitor"" /F"; Flags: runhidden; RunOnceId: "DelPulseTask"; Check: TaskTargetsThisInstall
 
-; Opt-in only, and defaulted to No — PawnIO is a shared driver that other hardware monitors
-; also use, so removing it by default could break software we know nothing about.
-Filename: "{app}\PawnIO_setup.exe"; Parameters: "-uninstall -silent"; Flags: runhidden waituntilterminated; RunOnceId: "DelPawnIO"; Check: ShouldRemovePawnIO
-
 [UninstallDelete]
 ; Pulse is a single-file app, so .NET unpacks its native libraries here, into a differently
 ; named folder for every build. Left behind they accumulate and look like stray installs.
@@ -103,9 +99,6 @@ Type: filesandordirs; Name: "{localappdata}\Temp\.net\Pulse"
 Type: filesandordirs; Name: "{localappdata}\Temp\Pulse-update-*"
 
 [Code]
-var
-  RemovePawnIOChoice: Boolean;
-
 { True when the PulseMonitor scheduled task runs an exe from the folder being uninstalled.
 
   /V /FO LIST is used rather than /XML on purpose: /XML emits UTF-16, which does not survive
@@ -131,20 +124,64 @@ begin
   DeleteFile(TempFile);
 end;
 
-function ShouldRemovePawnIO(): Boolean;
+{ Closes a running Pulse before anything is removed.
+
+  CloseApplications handles this during installation through the Restart Manager, but not
+  during uninstallation — so uninstalling while Pulse was running left its files locked
+  ("some elements could not be removed") and, worse, left the sensor driver in use, which
+  made removing PawnIO fail silently even when the user had asked for it.
+
+  Politely first, so Pulse can finish writing settings and release the driver handle;
+  forcefully only if it is still there. Settings are written as they change, so nothing is
+  lost either way. }
+procedure CloseRunningPulse();
+var
+  ResultCode: Integer;
 begin
-  Result := RemovePawnIOChoice;
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM Pulse.exe',
+       '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Sleep(1500);
+
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM Pulse.exe /F',
+       '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Sleep(800);
+end;
+
+{ Burn bootstrappers report 3010 when the removal succeeded but wants a reboot. }
+function SucceededOrNeedsReboot(Code: Integer): Boolean;
+begin
+  Result := (Code = 0) or (Code = 3010);
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  ResultCode: Integer;
+  RemoveDriver: Boolean;
 begin
   if CurUninstallStep = usUninstall then
   begin
+    CloseRunningPulse();
+
     { MB_DEFBUTTON2 makes No the default, which is also what a silent uninstall picks. }
-    RemovePawnIOChoice :=
+    RemoveDriver :=
       MsgBox('Also remove the PawnIO sensor driver?' + #13#10 + #13#10 +
              'Other hardware monitoring applications may use it, and removing it could stop ' +
              'them reading your sensors. Choose No if you are not sure.',
              mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES;
+
+    { Run here rather than from [UninstallRun] so the result can actually be checked. As an
+      UninstallRun entry a failure was invisible, and the driver quietly stayed behind. }
+    if RemoveDriver then
+    begin
+      if not Exec(ExpandConstant('{app}\PawnIO_setup.exe'), '-uninstall -silent',
+                  '', SW_HIDE, ewWaitUntilTerminated, ResultCode)
+         or not SucceededOrNeedsReboot(ResultCode) then
+      begin
+        MsgBox('The PawnIO sensor driver could not be removed automatically.' + #13#10 + #13#10 +
+               'You can remove it yourself from Installed apps in Windows Settings. Pulse ' +
+               'itself will still be uninstalled.',
+               mbInformation, MB_OK);
+      end;
+    end;
   end;
 end;
