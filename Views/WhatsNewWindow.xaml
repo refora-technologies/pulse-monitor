@@ -141,7 +141,7 @@
                     <TextBlock Text="&#xE777;" FontFamily="Segoe MDL2 Assets" FontSize="13"
                                Foreground="#A78BFA" VerticalAlignment="Center" Margin="0,0,9,0"/>
                     <TextBlock Text="UPDATE AVAILABLE" FontSize="10" FontWeight="Bold"
-                               Foreground="#6E6A94" VerticalAlignment="Center"/>
+                               Foreground="#A9A4CE" VerticalAlignment="Center"/>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Text="What's New in " FontSize="21" FontWeight="ExtraBold"
@@ -150,14 +150,36 @@
                                Foreground="#A78BFA" VerticalAlignment="Center"/>
                 </StackPanel>
                 <TextBlock x:Name="SizeText" FontSize="10.5" FontWeight="Medium"
-                           Foreground="#524E6C" Margin="0,5,0,0"/>
+                           Foreground="#8B86B4" Margin="0,5,0,0"/>
                 <Border Height="1" Background="#1A1830" Margin="0,16,0,0"/>
             </StackPanel>
 
             <!-- ═══ RELEASE NOTES ═══ -->
-            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="24,0,20,0">
-                <StackPanel x:Name="NotesPanel" Margin="0,2,6,10"/>
-            </ScrollViewer>
+            <!-- Hidden rather than Auto: the notes are short, and a bar appearing partway
+                 through reading them shifts the text sideways. Wheel and keyboard
+                 scrolling still work. -->
+            <Grid Grid.Row="1">
+                <ScrollViewer x:Name="NotesScroller" VerticalScrollBarVisibility="Hidden"
+                              Margin="24,0,20,0" ScrollChanged="NotesScroller_ScrollChanged">
+                    <StackPanel x:Name="NotesPanel" Margin="0,2,6,10"/>
+                </ScrollViewer>
+
+                <!-- With the scrollbar hidden there is nothing to say more text exists below,
+                     so this appears only while there is somewhere left to scroll. The fade
+                     behind it hints that the text continues rather than ends. -->
+                <Border x:Name="ScrollHint" Height="46" VerticalAlignment="Bottom"
+                        IsHitTestVisible="False" Visibility="Collapsed">
+                    <Border.Background>
+                        <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                            <GradientStop Color="#000E0C1C" Offset="0"/>
+                            <GradientStop Color="#CC0E0C1C" Offset="1"/>
+                        </LinearGradientBrush>
+                    </Border.Background>
+                    <TextBlock Text="&#xE70D;" FontFamily="Segoe MDL2 Assets" FontSize="12"
+                               Foreground="#A78BFA" HorizontalAlignment="Center"
+                               VerticalAlignment="Bottom" Margin="0,0,0,6" Opacity="0.9"/>
+                </Border>
+            </Grid>
 
             <!-- ═══ FOOTER ═══ -->
             <Border Grid.Row="2" CornerRadius="0,0,17,17" Padding="24,16"

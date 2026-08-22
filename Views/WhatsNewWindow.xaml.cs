@@ -32,6 +32,10 @@ public partial class WhatsNewWindow : Window
 
         RenderNotes(info.Notes, info.DisplayVersion);
 
+        // Evaluated once after layout as well as on scroll: if the notes happen to fit, no
+        // scroll event ever fires and the hint would never be told to stay hidden.
+        Loaded += (_, _) => NotesScroller_ScrollChanged(NotesScroller, null!);
+
         // Dragging anywhere on the dialog moves it, since there is no title bar.
         MouseLeftButtonDown += (_, e) =>
         {
@@ -60,7 +64,7 @@ public partial class WhatsNewWindow : Window
             {
                 Text = "No release notes were provided for this version.",
                 FontSize = 12,
-                Foreground = new SolidColorBrush(WpfColor.FromRgb(0x6E, 0x6B, 0x8C)),
+                Foreground = new SolidColorBrush(WpfColor.FromRgb(0xA9, 0xA4, 0xCE)),
                 TextWrapping = TextWrapping.Wrap,
             });
             return;
@@ -96,7 +100,7 @@ public partial class WhatsNewWindow : Window
                     Text       = line[4..].Trim().ToUpperInvariant(),
                     FontSize   = 10,
                     FontWeight = FontWeights.Bold,
-                    Foreground = new SolidColorBrush(WpfColor.FromRgb(0x8B, 0x5C, 0xF6)),
+                    Foreground = new SolidColorBrush(WpfColor.FromRgb(0xA7, 0x8B, 0xFA)),
                     Margin     = new Thickness(0, 12, 0, 6),
                 });
             }
@@ -122,7 +126,7 @@ public partial class WhatsNewWindow : Window
                 {
                     Text       = "•",
                     FontSize   = 12,
-                    Foreground = new SolidColorBrush(WpfColor.FromRgb(0x5C, 0x59, 0x7E)),
+                    Foreground = new SolidColorBrush(WpfColor.FromRgb(0xA9, 0xA4, 0xCE)),
                     Margin     = new Thickness(2, 0, 9, 0),
                 };
                 Grid.SetColumn(dot, 0);
@@ -172,6 +176,25 @@ public partial class WhatsNewWindow : Window
         }
 
         return block;
+    }
+
+    /// <summary>
+    /// Shows the scroll hint only while there is more to read.
+    ///
+    /// Hiding the scrollbar removed the only clue that the notes continue past the fold, and
+    /// a release note nobody scrolls is a release note nobody reads. The hint fades out on
+    /// the last line so it never sits there pointing at nothing.
+    /// </summary>
+    private void NotesScroller_ScrollChanged(object sender, ScrollChangedEventArgs e)
+    {
+        if (ScrollHint == null || NotesScroller == null) return;
+
+        // A small tolerance: floating point means "at the bottom" is rarely exact.
+        const double epsilon = 2;
+        bool more = NotesScroller.ScrollableHeight > epsilon
+                 && NotesScroller.VerticalOffset < NotesScroller.ScrollableHeight - epsilon;
+
+        ScrollHint.Visibility = more ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void BtnDownload_Click(object sender, RoutedEventArgs e)
