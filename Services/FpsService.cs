@@ -21,6 +21,91 @@ public class FpsService : IDisposable
     [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
 
+    // --- Kill PresentMon along with Pulse, however Pulse dies ------------------------
+    //
+    // StopCapture only runs during an orderly shutdown. When Pulse is terminated instead —
+    // Restart Manager closing it so an installer can replace its files, the uninstaller
+    // closing it, a crash, or Task Manager — the capture process was simply left running.
+    // It then held Resources\PresentMon\PresentMon-2.5.1-x64.exe open, which made installs
+    // fail with "try again" and left the Resources folder behind after uninstalling.
+    //
+    // A job object with KILL_ON_JOB_CLOSE hands the problem to Windows: when the last handle
+    // to the job goes away, which happens automatically when Pulse's process object is
+    // destroyed, every process in the job is terminated. No cooperation from Pulse required.
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+    private static extern IntPtr CreateJobObject(IntPtr security, string? name);
+
+    [DllImport("kernel32.dll")]
+    private static extern bool SetInformationJobObject(IntPtr job, int infoClass, IntPtr info, uint length);
+
+    [DllImport("kernel32.dll")]
+    private static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
+
+    private const int  JobObjectExtendedLimitInformation = 9;
+    private const uint JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct JOBOBJECT_BASIC_LIMIT_INFORMATION
+    {
+        public long PerProcessUserTimeLimit, PerJobUserTimeLimit;
+        public uint LimitFlags;
+        public UIntPtr MinimumWorkingSetSize, MaximumWorkingSetSize;
+        public uint ActiveProcessLimit;
+        public UIntPtr Affinity;
+        public uint PriorityClass, SchedulingClass;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct IO_COUNTERS
+    {
+        public ulong ReadOperationCount, WriteOperationCount, OtherOperationCount;
+        public ulong ReadTransferCount, WriteTransferCount, OtherTransferCount;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+    {
+        public JOBOBJECT_BASIC_LIMIT_INFORMATION BasicLimitInformation;
+        public IO_COUNTERS IoInfo;
+        public UIntPtr ProcessMemoryLimit, JobMemoryLimit, PeakProcessMemoryUsed, PeakJobMemoryUsed;
+    }
+
+    private static readonly IntPtr CaptureJob = CreateKillOnCloseJob();
+
+    /// Deliberately never closed: the handle living until the process ends is exactly what
+    /// makes the job tear its children down when Pulse does.
+    private static IntPtr CreateKillOnCloseJob()
+    {
+        try
+        {
+            var job = CreateJobObject(IntPtr.Zero, null);
+            if (job == IntPtr.Zero) return IntPtr.Zero;
+
+            var limits = new JOBOBJECT_EXTENDED_LIMIT_INFORMATION();
+            limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+
+            int size = Marshal.SizeOf(limits);
+            var buffer = Marshal.AllocHGlobal(size);
+            try
+            {
+                Marshal.StructureToPtr(limits, buffer, false);
+                if (!SetInformationJobObject(job, JobObjectExtendedLimitInformation, buffer, (uint)size))
+                    return IntPtr.Zero;
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(buffer);
+            }
+
+            return job;
+        }
+        catch
+        {
+            return IntPtr.Zero;   // capture still works, it just will not self-clean
+        }
+    }
+
     private static readonly string PresentMonPath = Path.Combine(
         AppContext.BaseDirectory, "Resources", "PresentMon", "PresentMon-2.5.1-x64.exe");
 
@@ -224,6 +309,22 @@ public class FpsService : IDisposable
             _process.OutputDataReceived += OnLine;
             _process.Exited             += OnCaptureExited;
             _process.Start();
+
+            // Immediately after Start, so the window where an abrupt end to Pulse could
+            // strand this process is as small as possible.
+            if (CaptureJob != IntPtr.Zero)
+            {
+                try
+                {
+                    if (!AssignProcessToJobObject(CaptureJob, _process.Handle))
+                        LogService.Warn(nameof(FpsService), "Frame capture could not be tied to Pulse's lifetime.");
+                }
+                catch (Exception ex)
+                {
+                    LogService.Error(nameof(FpsService), "Could not tie frame capture to Pulse's lifetime", ex);
+                }
+            }
+
             _process.BeginOutputReadLine();
         }
         catch (Exception ex)
