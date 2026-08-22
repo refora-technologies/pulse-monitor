@@ -93,7 +93,7 @@ public class HardwareService : IDisposable
         // Opening enumerates every device and loads the sensor driver, which takes long
         // enough to visibly stall the window if it runs inline. Do it in the background
         // and let polls skip until it's ready.
-        _openTask = Task.Run(() => { try { _computer.Open(); } catch { } });
+        _openTask = Task.Run(OpenWithRetry);
 
         _timer = new DispatcherTimer
         {
@@ -103,7 +103,16 @@ public class HardwareService : IDisposable
         _timer.Start();
 
         // Reconfigure if the user turns a whole category of tiles on or off.
-        SettingsService.Instance.SettingsChanged += (_, _) => SyncSubsystems();
+        //
+        // Off the UI thread: SettingsChanged is raised there, and toggling these flags makes
+        // LibreHardwareMonitor construct and enumerate a whole hardware group inside the
+        // property setter. Doing that inline froze the control panel for as long as the
+        // enumeration took, which is the very thing opening in the background avoids.
+        SettingsService.Instance.SettingsChanged += (_, _) => Task.Run(() =>
+        {
+            try { SyncSubsystems(); }
+            catch (Exception ex) { LogService.Error(nameof(HardwareService), "Reconfiguring sensor groups failed", ex); }
+        });
 
         _ = PollAsync(); // immediate first read
     }
@@ -111,6 +120,58 @@ public class HardwareService : IDisposable
     private readonly Task _openTask;
     private readonly object _computerLock = new();
     private Subsystems _activeSubsystems;
+
+    /// <summary>
+    /// True once the sensor library has opened successfully. While false every tile reads
+    /// "--", which previously looked identical to hardware that genuinely reports nothing.
+    /// </summary>
+    public bool IsHardwareReady { get; private set; }
+
+    /// Why sensors are unavailable, for the control panel to show. Null when all is well.
+    public string? HardwareFault { get; private set; }
+
+    public event EventHandler? HardwareStateChanged;
+
+    /// <summary>
+    /// Opens the sensor library, retrying a few times before giving up.
+    ///
+    /// The driver is installed by our own installer moments earlier and occasionally is not
+    /// ready on the first attempt, particularly on the reboot straight after installation.
+    /// A single silent attempt meant Pulse polled empty hardware forever, showing "--" on
+    /// every tile with nothing to say why and no way back short of restarting it.
+    /// </summary>
+    private void OpenWithRetry()
+    {
+        const int attempts = 3;
+
+        for (int attempt = 1; attempt <= attempts; attempt++)
+        {
+            try
+            {
+                _computer.Open();
+
+                IsHardwareReady = true;
+                HardwareFault   = null;
+                LogService.Info(nameof(HardwareService), $"Sensors opened (attempt {attempt}).");
+                HardwareStateChanged?.Invoke(this, EventArgs.Empty);
+                return;
+            }
+            catch (Exception ex)
+            {
+                LogService.Error(nameof(HardwareService), $"Opening sensors failed (attempt {attempt} of {attempts})", ex);
+
+                if (attempt == attempts)
+                {
+                    HardwareFault = "Sensors unavailable. The PawnIO driver may not be installed, "
+                                  + "or Pulse may not be running as administrator.";
+                    HardwareStateChanged?.Invoke(this, EventArgs.Empty);
+                    return;
+                }
+
+                Thread.Sleep(2000 * attempt);
+            }
+        }
+    }
 
     [Flags]
     private enum Subsystems
