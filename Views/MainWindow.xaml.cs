@@ -563,11 +563,13 @@ public partial class MainWindow : Window
 
         if (path == null)
         {
-            DiagnosticsLinkText.Text = "Couldn't save diagnostics";
+            DiagnosticsLinkText.Text = "Couldn't Save Diagnostics";
+            DiagnosticsHint.Text     = "The file could not be written. Check that your desktop folder is writable.";
             return;
         }
 
-        DiagnosticsLinkText.Text = "Saved to your desktop";
+        DiagnosticsLinkText.Text = "Saved to Desktop";
+        DiagnosticsHint.Text     = $"Saved as {System.IO.Path.GetFileName(path)}. Attach this file to a bug report.";
 
         try
         {
