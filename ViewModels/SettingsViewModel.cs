@@ -214,6 +214,52 @@ public class SettingsViewModel : BaseViewModel
     public int OverlayMaxX => LiveOverlay?.GetPositionPixels().MaxX ?? 0;
     public int OverlayMaxY => LiveOverlay?.GetPositionPixels().MaxY ?? 0;
 
+    /// Which display the X and Y figures are measured on, so the numbers are never ambiguous
+    /// on a multi-monitor setup.
+    public string OverlayDisplayLabel => LiveOverlay?.CurrentDisplayLabel ?? "";
+
+    /// <summary>
+    /// Everything the position row needs, read in one go.
+    ///
+    /// The individual properties each query the overlay window separately, which is fine for
+    /// a one-off but wasteful now that the overlay reports every reposition — that would be
+    /// five round trips per notification, several times a second while tiles settle.
+    /// </summary>
+    public (int X, int Y, int MaxX, int MaxY, string Display) OverlayPlacement
+    {
+        get
+        {
+            var overlay = LiveOverlay;
+            if (overlay == null) return (0, 0, 0, 0, "");
+
+            var (x, y, maxX, maxY) = overlay.GetPositionPixels();
+            return (x, y, maxX, maxY, overlay.CurrentDisplayLabel);
+        }
+    }
+
+    /// <summary>
+    /// Moves the overlay while a position field is being dragged, without saving.
+    ///
+    /// Writing settings on every mouse move would mean a file write per pixel of travel;
+    /// CommitOverlayPosition stores the result once the drag finishes.
+    /// </summary>
+    public void MoveOverlayLive(int x, int y)
+    {
+        LiveOverlay?.SetPositionPixels(x, y, persist: false);
+        NotifyPositionChanged();
+    }
+
+    /// Stores wherever the overlay currently sits, ending a drag.
+    public void CommitOverlayPosition()
+    {
+        var overlay = LiveOverlay;
+        if (overlay == null) return;
+
+        var (x, y, _, _) = overlay.GetPositionPixels();
+        overlay.SetPositionPixels(x, y);   // persists
+        NotifyPositionChanged();
+    }
+
     /// <summary>
     /// Refreshes the position boxes. Called after the overlay is dragged, so typing a
     /// position and dragging it stay two views of the same thing rather than competing.
@@ -224,6 +270,7 @@ public class SettingsViewModel : BaseViewModel
         OnPropertyChanged(nameof(OverlayY));
         OnPropertyChanged(nameof(OverlayMaxX));
         OnPropertyChanged(nameof(OverlayMaxY));
+        OnPropertyChanged(nameof(OverlayDisplayLabel));
     }
 
     private bool _showStatusBar;

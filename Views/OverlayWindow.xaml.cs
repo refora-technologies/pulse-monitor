@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
@@ -264,6 +265,7 @@ public partial class OverlayWindow : Window
         {
             MigrateLegacyPosition();   // no-op unless upgrading from a pre-1.1 position
             ApplyPosition();           // clamps to the current work area on the way
+            LogStartupPlacement();
         }, System.Windows.Threading.DispatcherPriority.Render);
     }
 
@@ -614,6 +616,12 @@ public partial class OverlayWindow : Window
         y = Math.Clamp(y, work.Top  + edge, Math.Max(work.Top  + edge, work.Bottom - height - edge));
 
         SetWindowPos(hwnd, IntPtr.Zero, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+
+        // The settings panel reads the position once when it opens, which during startup is
+        // before this has run — and the overlay is placed again every time tiles resize it.
+        // Without telling the panel each time, its X and Y boxes kept whatever they happened
+        // to read first and only became correct after a drag, which does notify.
+        ViewModels.SettingsViewModel.Instance.NotifyPositionChanged();
     }
 
     /// <summary>
@@ -694,7 +702,14 @@ public partial class OverlayWindow : Window
         var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
         if (hwnd == IntPtr.Zero || !GetWindowRect(hwnd, out var bounds)) return (0, 0, 0, 0);
 
-        var work = ResolveTargetScreen(hwnd).WorkingArea;
+        // Measured against the monitor the window is actually on, not the one settings say
+        // it belongs to. Those can disagree — during startup before the position has been
+        // applied, or when a display has been reconfigured — and measuring against the wrong
+        // one produced numbers that looked plausible but described nothing. With monitors at
+        // different origins the X offset came out negative and clamped to 0, while Y absorbed
+        // the other monitor's origin and reported a confident, wrong value.
+        var work = System.Windows.Forms.Screen.FromHandle(hwnd).WorkingArea;
+
         int maxX = Math.Max(0, work.Width  - (bounds.Right  - bounds.Left));
         int maxY = Math.Max(0, work.Height - (bounds.Bottom - bounds.Top));
 
@@ -703,14 +718,78 @@ public partial class OverlayWindow : Window
                 maxX, maxY);
     }
 
-    /// Moves the overlay to an exact pixel position on its monitor and stores it.
-    public void SetPositionPixels(int x, int y)
+    /// <summary>
+    /// Records where the overlay was placed at launch and what it was placed from.
+    ///
+    /// One line per run. Overlay placement has been the source of several hard-to-pin
+    /// reports — it depends on saved anchors, monitor identity, work areas and window size
+    /// all agreeing, and a screenshot of the result cannot show which of those disagreed.
+    /// </summary>
+    private void LogStartupPlacement()
+    {
+        try
+        {
+            var settings = SettingsService.Instance.Settings;
+            var hwnd     = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+
+            if (hwnd == IntPtr.Zero || !GetWindowRect(hwnd, out var bounds))
+            {
+                LogService.Warn(nameof(OverlayWindow), "Placed with no window handle yet.");
+                return;
+            }
+
+            var actual   = System.Windows.Forms.Screen.FromHandle(hwnd);
+            var intended = ResolveTargetScreen(hwnd);
+            var (x, y, maxX, maxY) = GetPositionPixels();
+
+            LogService.Info(nameof(OverlayWindow),
+                $"Placed at screen ({bounds.Left},{bounds.Top}) size {bounds.Right - bounds.Left}x{bounds.Bottom - bounds.Top}; " +
+                $"reported ({x},{y}) of ({maxX},{maxY}) on {actual.DeviceName}; " +
+                $"mode={settings.OverlayPosition} anchor=({settings.OverlayAnchorFx:F4},{settings.OverlayAnchorFy:F4}) " +
+                $"savedMonitor={(string.IsNullOrEmpty(settings.OverlayMonitorId) ? "(none)" : settings.OverlayMonitorId)} " +
+                $"intended={intended.DeviceName} index={settings.SelectedMonitorIndex} " +
+                $"screens=[{string.Join(" ", System.Windows.Forms.Screen.AllScreens.Select(s => s.DeviceName + s.WorkingArea))}]");
+        }
+        catch (Exception ex)
+        {
+            LogService.Error(nameof(OverlayWindow), "Could not record startup placement", ex);
+        }
+    }
+
+    /// Friendly name of the monitor the overlay is currently on, for the position hint.
+    public string CurrentDisplayLabel
+    {
+        get
+        {
+            var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+            if (hwnd == IntPtr.Zero) return "";
+
+            var screen  = System.Windows.Forms.Screen.FromHandle(hwnd);
+            var screens = System.Windows.Forms.Screen.AllScreens;
+
+            for (int i = 0; i < screens.Length; i++)
+                if (screens[i].DeviceName == screen.DeviceName)
+                    return $"Display {i + 1}";
+
+            return "";
+        }
+    }
+
+    /// <summary>
+    /// Moves the overlay to an exact pixel position on its monitor.
+    ///
+    /// <paramref name="persist"/> is false while the user is scrubbing a position field, so
+    /// a drag across the screen moves the overlay live without writing settings to disk on
+    /// every mouse move. The final position is saved once the drag ends.
+    /// </summary>
+    public void SetPositionPixels(int x, int y, bool persist = true)
     {
         var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
         if (hwnd == IntPtr.Zero || !GetWindowRect(hwnd, out var bounds)) return;
 
-        var screen = ResolveTargetScreen(hwnd);
-        var work   = screen.WorkingArea;
+        // Same monitor the boxes are showing, so typing 100 moves it to 100 on the display
+        // the user is reading the number from.
+        var work = System.Windows.Forms.Screen.FromHandle(hwnd).WorkingArea;
 
         int maxX = Math.Max(0, work.Width  - (bounds.Right  - bounds.Left));
         int maxY = Math.Max(0, work.Height - (bounds.Bottom - bounds.Top));
@@ -720,7 +799,7 @@ public partial class OverlayWindow : Window
             work.Top  + Math.Clamp(y, 0, maxY),
             0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
 
-        SavePosition();
+        if (persist) SavePosition();
     }
 
     /// <summary>

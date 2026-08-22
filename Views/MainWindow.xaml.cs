@@ -14,6 +14,7 @@ using WpfDragEventArgs = System.Windows.DragEventArgs;
 using WpfDataObject = System.Windows.DataObject;
 using WpfDragDropEffects = System.Windows.DragDropEffects;
 using WpfBorder = System.Windows.Controls.Border;
+using WpfTextBox = System.Windows.Controls.TextBox;
 
 namespace Pulse.Views;
 
@@ -51,6 +52,11 @@ public partial class MainWindow : Window
             // Dragging the overlay updates these, so the typed values and the overlay never
             // disagree about where it is.
             if (_vm != null) _vm.PropertyChanged += OnSettingsViewModelPropertyChanged;
+
+            // The panel is hidden and re-shown rather than recreated, so Loaded fires only
+            // once. Without this the position boxes would keep whatever they read the first
+            // time, however far the overlay had been dragged since.
+            IsVisibleChanged += (_, args) => { if (args.NewValue is true) RefreshPositionBoxes(); };
 
             // The GPU list isn't known until the first sensor poll completes, so rebuild
             // the picker when it arrives (and if an eGPU is plugged in later).
@@ -237,9 +243,18 @@ public partial class MainWindow : Window
         _updatingPositionBoxes = true;
         try
         {
-            PositionXBox.Text = _vm.OverlayX.ToString();
-            PositionYBox.Text = _vm.OverlayY.ToString();
-            PositionHint.Text = $"Pixels from the top-left of the display (0-{_vm.OverlayMaxX}, 0-{_vm.OverlayMaxY})";
+            var (x, y, maxX, maxY, display) = _vm.OverlayPlacement;
+
+            // Not while the user is mid-edit: the overlay repositions itself as tiles resize
+            // it, and overwriting a half-typed value would be maddening.
+            if (!PositionXBox.IsKeyboardFocusWithin) PositionXBox.Text = x.ToString();
+            if (!PositionYBox.IsKeyboardFocusWithin) PositionYBox.Text = y.ToString();
+
+            // Naming the display matters on a multi-monitor setup: "0-2354" means nothing
+            // unless you know which screen it is measured across.
+            PositionHint.Text = display.Length > 0
+                ? $"Pixels from the top-left of {display} (0-{maxX}, 0-{maxY})"
+                : $"Pixels from the top-left of the display (0-{maxX}, 0-{maxY})";
         }
         finally
         {
@@ -250,6 +265,78 @@ public partial class MainWindow : Window
     /// Digits only, so the box can never hold something that will not parse.
     private void PositionBox_PreviewTextInput(object sender, System.Windows.Input.TextCompositionEventArgs e)
         => e.Handled = !e.Text.All(char.IsAsciiDigit);
+
+    // --- Drag a position box to slide the overlay ------------------------------------
+    // Press and drag on a box to move the overlay live, the way a numeric field scrubs in
+    // an editor. The X box follows horizontal movement and the Y box vertical, so the drag
+    // matches the direction the overlay travels.
+    //
+    // A press on an unfocused box starts a scrub rather than placing a caret, which is what
+    // makes dragging feel immediate. Releasing without having moved focuses the box for
+    // typing instead, so a plain click still does the obvious thing.
+
+    private const double ScrubThreshold = 3;   // px of travel before a press becomes a drag
+
+    private WpfTextBox? _scrubBox;
+    private System.Windows.Point _scrubOrigin;
+    private int  _scrubStartX, _scrubStartY;
+    private bool _scrubbing;
+
+    private void PositionBox_PreviewMouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (sender is not WpfTextBox box || _vm == null) return;
+        if (box.IsKeyboardFocusWithin) return;   // already typing in it; leave text editing alone
+
+        _scrubBox    = box;
+        _scrubOrigin = e.GetPosition(this);
+        _scrubStartX = _vm.OverlayX;
+        _scrubStartY = _vm.OverlayY;
+        _scrubbing   = false;
+
+        box.CaptureMouse();
+        e.Handled = true;   // suppresses the caret placement and text selection
+    }
+
+    private void PositionBox_PreviewMouseMove(object sender, System.Windows.Input.MouseEventArgs e)
+    {
+        if (_scrubBox == null || _vm == null) return;
+        if (e.LeftButton != System.Windows.Input.MouseButtonState.Pressed) return;
+
+        var offset = e.GetPosition(this) - _scrubOrigin;
+        bool isX   = ReferenceEquals(_scrubBox, PositionXBox);
+        double travel = isX ? offset.X : offset.Y;
+
+        if (!_scrubbing && Math.Abs(travel) < ScrubThreshold) return;
+        _scrubbing = true;
+
+        _vm.MoveOverlayLive(
+            isX ? _scrubStartX + (int)travel : _scrubStartX,
+            isX ? _scrubStartY : _scrubStartY + (int)travel);
+    }
+
+    private void PositionBox_PreviewMouseUp(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (_scrubBox == null) return;
+
+        var box = _scrubBox;
+        _scrubBox = null;
+        box.ReleaseMouseCapture();
+
+        if (_scrubbing)
+        {
+            _scrubbing = false;
+            _vm?.CommitOverlayPosition();
+        }
+        else
+        {
+            // Never moved, so this was an ordinary click: give it focus and select the value
+            // so typing a new one replaces it.
+            box.Focus();
+            box.SelectAll();
+        }
+
+        e.Handled = true;
+    }
 
     private void PositionBox_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
     {

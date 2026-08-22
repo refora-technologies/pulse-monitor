@@ -1202,16 +1202,26 @@
                                                Foreground="#6E6B8C" VerticalAlignment="Center"
                                                Margin="0,0,8,0"/>
                                     <TextBox x:Name="PositionXBox" Style="{StaticResource DarkNumberBox}"
+                                             Cursor="SizeWE"
+                                             ToolTip="Drag left or right to slide the overlay, or click to type a value"
                                              AutomationProperties.Name="Overlay X position in pixels"
                                              KeyDown="PositionBox_KeyDown" LostFocus="PositionBox_Commit"
-                                             PreviewTextInput="PositionBox_PreviewTextInput"/>
+                                             PreviewTextInput="PositionBox_PreviewTextInput"
+                                             PreviewMouseLeftButtonDown="PositionBox_PreviewMouseDown"
+                                             PreviewMouseMove="PositionBox_PreviewMouseMove"
+                                             PreviewMouseLeftButtonUp="PositionBox_PreviewMouseUp"/>
                                     <TextBlock Text="Y" FontSize="12" FontWeight="SemiBold"
                                                Foreground="#6E6B8C" VerticalAlignment="Center"
                                                Margin="16,0,8,0"/>
                                     <TextBox x:Name="PositionYBox" Style="{StaticResource DarkNumberBox}"
+                                             Cursor="SizeNS"
+                                             ToolTip="Drag up or down to slide the overlay, or click to type a value"
                                              AutomationProperties.Name="Overlay Y position in pixels"
                                              KeyDown="PositionBox_KeyDown" LostFocus="PositionBox_Commit"
-                                             PreviewTextInput="PositionBox_PreviewTextInput"/>
+                                             PreviewTextInput="PositionBox_PreviewTextInput"
+                                             PreviewMouseLeftButtonDown="PositionBox_PreviewMouseDown"
+                                             PreviewMouseMove="PositionBox_PreviewMouseMove"
+                                             PreviewMouseLeftButtonUp="PositionBox_PreviewMouseUp"/>
                                 </StackPanel>
                             </StackPanel>
                         </StackPanel>
