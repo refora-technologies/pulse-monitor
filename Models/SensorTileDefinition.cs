@@ -42,7 +42,9 @@ public class SensorTileDefinition
         new() { Id = "gpu_usage",    Label = "GPU Usage",     Unit = "%",    Category = SensorCategory.GPU,     HasBar = true,  BarMax = 100, WarnThreshold = 70,   DangerThreshold = 95 },
         new() { Id = "gpu_temp",     Label = "GPU Temp",      Unit = "°C",   Category = SensorCategory.GPU,     HasBar = false, WarnThreshold = 75,  DangerThreshold = 90  },
         new() { Id = "gpu_clock",    Label = "GPU Clock",     Unit = "MHz",  Category = SensorCategory.GPU,     HasBar = false, WarnThreshold = 0,   DangerThreshold = 0   },
-        new() { Id = "gpu_power",    Label = "GPU TDP",       Unit = "W",    Category = SensorCategory.GPU,     HasBar = false, WarnThreshold = 80,  DangerThreshold = 115 },
+        // "GPU Power", not "GPU TDP". TDP is a fixed rating of the card; this sensor is what
+        // it is drawing right now, which is a different thing and confused at least one user.
+        new() { Id = "gpu_power",    Label = "GPU Power",     Unit = "W",    Category = SensorCategory.GPU,     HasBar = false, WarnThreshold = 80,  DangerThreshold = 115 },
         new() { Id = "gpu_vram",     Label = "VRAM Used",     Unit = "GB",   Category = SensorCategory.GPU,     HasBar = true,  BarMax = 6,   WarnThreshold = 4.5f, DangerThreshold = 5.5f, HasKnownMax = true },
         new() { Id = "ram_used",     Label = "RAM Used",      Unit = "GB",   Category = SensorCategory.Memory,  HasBar = true,  BarMax = 16,  WarnThreshold = 12,   DangerThreshold = 14.5f, HasKnownMax = true },
 
