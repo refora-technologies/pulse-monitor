@@ -512,7 +512,18 @@ public partial class MainWindow : Window
 
         if (index < 0) return;
 
-        _vm.MoveTile(tileId, index + delta);
+        int target = index + delta;
+
+        // Refused rather than clamped. MoveTile clamps into range, so Alt+Up on the second
+        // tile asked for index -1, got 0, and slid the tile sideways instead of doing
+        // nothing — a move in a direction the user did not press.
+        if (target < 0 || target >= _vm.AllTiles.Count)
+        {
+            e.Handled = true;   // still swallow it, so focus does not jump away instead
+            return;
+        }
+
+        _vm.MoveTile(tileId, target);
         e.Handled = true;
 
         // The panel rebuilds its items, so focus has to be put back on the tile that moved
