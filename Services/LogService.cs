@@ -34,6 +34,24 @@ public static class LogService
     public static void Warn (string source, string message)              => Write(LogLevel.Warn,  source, message, null);
     public static void Error(string source, string message, Exception e) => Write(LogLevel.Error, source, message, e);
 
+    private static readonly string UserProfile =
+        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+
+    /// <summary>
+    /// Replaces the user's profile directory with %USERPROFILE%.
+    ///
+    /// Messages routinely include file paths, and on Windows those carry the account name —
+    /// so a log meant to be pasted into a public issue would have disclosed the user's
+    /// Windows username. Nothing else in these files identifies anyone.
+    /// </summary>
+    private static string Redact(string? text)
+    {
+        if (string.IsNullOrEmpty(text)) return text ?? "";
+        if (string.IsNullOrEmpty(UserProfile)) return text;
+
+        return text.Replace(UserProfile, "%USERPROFILE%", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static void Write(LogLevel level, string source, string message, Exception? error)
     {
         try
@@ -41,12 +59,12 @@ public static class LogService
             var line = new StringBuilder()
                 .Append(DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff"))
                 .Append("  ").Append(level.ToString().ToUpperInvariant().PadRight(5))
-                .Append("  ").Append(source.PadRight(18))
-                .Append("  ").Append(message);
+                .Append("  ").Append((source ?? "").PadRight(18))
+                .Append("  ").Append(Redact(message));
 
             // Type and message only. A full stack trace can carry file paths from the build
             // machine, and this file is meant to be pasteable into a public issue.
-            if (error != null) line.Append("  [").Append(error.GetType().Name).Append(": ").Append(error.Message).Append(']');
+            if (error != null) line.Append("  [").Append(error.GetType().Name).Append(": ").Append(Redact(error.Message)).Append(']');
 
             lock (Gate)
             {
@@ -93,7 +111,7 @@ public static class LogService
                 .AppendLine("=================")
                 .AppendLine($"Version   : {UpdateService.CurrentVersionLabel}")
                 .AppendLine($"Windows   : {Environment.OSVersion.Version}")
-                .AppendLine($"Exe       : {Environment.ProcessPath}")
+                .AppendLine($"Exe       : {Redact(Environment.ProcessPath)}")
                 .AppendLine($"Exported  : {DateTime.Now:yyyy-MM-dd HH:mm:ss}")
                 .AppendLine();
 
