@@ -1,3 +1,4 @@
+using System.IO;
 using System.Windows;
 using Pulse.Services;
 using Pulse.ViewModels;
@@ -9,7 +10,15 @@ namespace Pulse;
 
 public partial class App : WinApplication
 {
+    private const string MutexName  = "Global\\PulseMonitor_SingleInstance";
+    private const string ShowUiName = "Global\\PulseMonitor_ShowUI";
+
     private static Mutex? _mutex;
+    private static EventWaitHandle? _showUiSignal;
+
+    /// False in a second instance that was rejected before anything was set up. OnExit
+    /// checks this before touching the lazy singletons.
+    private bool _initialized;
 
     private MainWindow?    _mainWindow;
     private OverlayWindow? _overlayWindow;
@@ -21,20 +30,43 @@ public partial class App : WinApplication
 
     protected override void OnStartup(StartupEventArgs e)
     {
-        _mutex = new Mutex(true, "Global\\PulseMonitor_SingleInstance", out bool createdNew);
+        _mutex = new Mutex(true, MutexName, out bool createdNew);
         if (!createdNew)
         {
+            // Pulse is already running. Ask the live instance to bring its control panel
+            // forward instead of vanishing without a trace — silently doing nothing is what
+            // made it impossible to tell which build was running when several were installed.
+            SignalRunningInstance();
             _mutex.Dispose();
+            _mutex = null;
             Shutdown();
             return;
         }
 
         base.OnStartup(e);
+        _initialized = true;
+        StartShowUiListener();
 
-        // Reconcile settings.json with the real scheduled-task state before anything
-        // reads Settings.StartWithWindows (the installer can create the task without
-        // ever touching settings.json).
-        SettingsService.Instance.SyncStartWithWindowsFromSystem();
+        // Housekeeping and startup-task reconciliation, off the startup path: between them
+        // these touch the disk and shell out to schtasks twice, and none of it needs to
+        // finish before the overlay appears.
+        Task.Run(() =>
+        {
+            try { UpdateService.CleanupStaleDownloads(); } catch { }
+            try { CleanupStaleExtractDirectories();     } catch { }
+
+            try
+            {
+                // Settings.json can disagree with reality — the installer's "start with
+                // Windows" tickbox creates the task without going through us, and a task
+                // left by another install may point at an exe that no longer exists.
+                // Saving is marshalled back because SettingsChanged subscribers touch
+                // bound collections.
+                if (SettingsService.Instance.ReconcileStartupTask())
+                    Dispatcher.Invoke(SettingsService.Instance.Save);
+            }
+            catch { }
+        });
 
         // Initialise singletons (starts hardware polling)
         _ = HardwareService.Instance;
@@ -50,6 +82,82 @@ public partial class App : WinApplication
             ShowControlPanel();
 
         CheckForUpdatesOnStartup();
+    }
+
+    /// <summary>
+    /// Removes .NET single-file extraction folders left behind by previous builds.
+    ///
+    /// Pulse ships with IncludeNativeLibrariesForSelfExtract, so each build unpacks its
+    /// native libraries into %TEMP%\.net\Pulse\&lt;content-hash&gt;\. The hash changes every
+    /// release, so these accumulate — and to anyone searching their disk for "Pulse" they
+    /// look exactly like several installations, which is what prompted this.
+    ///
+    /// The folder in use is protected twice over: its libraries are loaded and therefore
+    /// locked, and it was written at launch so the age check skips it anyway.
+    /// </summary>
+    private static void CleanupStaleExtractDirectories()
+    {
+        var root = Path.Combine(Path.GetTempPath(), ".net", "Pulse");
+        if (!Directory.Exists(root)) return;
+
+        var cutoff = DateTime.UtcNow - TimeSpan.FromHours(12);
+
+        foreach (var dir in Directory.EnumerateDirectories(root))
+        {
+            try
+            {
+                if (Directory.GetLastWriteTimeUtc(dir) > cutoff) continue;
+                Directory.Delete(dir, recursive: true);
+            }
+            catch { }   // still in use, or not ours to remove — leave it be
+        }
+    }
+
+    /// Nudges the already-running Pulse to show itself. Best effort: if the signal cannot be
+    /// opened we simply exit as before, which is no worse than the old behaviour.
+    private static void SignalRunningInstance()
+    {
+        try
+        {
+            if (EventWaitHandle.TryOpenExisting(ShowUiName, out var handle))
+                using (handle) handle.Set();
+        }
+        catch { }
+    }
+
+    /// Waits for a later launch to signal us, then surfaces the control panel. Runs on a
+    /// background thread so it can never hold up shutdown.
+    private void StartShowUiListener()
+    {
+        try
+        {
+            _showUiSignal = new EventWaitHandle(false, EventResetMode.AutoReset, ShowUiName);
+        }
+        catch
+        {
+            return;   // no signal available; second launches just exit quietly
+        }
+
+        new Thread(() =>
+        {
+            while (true)
+            {
+                try
+                {
+                    if (!_showUiSignal.WaitOne()) return;
+                }
+                catch
+                {
+                    return;   // handle disposed during shutdown
+                }
+
+                try { ShowControlPanel(); } catch { return; }
+            }
+        })
+        {
+            IsBackground = true,
+            Name         = "Pulse show-UI listener",
+        }.Start();
     }
 
     private async void CheckForUpdatesOnStartup()
@@ -176,9 +284,19 @@ public partial class App : WinApplication
     protected override void OnExit(ExitEventArgs e)
     {
         _trayIcon?.Dispose();
-        try { HardwareService.Instance.Dispose(); } catch { }
-        try { FpsService.Instance.Dispose(); } catch { }
-        try { _mutex?.ReleaseMutex(); _mutex?.Dispose(); } catch { }
+
+        // Only touch the services if this instance actually started them. They are lazy
+        // singletons, so a rejected second instance would otherwise *construct* them here on
+        // its way out — and FpsService's constructor launches PresentMon with
+        // --stop_existing_session, silently killing the running instance's frame capture.
+        if (_initialized)
+        {
+            try { HardwareService.Instance.Dispose(); } catch { }
+            try { FpsService.Instance.Dispose(); } catch { }
+        }
+
+        try { _showUiSignal?.Dispose(); _showUiSignal = null; } catch { }
+        try { _mutex?.ReleaseMutex(); _mutex?.Dispose(); _mutex = null; } catch { }
         base.OnExit(e);
     }
 }
