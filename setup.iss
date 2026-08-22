@@ -29,6 +29,14 @@ ArchitecturesInstallIn64BitMode=x64compatible
 CloseApplications=yes
 RestartApplications=no
 
+; Restart Manager only needs to care about Pulse itself. By default it inspects every exe
+; and dll being replaced, which drags in the bundled PresentMon binary — and when it cannot
+; get a clean answer about that file it stops with "unable to automatically close all
+; applications" even though nothing of ours is running. The capture process is tied to
+; Pulse's lifetime and killed outright before install, so Restart Manager has nothing useful
+; to add there.
+CloseApplicationsFilter=Pulse.exe
+
 ; Everything shipped here is x64 (Pulse, PresentMon, the PawnIO driver), so refuse to run
 ; anywhere it cannot work rather than installing and failing later.
 ArchitecturesAllowed=x64compatible
