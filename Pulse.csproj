@@ -18,6 +18,14 @@
     <Copyright>© 2025 Refora Technologies</Copyright>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+
+    <!-- Pinned rather than left to the SDK.
+         Pulse ships self-contained, so whatever runtime is bundled here is the runtime our
+         users get — the SDK would otherwise embed the newest patch it happens to know about,
+         which was 8.0.28 and two security patches behind. Pulse runs elevated, so shipping a
+         stale runtime matters more than it would for an ordinary app.
+         Bump this when a new 8.0.x patch is published. -->
+    <RuntimeFrameworkVersion>8.0.30</RuntimeFrameworkVersion>
   </PropertyGroup>
 
   <ItemGroup>
