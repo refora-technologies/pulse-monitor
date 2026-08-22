@@ -152,7 +152,10 @@ procedure CloseOrphanedCapture();
 var
   ResultCode: Integer;
 begin
-  Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM PresentMon-2.5.1-x64.exe /F',
+  { Filtered to this user's own processes rather than by image name alone, which would
+    end any similarly named process anywhere on the machine, including another user's. }
+  Exec(ExpandConstant('{sys}\taskkill.exe'),
+       '/F /FI "IMAGENAME eq PresentMon-2.5.1-x64.exe" /FI "USERNAME eq %USERNAME%"',
        '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Sleep(400);
 end;
@@ -161,11 +164,13 @@ procedure CloseRunningPulse();
 var
   ResultCode: Integer;
 begin
-  Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM Pulse.exe',
+  Exec(ExpandConstant('{sys}\taskkill.exe'),
+       '/FI "IMAGENAME eq Pulse.exe" /FI "USERNAME eq %USERNAME%"',
        '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Sleep(1500);
 
-  Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM Pulse.exe /F',
+  Exec(ExpandConstant('{sys}\taskkill.exe'),
+       '/F /FI "IMAGENAME eq Pulse.exe" /FI "USERNAME eq %USERNAME%"',
        '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Sleep(800);
 
@@ -195,12 +200,18 @@ begin
   begin
     CloseRunningPulse();
 
-    { MB_DEFBUTTON2 makes No the default, which is also what a silent uninstall picks. }
-    RemoveDriver :=
-      MsgBox('Also remove the PawnIO sensor driver?' + #13#10 + #13#10 +
-             'Other hardware monitoring applications may use it, and removing it could stop ' +
-             'them reading your sensors. Choose No if you are not sure.',
-             mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES;
+    { A MsgBox created from [Code] is shown even under /SILENT and /SUPPRESSMSGBOXES, so an
+      unattended uninstall would sit waiting for an answer nobody is there to give. Silent
+      runs therefore skip the question and keep the driver, which is the safe default and
+      matches what the visible dialog defaults to. }
+    if UninstallSilent() then
+      RemoveDriver := False
+    else
+      RemoveDriver :=
+        MsgBox('Also remove the PawnIO sensor driver?' + #13#10 + #13#10 +
+               'Other hardware monitoring applications may use it, and removing it could stop ' +
+               'them reading your sensors. Choose No if you are not sure.',
+               mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES;
 
     { Run here rather than from [UninstallRun] so the result can actually be checked. As an
       UninstallRun entry a failure was invisible, and the driver quietly stayed behind. }
@@ -210,10 +221,11 @@ begin
                   '', SW_HIDE, ewWaitUntilTerminated, ResultCode)
          or not SucceededOrNeedsReboot(ResultCode) then
       begin
-        MsgBox('The PawnIO sensor driver could not be removed automatically.' + #13#10 + #13#10 +
-               'You can remove it yourself from Installed apps in Windows Settings. Pulse ' +
-               'itself will still be uninstalled.',
-               mbInformation, MB_OK);
+        if not UninstallSilent() then
+          MsgBox('The PawnIO sensor driver could not be removed automatically.' + #13#10 + #13#10 +
+                 'You can remove it yourself from Installed apps in Windows Settings. Pulse ' +
+                 'itself will still be uninstalled.',
+                 mbInformation, MB_OK);
       end;
     end;
   end;
