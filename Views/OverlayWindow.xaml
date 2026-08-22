@@ -113,10 +113,10 @@
                             <TextBlock Text="PULSE" FontSize="12" FontWeight="ExtraBold"
                                        Foreground="#C4B5FD" VerticalAlignment="Center"/>
                             <TextBlock Text="MONITOR" FontSize="9.5" FontWeight="SemiBold"
-                                       Foreground="#5A5578" VerticalAlignment="Center"
+                                       Foreground="#A9A4CE" VerticalAlignment="Center"
                                        Margin="6,1,0,0"/>
                         </StackPanel>
-                        <TextBlock Text="⠿" FontSize="13" Foreground="#8B5CF6"
+                        <TextBlock Text="⠿" FontSize="13" Foreground="#A78BFA"
                                    HorizontalAlignment="Right" VerticalAlignment="Center"
                                    Visibility="{Binding IsDragEnabled, Converter={StaticResource BoolToVis}}"/>
                     </Grid>
@@ -239,7 +239,7 @@
                             </Ellipse.Effect>
                         </Ellipse>
                         <TextBlock Text="PULSE" FontSize="9" FontWeight="ExtraBold"
-                                   Foreground="#7C77A0" VerticalAlignment="Center"/>
+                                   Foreground="#A9A4CE" VerticalAlignment="Center"/>
                     </StackPanel>
 
                     <ItemsControl ItemsSource="{Binding ActiveTiles}">
