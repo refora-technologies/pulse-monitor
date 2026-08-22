@@ -33,7 +33,10 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"ViewModel init error: {ex}");
+            // Debug.WriteLine only reaches an attached debugger, so on a user's machine this
+            // failure left no trace at all — and it is the one that leaves the whole control
+            // panel unbound and inert.
+            LogService.Error(nameof(MainWindow), "Settings view model failed to initialise", ex);
         }
 
         Loaded += (_, _) =>
@@ -601,7 +604,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Failed to open {url}: {ex.Message}");
+            LogService.Error(nameof(MainWindow), $"Could not open {url}", ex);
         }
     }
 
