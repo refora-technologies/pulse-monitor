@@ -24,23 +24,16 @@ public partial class OverlayWindow : Window
     [DllImport("user32.dll")] static extern int GetWindowLong(IntPtr hwnd, int index);
     [DllImport("user32.dll")] static extern int SetWindowLong(IntPtr hwnd, int index, int newStyle);
 
-    // --- Per-monitor DPI lookup (for correctly placing the overlay on mixed-scaling setups) ---
-    private enum MonitorDpiType { Effective = 0 }
     private const uint MONITOR_DEFAULTTONEAREST = 2;
 
     [StructLayout(LayoutKind.Sequential)]
     private struct RECT { public int Left, Top, Right, Bottom; }
 
-    [DllImport("user32.dll")]
-    static extern IntPtr MonitorFromRect(ref RECT lprc, uint dwFlags);
-
-    [DllImport("Shcore.dll")]
-    static extern int GetDpiForMonitor(IntPtr hmonitor, MonitorDpiType dpiType, out uint dpiX, out uint dpiY);
-
     // --- Always-on-top enforcement -------------------------------------------------
     private static readonly IntPtr HWND_TOPMOST = new(-1);
     private const uint SWP_NOSIZE     = 0x0001;
     private const uint SWP_NOMOVE     = 0x0002;
+    private const uint SWP_NOZORDER   = 0x0004;
     private const uint SWP_NOACTIVATE = 0x0010;
 
     private const uint EVENT_SYSTEM_FOREGROUND = 0x0003;
@@ -140,6 +133,7 @@ public partial class OverlayWindow : Window
 
         Loaded += OnLoaded;
         IsVisibleChanged += OnIsVisibleChanged;
+        SizeChanged += OnOverlaySizeChanged;
         SettingsService.Instance.SettingsChanged += OnSettingsChanged;
         _vm.PropertyChanged += OnViewModelPropertyChanged;
         Microsoft.Win32.SystemEvents.DisplaySettingsChanged += OnDisplaySettingsChanged;
@@ -166,7 +160,7 @@ public partial class OverlayWindow : Window
 
         // The resolution may have changed while we were hidden, which would leave the
         // saved position outside the new desktop.
-        if (IsVisible) Dispatcher.InvokeAsync(ClampIntoView, DispatcherPriority.Loaded);
+        if (IsVisible) Dispatcher.InvokeAsync(ApplyPosition, DispatcherPriority.Loaded);
     }
 
     /// <summary>
@@ -185,65 +179,91 @@ public partial class OverlayWindow : Window
         // first notification. Debounce and re-apply once things are stable.
         Dispatcher.InvokeAsync(() =>
         {
-            _displayChangeTimer ??= BuildDisplayChangeTimer();
+            _lastWorkAreaSignature = null;
+            _settleTicks           = 0;
+            _displayChangeTimer  ??= BuildDisplayChangeTimer();
             _displayChangeTimer.Stop();
             _displayChangeTimer.Start();
         });
     }
 
+    private string? _lastWorkAreaSignature;
+    private int     _settleTicks;
+
+    /// <summary>
+    /// Waits for the display layout to stop moving before repositioning.
+    ///
+    /// A single delayed pass was not enough: Windows reports work areas while a mode change
+    /// is still settling and then sends no further notification once it finishes, so a pass
+    /// that fired too early positioned the overlay against a screen size that no longer
+    /// existed and nothing ever corrected it. That is the "occasionally somewhere completely
+    /// different" case. Now we poll until two consecutive readings agree.
+    /// </summary>
     private DispatcherTimer BuildDisplayChangeTimer()
     {
-        var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(700) };
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(350) };
         timer.Tick += (_, _) =>
         {
+            var signature = WorkAreaSignature();
+            bool stable   = signature == _lastWorkAreaSignature;
+            _lastWorkAreaSignature = signature;
+
+            // Ceiling of roughly seven seconds, so a display that never settles (a monitor
+            // being repeatedly re-detected, say) still gets the overlay put back.
+            if (!stable && ++_settleTicks < 20) return;
+
             timer.Stop();
             ApplyPosition();
-            ClampIntoView();
         };
         return timer;
     }
 
-    /// Pulls the overlay back onto the visible desktop. Corner presets are already
-    /// recomputed by ApplyPosition; this exists for custom drag positions, which are
-    /// absolute and can fall off-screen when the resolution shrinks.
-    private void ClampIntoView()
+    /// Cheap fingerprint of every monitor's work area, used to detect that the layout has
+    /// stopped changing.
+    private static string WorkAreaSignature()
     {
-        var settings = SettingsService.Instance.Settings;
-        var screen   = GetMonitorWorkAreaDip(settings.SelectedMonitorIndex);
+        var builder = new System.Text.StringBuilder();
+        foreach (var screen in System.Windows.Forms.Screen.AllScreens)
+            builder.Append(screen.DeviceName).Append('=').Append(screen.WorkingArea).Append(';');
+        return builder.ToString();
+    }
 
-        double w = ActualWidth  > 0 ? ActualWidth  : 200;
-        double h = ActualHeight > 0 ? ActualHeight : 200;
+    /// <summary>
+    /// A DPI change resizes the window in physical pixels, so the anchor has to be applied
+    /// against the new size. Nothing handled this before, which is part of why the overlay
+    /// came back slightly out of place after a resolution change altered the scaling.
+    /// </summary>
+    protected override void OnDpiChanged(DpiScale oldDpi, DpiScale newDpi)
+    {
+        base.OnDpiChanged(oldDpi, newDpi);
+        Dispatcher.InvokeAsync(ApplyPosition, DispatcherPriority.Loaded);
+    }
 
-        const double margin = 8;
-        double minLeft = screen.Left + margin;
-        double minTop  = screen.Top  + margin;
-        double maxLeft = Math.Max(minLeft, screen.Right  - w - margin);
-        double maxTop  = Math.Max(minTop,  screen.Bottom - h - margin);
-
-        double left = Math.Clamp(Left, minLeft, maxLeft);
-        double top  = Math.Clamp(Top,  minTop,  maxTop);
-
-        if (Math.Abs(left - Left) < 0.5 && Math.Abs(top - Top) < 0.5) return;
-
-        Left = left;
-        Top  = top;
-
-        // Deliberately not saved. The stored position is still valid for the resolution
-        // the user chose it at, so overwriting it here would mean a temporary drop to
-        // 1080p permanently moved an overlay the user had placed at 1440p. Leaving it
-        // alone means the original spot is restored when the resolution comes back.
+    /// <summary>
+    /// Re-anchors whenever the overlay's own size changes.
+    ///
+    /// Toggling tiles, compact mode, the status bar and the scale slider all resize the
+    /// window. Positioning previously ran from the settings-changed event, which fires
+    /// *before* the tile list is rebuilt, so it placed the overlay using the size it had a
+    /// moment earlier — a bottom- or right-anchored overlay then grew straight off the edge
+    /// of the screen or under the taskbar. Reacting to the resize itself covers every cause
+    /// at once, whatever triggered it.
+    /// </summary>
+    private void OnOverlaySizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if (!IsVisible) return;   // frozen while hidden; OnIsVisibleChanged repositions on show
+        Dispatcher.InvokeAsync(ApplyPosition, DispatcherPriority.Loaded);
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
         ApplyCompactMode();
         ApplyDragState();
-        // Defer position until after first render so ActualWidth/ActualHeight are correct
+        // Defer position until after first render so the window has a real size to place.
         Dispatcher.InvokeAsync(() =>
         {
-            ApplyPosition();
-            // Covers launching while the resolution is lower than when the position was saved.
-            ClampIntoView();
+            MigrateLegacyPosition();   // no-op unless upgrading from a pre-1.1 position
+            ApplyPosition();           // clamps to the current work area on the way
         }, System.Windows.Threading.DispatcherPriority.Render);
     }
 
@@ -515,80 +535,169 @@ public partial class OverlayWindow : Window
         });
     }
 
+    /// <summary>
+    /// Places the overlay, working entirely in physical pixels.
+    ///
+    /// Positioning used to go through WPF's Left/Top, which are device-independent units on
+    /// the virtual desktop. Converting between those and screen coordinates needs a DPI, and
+    /// picking the right one is ambiguous the moment two monitors scale differently or a
+    /// resolution change alters the scale underneath us. SetWindowPos takes real pixels, so
+    /// there is nothing to convert and nothing to get wrong.
+    /// </summary>
+    private bool _positioning;
+
     private void ApplyPosition()
     {
-        var settings = SettingsService.Instance.Settings;
+        // Re-entrancy guard: this is reached from SizeChanged, and the UpdateLayout below
+        // can itself raise SizeChanged. Without this the two would queue each other on the
+        // dispatcher indefinitely.
+        if (_positioning) return;
 
-        if (settings.OverlayPosition == "Custom")
-        {
-            Left = settings.OverlayCustomX;
-            Top  = settings.OverlayCustomY;
-            return;
-        }
+        var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+        if (hwnd == IntPtr.Zero) return;
 
-        var screen = GetMonitorWorkAreaDip(settings.SelectedMonitorIndex);
-
-        const double margin = 20;
-        switch (settings.OverlayPosition)
-        {
-            case "TopLeft":
-                Left = screen.Left + margin;
-                Top  = screen.Top  + margin;
-                break;
-            case "BottomLeft":
-                Left = screen.Left + margin;
-                Top  = screen.Bottom - ActualHeight - margin;
-                break;
-            case "BottomRight":
-                Left = screen.Right - ActualWidth - margin;
-                Top  = screen.Bottom - ActualHeight - margin;
-                break;
-            default: // TopRight
-                Left = screen.Right - ActualWidth  - margin;
-                Top  = screen.Top   + margin;
-                break;
-        }
-    }
-
-    private static System.Windows.Rect GetMonitorWorkAreaDip(int monitorIndex)
-    {
-        var screens = System.Windows.Forms.Screen.AllScreens;
-        if (monitorIndex < 0 || monitorIndex >= screens.Length) monitorIndex = 0;
-        var wa = screens[monitorIndex].WorkingArea;
-
-        var (sx, sy) = GetMonitorScale(wa);
-        return new System.Windows.Rect(wa.Left / sx, wa.Top / sy, wa.Width / sx, wa.Height / sy);
-    }
-
-    /// Looks up the DPI of the monitor containing <paramref name="workArea"/> specifically —
-    /// using the desktop/primary DPI here would misplace the overlay on any secondary
-    /// monitor whose scaling differs from the primary's.
-    private static (double sx, double sy) GetMonitorScale(System.Drawing.Rectangle workArea)
-    {
+        _positioning = true;
         try
         {
-            var rect = new RECT { Left = workArea.Left, Top = workArea.Top, Right = workArea.Right, Bottom = workArea.Bottom };
-            var hMonitor = MonitorFromRect(ref rect, MONITOR_DEFAULTTONEAREST);
-            if (hMonitor != IntPtr.Zero &&
-                GetDpiForMonitor(hMonitor, MonitorDpiType.Effective, out uint dpiX, out uint dpiY) == 0)
+            PlaceWindow(hwnd);
+        }
+        finally
+        {
+            _positioning = false;
+        }
+    }
+
+    private void PlaceWindow(IntPtr hwnd)
+    {
+        // Force layout first: SizeToContent is frozen while hidden, and a stale size would
+        // put every corner and clamp calculation below out by the difference.
+        UpdateLayout();
+
+        if (!GetWindowRect(hwnd, out var bounds)) return;
+        int width  = bounds.Right  - bounds.Left;
+        int height = bounds.Bottom - bounds.Top;
+        if (width <= 0 || height <= 0) return;
+
+        var settings = SettingsService.Instance.Settings;
+        var work     = ResolveTargetScreen(hwnd).WorkingArea;
+
+        const int margin = 20;
+        int x, y;
+
+        if (settings.OverlayPosition == "Custom" && settings.OverlayAnchorFx >= 0)
+        {
+            // Scale the stored fraction back across whatever room there is now, so the
+            // overlay lands in the same relative spot at any resolution instead of being
+            // clamped to an edge when the screen gets smaller.
+            int roomX = Math.Max(0, work.Width  - width);
+            int roomY = Math.Max(0, work.Height - height);
+
+            x = work.Left + (int)Math.Round(Math.Clamp(settings.OverlayAnchorFx, 0, 1) * roomX);
+            y = work.Top  + (int)Math.Round(Math.Clamp(settings.OverlayAnchorFy, 0, 1) * roomY);
+        }
+        else
+        {
+            switch (settings.OverlayPosition)
             {
-                return (dpiX / 96.0, dpiY / 96.0);
+                case "TopLeft":     x = work.Left  + margin;          y = work.Top    + margin;          break;
+                case "BottomLeft":  x = work.Left  + margin;          y = work.Bottom - height - margin; break;
+                case "BottomRight": x = work.Right - width - margin;  y = work.Bottom - height - margin; break;
+                default:            x = work.Right - width - margin;  y = work.Top    + margin;          break;
             }
+        }
+
+        // Keep it on the monitor it belongs to without persisting the correction: the stored
+        // anchor stays valid for the resolution the user chose it at, so a temporary drop to
+        // a smaller mode does not permanently move an overlay placed at a larger one.
+        const int edge = 8;
+        x = Math.Clamp(x, work.Left + edge, Math.Max(work.Left + edge, work.Right  - width  - edge));
+        y = Math.Clamp(y, work.Top  + edge, Math.Max(work.Top  + edge, work.Bottom - height - edge));
+
+        SetWindowPos(hwnd, IntPtr.Zero, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+
+    /// <summary>
+    /// The monitor the overlay belongs on. A custom position remembers its exact monitor by
+    /// device name; corner presets follow whichever monitor is selected in settings. Falls
+    /// back to wherever the window currently is, then the primary, so unplugging a display
+    /// cannot strand the overlay off-screen.
+    /// </summary>
+    private static System.Windows.Forms.Screen ResolveTargetScreen(IntPtr hwnd)
+    {
+        var settings = SettingsService.Instance.Settings;
+        var screens  = System.Windows.Forms.Screen.AllScreens;
+
+        if (settings.OverlayPosition == "Custom" && !string.IsNullOrEmpty(settings.OverlayMonitorId))
+        {
+            foreach (var screen in screens)
+                if (string.Equals(screen.DeviceName, settings.OverlayMonitorId, StringComparison.OrdinalIgnoreCase))
+                    return screen;
+        }
+        else
+        {
+            int index = settings.SelectedMonitorIndex;
+            if (index >= 0 && index < screens.Length) return screens[index];
+        }
+
+        try
+        {
+            if (hwnd != IntPtr.Zero) return System.Windows.Forms.Screen.FromHandle(hwnd);
         }
         catch { }
 
-        // Fallback if the per-monitor DPI API is unavailable for some reason.
-        using var g = System.Drawing.Graphics.FromHwnd(IntPtr.Zero);
-        return (g.DpiX / 96.0, g.DpiY / 96.0);
+        return System.Windows.Forms.Screen.PrimaryScreen ?? screens[0];
     }
 
+    /// Records where the user dropped the overlay as a physical-pixel offset into its
+    /// monitor's work area, plus that monitor's device name.
     private void SavePosition()
     {
+        var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+        if (hwnd == IntPtr.Zero || !GetWindowRect(hwnd, out var bounds)) return;
+
+        var screen = System.Windows.Forms.Screen.FromHandle(hwnd);
+        var work   = screen.WorkingArea;
+
+        int width  = bounds.Right  - bounds.Left;
+        int height = bounds.Bottom - bounds.Top;
+
+        // Fraction of the room the overlay has to move in, so an overlay dropped against an
+        // edge stays against that edge and one dropped in the middle stays in the middle,
+        // whatever the resolution becomes later.
+        int roomX = work.Width  - width;
+        int roomY = work.Height - height;
+
         var settings = SettingsService.Instance.Settings;
-        settings.OverlayCustomX  = Left;
-        settings.OverlayCustomY  = Top;
-        settings.OverlayPosition = "Custom";
+        settings.OverlayPosition  = "Custom";
+        settings.OverlayMonitorId = screen.DeviceName;
+        settings.OverlayAnchorFx  = roomX > 0 ? Math.Clamp((bounds.Left - work.Left) / (double)roomX, 0, 1) : 0;
+        settings.OverlayAnchorFy  = roomY > 0 ? Math.Clamp((bounds.Top  - work.Top)  / (double)roomY, 0, 1) : 0;
+
+        // Legacy fields retired once a position has been saved in the new form.
+        settings.OverlayCustomX = -1;
+        settings.OverlayCustomY = -1;
+
         SettingsService.Instance.Save();
+    }
+
+    /// <summary>
+    /// Converts a position saved by an older build. Those were absolute device-independent
+    /// coordinates, so rather than trying to reverse the DPI maths we place the window where
+    /// they say once, then record it in the new form from the result.
+    /// </summary>
+    private void MigrateLegacyPosition()
+    {
+        var settings = SettingsService.Instance.Settings;
+
+        if (settings.OverlayPosition != "Custom") return;
+        if (settings.OverlayAnchorFx >= 0) return;              // already migrated
+        if (settings.OverlayCustomX < 0 || settings.OverlayCustomY < 0) return;
+
+        Left = settings.OverlayCustomX;
+        Top  = settings.OverlayCustomY;
+        UpdateLayout();
+
+        SavePosition();
     }
 
     private void OnSettingsChanged(object? sender, EventArgs e)
