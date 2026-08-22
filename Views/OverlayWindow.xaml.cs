@@ -678,6 +678,49 @@ public partial class OverlayWindow : Window
         settings.OverlayCustomY = -1;
 
         SettingsService.Instance.Save();
+
+        // Keep the settings panel's X/Y boxes showing where the overlay actually is, so
+        // dragging and typing stay two views of one position.
+        ViewModels.SettingsViewModel.Instance.NotifyPositionChanged();
+    }
+
+    /// <summary>
+    /// The overlay's position and the room it has to move in, both in physical pixels on its
+    /// own monitor. The settings panel works in pixels because that is what people expect to
+    /// type, while storage stays fractional so the position survives a resolution change.
+    /// </summary>
+    public (int X, int Y, int MaxX, int MaxY) GetPositionPixels()
+    {
+        var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+        if (hwnd == IntPtr.Zero || !GetWindowRect(hwnd, out var bounds)) return (0, 0, 0, 0);
+
+        var work = ResolveTargetScreen(hwnd).WorkingArea;
+        int maxX = Math.Max(0, work.Width  - (bounds.Right  - bounds.Left));
+        int maxY = Math.Max(0, work.Height - (bounds.Bottom - bounds.Top));
+
+        return (Math.Clamp(bounds.Left - work.Left, 0, maxX),
+                Math.Clamp(bounds.Top  - work.Top,  0, maxY),
+                maxX, maxY);
+    }
+
+    /// Moves the overlay to an exact pixel position on its monitor and stores it.
+    public void SetPositionPixels(int x, int y)
+    {
+        var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+        if (hwnd == IntPtr.Zero || !GetWindowRect(hwnd, out var bounds)) return;
+
+        var screen = ResolveTargetScreen(hwnd);
+        var work   = screen.WorkingArea;
+
+        int maxX = Math.Max(0, work.Width  - (bounds.Right  - bounds.Left));
+        int maxY = Math.Max(0, work.Height - (bounds.Bottom - bounds.Top));
+
+        SetWindowPos(hwnd, IntPtr.Zero,
+            work.Left + Math.Clamp(x, 0, maxX),
+            work.Top  + Math.Clamp(y, 0, maxY),
+            0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+
+        SavePosition();
     }
 
     /// <summary>

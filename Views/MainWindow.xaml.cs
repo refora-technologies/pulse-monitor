@@ -46,6 +46,11 @@ public partial class MainWindow : Window
             UpdateOverlayButton();
             PopulateMonitorButtons();
             PopulateGpuButtons();
+            RefreshPositionBoxes();
+
+            // Dragging the overlay updates these, so the typed values and the overlay never
+            // disagree about where it is.
+            if (_vm != null) _vm.PropertyChanged += OnSettingsViewModelPropertyChanged;
 
             // The GPU list isn't known until the first sensor poll completes, so rebuild
             // the picker when it arrives (and if an eGPU is plugged in later).
@@ -212,6 +217,65 @@ public partial class MainWindow : Window
     }
 
     private bool _gpuRefreshPending;
+
+    // --- Exact overlay position ------------------------------------------------------
+    // Committed on Enter or focus loss rather than bound two-way: a live binding would move
+    // the overlay on every keystroke, so typing "120" would drag it to 1, then 12, then 120.
+
+    private bool _updatingPositionBoxes;
+
+    private void OnSettingsViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(SettingsViewModel.OverlayX) or nameof(SettingsViewModel.OverlayY))
+            RefreshPositionBoxes();
+    }
+
+    private void RefreshPositionBoxes()
+    {
+        if (_vm == null || PositionXBox == null || PositionYBox == null) return;
+
+        _updatingPositionBoxes = true;
+        try
+        {
+            PositionXBox.Text = _vm.OverlayX.ToString();
+            PositionYBox.Text = _vm.OverlayY.ToString();
+            PositionHint.Text = $"Pixels from the top-left of the display (0-{_vm.OverlayMaxX}, 0-{_vm.OverlayMaxY})";
+        }
+        finally
+        {
+            _updatingPositionBoxes = false;
+        }
+    }
+
+    /// Digits only, so the box can never hold something that will not parse.
+    private void PositionBox_PreviewTextInput(object sender, System.Windows.Input.TextCompositionEventArgs e)
+        => e.Handled = !e.Text.All(char.IsAsciiDigit);
+
+    private void PositionBox_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key != System.Windows.Input.Key.Enter) return;
+        CommitPositionBoxes();
+        e.Handled = true;
+    }
+
+    private void PositionBox_Commit(object sender, RoutedEventArgs e) => CommitPositionBoxes();
+
+    private void CommitPositionBoxes()
+    {
+        if (_vm == null || _updatingPositionBoxes) return;
+        if (!int.TryParse(PositionXBox.Text, out int x) || !int.TryParse(PositionYBox.Text, out int y))
+        {
+            RefreshPositionBoxes();   // put back what it really is
+            return;
+        }
+
+        _vm.OverlayX = x;
+        _vm.OverlayY = y;
+
+        // Reflects any clamping the overlay applied, rather than leaving the box showing a
+        // position it could not actually take.
+        RefreshPositionBoxes();
+    }
 
     /// BeginInvoke rather than Invoke: this fires from the polling thread, and blocking it
     /// on the UI thread is one half of a deadlock — the UI thread takes the same hardware
@@ -427,6 +491,11 @@ public partial class MainWindow : Window
         // control panel is reopened, so leaving this attached would pin every closed
         // instance in memory for the lifetime of the app.
         Pulse.Services.HardwareService.Instance.GpuListChanged -= OnGpuListChanged;
+
+        // SettingsViewModel is a singleton too, so the position-box subscription pins this
+        // window exactly the same way.
+        if (_vm != null) _vm.PropertyChanged -= OnSettingsViewModelPropertyChanged;
+
         base.OnClosed(e);
     }
 }

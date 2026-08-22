@@ -516,6 +516,40 @@
             </Setter>
         </Style>
 
+        <!-- Numeric entry for the precise overlay position. Matches DarkCombo's field
+             colours so the two sit together in the same panel. -->
+        <Style x:Key="DarkNumberBox" TargetType="TextBox">
+            <Setter Property="FontFamily" Value="{StaticResource Jakarta}"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="#DBD7F2"/>
+            <Setter Property="CaretBrush" Value="#8B5CF6"/>
+            <Setter Property="SelectionBrush" Value="#8B5CF6"/>
+            <Setter Property="Width" Value="64"/>
+            <Setter Property="TextAlignment" Value="Center"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TextBox">
+                        <Border x:Name="Bd" Background="#0E0C1C" BorderBrush="#241F42"
+                                BorderThickness="1" CornerRadius="9" Padding="8,7">
+                            <ScrollViewer x:Name="PART_ContentHost" Focusable="False"
+                                          HorizontalScrollBarVisibility="Hidden"
+                                          VerticalScrollBarVisibility="Hidden"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="#3A3266"/>
+                            </Trigger>
+                            <!-- Visible focus, which the other custom templates lack -->
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="#8B5CF6"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <Style x:Key="DarkCombo" TargetType="ComboBox">
             <Setter Property="ItemContainerStyle" Value="{StaticResource ComboItem}"/>
             <Setter Property="FontFamily" Value="{StaticResource Jakarta}"/>
@@ -1154,6 +1188,30 @@
                                               StrokeThickness="1.8" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
                                               Width="16" Height="16"/>
                                     </Button>
+                                </StackPanel>
+
+                                <!-- Exact placement, for anything a corner or a drag can't hit -->
+                                <TextBlock Text="Exact position" FontSize="12" FontWeight="SemiBold"
+                                           Foreground="#6E6B8C" Margin="0,18,0,4"/>
+                                <TextBlock x:Name="PositionHint"
+                                           Text="Pixels from the top-left of the display"
+                                           FontSize="10.5" FontWeight="Medium" Foreground="#4E4A6C"
+                                           Margin="0,0,0,10" TextWrapping="Wrap"/>
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="X" FontSize="12" FontWeight="SemiBold"
+                                               Foreground="#6E6B8C" VerticalAlignment="Center"
+                                               Margin="0,0,8,0"/>
+                                    <TextBox x:Name="PositionXBox" Style="{StaticResource DarkNumberBox}"
+                                             AutomationProperties.Name="Overlay X position in pixels"
+                                             KeyDown="PositionBox_KeyDown" LostFocus="PositionBox_Commit"
+                                             PreviewTextInput="PositionBox_PreviewTextInput"/>
+                                    <TextBlock Text="Y" FontSize="12" FontWeight="SemiBold"
+                                               Foreground="#6E6B8C" VerticalAlignment="Center"
+                                               Margin="16,0,8,0"/>
+                                    <TextBox x:Name="PositionYBox" Style="{StaticResource DarkNumberBox}"
+                                             AutomationProperties.Name="Overlay Y position in pixels"
+                                             KeyDown="PositionBox_KeyDown" LostFocus="PositionBox_Commit"
+                                             PreviewTextInput="PositionBox_PreviewTextInput"/>
                                 </StackPanel>
                             </StackPanel>
                         </StackPanel>
