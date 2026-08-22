@@ -686,66 +686,11 @@ public partial class MainWindow : Window
     {
         if (_vm == null || _vm.IsCheckingUpdate || _vm.IsDownloading) return;
 
-#if DEBUG
-        // Debug builds preview this version's own release notes instead of checking GitHub,
-        // so the What's New dialog can be reviewed without publishing a release first.
-        // Compiled out of Release builds entirely.
-        await Task.Yield();
-        ShowReleaseNotesPreview();
-#else
         // Once a check has already found an update, this button switches to actually
         // starting that download instead of redundantly re-checking GitHub again.
         if (_vm.IsUpdateAvailable) await ConfirmThenInstallAsync();
         else await _vm.CheckForUpdatesAsync(true);
-#endif
     }
-
-#if DEBUG
-    /// Renders the notes for the version currently running, purely so the dialog's layout,
-    /// colours and scrolling can be checked during development.
-    private void ShowReleaseNotesPreview()
-    {
-        var preview = new UpdateInfo
-        {
-            Version    = UpdateService.CurrentVersion,
-            TagName    = UpdateService.CurrentVersionLabel,
-            ReleaseUrl = "https://github.com/refora-technologies/pulse-monitor/releases",
-            Notes      = ReleaseNotesPreviewText,
-        };
-
-        new WhatsNewWindow(preview) { Owner = this }.ShowDialog();
-    }
-
-    /// Stored as separate lines rather than a raw string literal: inside an excluded
-    /// #if region the preprocessor still scans each line, and a markdown heading at the
-    /// start of a line looks exactly like a preprocessor directive to it.
-    private static readonly string[] ReleaseNotesPreviewLines =
-    {
-        "## What's new in v1.1.0",
-        "",
-        "### New",
-        "- **1% low FPS** - a new tile showing the average of your slowest frames, which is what makes stutter visible when the headline frame rate looks fine",
-        "- **Exact overlay position** - type an X and Y position, or drag the fields to slide the overlay across the screen",
-        "- **Reorder tiles with the keyboard** - hold Alt and use the arrow keys",
-        "- **Save diagnostics** - writes a log to your desktop that you can attach to a bug report",
-        "",
-        "### Fixes",
-        "- **GPU usage now matches Task Manager** - Pulse was reading a sensor no other tool uses and reporting roughly 20 points higher than everything else",
-        "- **Frame rate is no longer capped at your refresh rate** - it now reports the frames your GPU actually renders",
-        "- **FPS on non-English systems** - on any machine using a comma as the decimal separator the reading was wildly wrong or blank",
-        "- **Integrated GPU readings** no longer disappear when every CPU tile is switched off",
-        "- **The overlay keeps its place** when you change resolution, and returns to the same relative spot",
-        "- **Installing and uninstalling** no longer leave files behind or refuse to close Pulse",
-        "",
-        "### Under the hood",
-        "- Sensor polling can no longer deadlock against changing tiles",
-        "- Updates download to a folder only administrators can write to",
-        "- Settings survive corruption and are written atomically",
-        "- Text throughout the app now meets contrast guidelines",
-    };
-
-    private static string ReleaseNotesPreviewText => string.Join(Environment.NewLine, ReleaseNotesPreviewLines);
-#endif
 
     private async void BtnUpdateNow_Click(object sender, RoutedEventArgs e)
         => await ConfirmThenInstallAsync();
