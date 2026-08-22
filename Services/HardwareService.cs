@@ -143,6 +143,13 @@ public class HardwareService : IDisposable
             };
         }
 
+        // LibreHardwareMonitor only creates its Intel GPU group when CPU monitoring is on
+        // (`if (_cpuEnabled) Add(new IntelGpuGroup(GetIntelCpus(), ...))`), because the
+        // integrated GPU's sensors hang off the CPU package. Gating the CPU subsystem away
+        // therefore removes every GPU reading on an Intel-iGPU-only machine — the user only
+        // finds out after a restart. The CPU read costs ~14ms, which is worth paying.
+        if (needed.HasFlag(Subsystems.Gpu)) needed |= Subsystems.Cpu;
+
         return needed;
     }
 
@@ -205,6 +212,7 @@ public class HardwareService : IDisposable
     private SensorData ReadAll()
     {
         var data = new SensorData();
+        bool gpuListChanged = false;
 
         // Held so a subsystem change can't alter the hardware list mid-enumeration.
         lock (_computerLock)
@@ -214,19 +222,21 @@ public class HardwareService : IDisposable
 
             foreach (var hw in _computer.Hardware)
             {
+                // Accept recurses: UpdateVisitor.VisitHardware updates this device and then
+                // visits its children, so the children must not be Accept'ed again below or
+                // every subhardware sensor is read twice per poll.
                 hw.Accept(_updateVisitor);
                 ReadHardware(hw, data);
                 if (IsGpu(hw.HardwareType)) gpus.Add(hw);
 
                 foreach (var sub in hw.SubHardware)
                 {
-                    sub.Accept(_updateVisitor);
                     ReadHardware(sub, data);
                     if (IsGpu(sub.HardwareType)) gpus.Add(sub);
                 }
             }
 
-            PublishGpuList(gpus);
+            gpuListChanged = PublishGpuList(gpus);
 
             // Read GPU fields from a single chosen device so temp/power/clock/usage never
             // get mixed across an iGPU and a dGPU on the same poll.
@@ -238,6 +248,11 @@ public class HardwareService : IDisposable
             }
         }
         catch { }
+
+        // Raised only after the lock is released. Subscribers marshal to the UI thread, and
+        // the UI thread takes _computerLock whenever the tile selection changes, so firing
+        // this while still holding the lock deadlocks the two threads against each other.
+        if (gpuListChanged) GpuListChanged?.Invoke(this, EventArgs.Empty);
 
         data.SysPower = (data.CpuPower ?? 0) + (data.GpuPower ?? 0);
         if (data.SysPower == 0) data.SysPower = null;
@@ -255,8 +270,11 @@ public class HardwareService : IDisposable
     /// process rather than replaced each poll: LibreHardwareMonitor stops enumerating an
     /// integrated GPU entirely while a game has the discrete one active, so rebuilding
     /// from each poll would make the picker empty itself mid-session and reappear later.
+    ///
+    /// Returns whether the list changed. The caller raises GpuListChanged once it has let
+    /// go of _computerLock; see ReadAll.
     /// </summary>
-    private void PublishGpuList(List<IHardware> gpus)
+    private bool PublishGpuList(List<IHardware> gpus)
     {
         bool changed = false;
 
@@ -274,14 +292,14 @@ public class HardwareService : IDisposable
             changed = true;
         }
 
-        if (!changed) return;
+        if (!changed) return false;
 
         // Discrete first, so the picker reads in the order people expect.
         var list = new List<GpuInfo>(_seenGpus.Values);
         list.Sort((a, b) => b.IsDiscrete.CompareTo(a.IsDiscrete));
 
         AvailableGpus = list;
-        GpuListChanged?.Invoke(this, EventArgs.Empty);
+        return true;
     }
 
     /// <summary>

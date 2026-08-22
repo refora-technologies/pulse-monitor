@@ -213,8 +213,11 @@ public partial class MainWindow : Window
 
     private bool _gpuRefreshPending;
 
+    /// BeginInvoke rather than Invoke: this fires from the polling thread, and blocking it
+    /// on the UI thread is one half of a deadlock — the UI thread takes the same hardware
+    /// lock when the tile selection changes. Nothing here needs to complete synchronously.
     private void OnGpuListChanged(object? sender, EventArgs e)
-        => Dispatcher.Invoke(PopulateGpuButtons);
+        => Dispatcher.BeginInvoke(PopulateGpuButtons);
 
     /// Applies any GPU list change that arrived while the dropdown was open.
     private void GpuCombo_DropDownClosed(object? sender, EventArgs e)
