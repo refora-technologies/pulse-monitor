@@ -277,8 +277,17 @@ public partial class App : WinApplication
         });
     }
 
+    /// <summary>
+    /// True once Pulse is genuinely quitting, so windows know to close rather than hide.
+    /// Without it, honouring "minimize to tray" in OnClosing would cancel the close that
+    /// Shutdown itself performs, and Exit would do nothing.
+    /// </summary>
+    public static bool IsExiting { get; private set; }
+
     private void ExitApp()
     {
+        IsExiting = true;
+        try { ViewModels.SettingsViewModel.Instance.FlushPendingSave(); } catch { }
         _trayIcon?.Dispose();
         HardwareService.Instance.Dispose();
         FpsService.Instance.Dispose();
