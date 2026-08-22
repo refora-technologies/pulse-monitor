@@ -256,8 +256,12 @@ public class HardwareService : IDisposable
         // this while still holding the lock deadlocks the two threads against each other.
         if (gpuListChanged) GpuListChanged?.Invoke(this, EventArgs.Empty);
 
-        data.SysPower = (data.CpuPower ?? 0) + (data.GpuPower ?? 0);
-        if (data.SysPower == 0) data.SysPower = null;
+        // Only a real total. Adding whichever of the two happened to be readable produced a
+        // number labelled "CPU+GPU Power" that was silently just one of them — indisting-
+        // uishable from a genuine total, and roughly half the true figure.
+        data.SysPower = data.CpuPower.HasValue && data.GpuPower.HasValue
+            ? data.CpuPower.Value + data.GpuPower.Value
+            : null;
 
         data.Fps     = FpsService.Instance.CurrentFps;
         data.Fps1Low = FpsService.Instance.OnePercentLowFps;
@@ -500,10 +504,19 @@ public class HardwareService : IDisposable
                 case SensorType.Clock when s.Name.Contains("Core", StringComparison.OrdinalIgnoreCase) && data.GpuClock is null:
                     data.GpuClock = s.Value;
                     break;
-                case SensorType.SmallData when s.Name.Contains("Memory Used", StringComparison.OrdinalIgnoreCase):
+                // Dedicated memory only, and only the first match.
+                //
+                // A plain "Memory Used" test also catches "D3D Shared Memory Used" and
+                // "GPU Memory Used", so whichever the driver happened to enumerate last won.
+                // On a hybrid laptop that meant VRAM flipping between the card's own memory
+                // and system memory borrowed for sharing, with nothing to indicate which was
+                // on screen.
+                case SensorType.SmallData when data.GpuVram is null
+                                            && IsDedicatedMemorySensor(s.Name, "Used"):
                     data.GpuVram = MathF.Round(s.Value.Value / 1024f, 2);
                     break;
-                case SensorType.SmallData when s.Name.Contains("Memory Total", StringComparison.OrdinalIgnoreCase) && data.TotalVramGb == 0:
+                case SensorType.SmallData when data.TotalVramGb == 0
+                                            && IsDedicatedMemorySensor(s.Name, "Total"):
                     data.TotalVramGb = MathF.Round(s.Value.Value / 1024f, 0);
                     break;
                 case SensorType.Load when s.Name.Contains("Core", StringComparison.OrdinalIgnoreCase) && coreLoad is null:
@@ -513,6 +526,21 @@ public class HardwareService : IDisposable
         }
 
         data.GpuUsage = d3dEngineLoad ?? coreLoad;
+    }
+
+    /// <summary>
+    /// Whether a sensor name refers to the adapter's own video memory rather than system
+    /// memory it has been lent. Vendors name these differently — "GPU Memory Used",
+    /// "D3D Dedicated Memory Used" — but the shared ones consistently say so.
+    /// </summary>
+    private static bool IsDedicatedMemorySensor(string name, string suffix)
+    {
+        if (!name.Contains("Memory", StringComparison.OrdinalIgnoreCase)) return false;
+        if (!name.Contains(suffix, StringComparison.OrdinalIgnoreCase))   return false;
+
+        return !name.Contains("Shared", StringComparison.OrdinalIgnoreCase)
+            && !name.Contains("Virtual", StringComparison.OrdinalIgnoreCase)
+            && !name.Contains("System", StringComparison.OrdinalIgnoreCase);
     }
 
     private static void ReadMemory(IHardware hw, SensorData data)
@@ -535,8 +563,18 @@ public class HardwareService : IDisposable
             data.TotalRamGb = MathF.Round(used.Value + available.Value, 0);
     }
 
+    /// <summary>
+    /// Adds an adapter's throughput to the totals, skipping anything that isn't a real
+    /// network card.
+    ///
+    /// Every adapter used to be summed together, so a VPN, a Hyper-V switch or a virtual
+    /// display's network stack counted the same packets a second time — the tiles could
+    /// report two or three times the traffic actually crossing the wire.
+    /// </summary>
     private static void ReadNetwork(IHardware hw, SensorData data)
     {
+        if (!IsPhysicalAdapter(hw.Name)) return;
+
         foreach (var s in hw.Sensors)
         {
             if (s.Value is null || s.SensorType != SensorType.Throughput) continue;
@@ -545,6 +583,66 @@ public class HardwareService : IDisposable
             else if (s.Name.Contains("Download", StringComparison.OrdinalIgnoreCase))
                 data.NetDownload = (data.NetDownload ?? 0) + s.Value.Value / 1_048_576f;
         }
+    }
+
+    /// Substrings that mark an adapter as something other than a physical network card.
+    private static readonly string[] VirtualAdapterMarkers =
+    {
+        "virtual", "vethernet", "hyper-v", "vmware", "virtualbox", "loopback",
+        "wireguard", "openvpn", "tailscale", "zerotier", "parsec", "npcap",
+        "pseudo", "wan miniport", "bluetooth", "tap-windows",
+    };
+
+    private static readonly object PhysicalAdapterLock = new();
+    private static HashSet<string>? _physicalAdapters;
+    private static long _physicalAdaptersFetchedAt;
+
+    /// <summary>
+    /// Whether this adapter should count toward network throughput. The list is rebuilt
+    /// periodically rather than per poll, since enumerating interfaces is not free and
+    /// adapters rarely appear or disappear.
+    /// </summary>
+    private static bool IsPhysicalAdapter(string name)
+    {
+        lock (PhysicalAdapterLock)
+        {
+            long now = Environment.TickCount64;
+            if (_physicalAdapters is null || now - _physicalAdaptersFetchedAt > 30_000)
+            {
+                _physicalAdapters          = BuildPhysicalAdapterSet();
+                _physicalAdaptersFetchedAt = now;
+            }
+
+            // If nothing survived the filter, something about this machine's naming defeats
+            // it — count everything rather than reporting a flat zero.
+            return _physicalAdapters.Count == 0 || _physicalAdapters.Contains(name);
+        }
+    }
+
+    private static HashSet<string> BuildPhysicalAdapterSet()
+    {
+        var physical = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        try
+        {
+            foreach (var nic in System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces())
+            {
+                if (nic.NetworkInterfaceType is System.Net.NetworkInformation.NetworkInterfaceType.Loopback
+                                             or System.Net.NetworkInformation.NetworkInterfaceType.Tunnel)
+                    continue;
+
+                if (nic.OperationalStatus != System.Net.NetworkInformation.OperationalStatus.Up) continue;
+                if (LooksVirtual(nic.Name) || LooksVirtual(nic.Description)) continue;
+
+                physical.Add(nic.Name);
+            }
+        }
+        catch { }
+
+        return physical;
+
+        static bool LooksVirtual(string text) =>
+            VirtualAdapterMarkers.Any(m => text.Contains(m, StringComparison.OrdinalIgnoreCase));
     }
 
     private static void ReadStorage(IHardware hw, SensorData data)
