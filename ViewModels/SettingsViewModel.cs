@@ -23,8 +23,14 @@ public class TileSelectionItem : BaseViewModel
 
 public class SettingsViewModel : BaseViewModel
 {
-    private static SettingsViewModel? _instance;
-    public static SettingsViewModel Instance => _instance ??= new SettingsViewModel();
+    /// Lazy rather than `??=`: that is not atomic, and these are reached from the polling
+    /// thread and the UI thread at the same time during startup. Losing the race builds two
+    /// instances, each with its own event subscribers, so notifications reach an object
+    /// nobody is listening to.
+    private static readonly Lazy<SettingsViewModel> LazyInstance =
+        new(() => new SettingsViewModel(), LazyThreadSafetyMode.ExecutionAndPublication);
+
+    public static SettingsViewModel Instance => LazyInstance.Value;
 
     public ObservableCollection<TileSelectionItem> AllTiles { get; } = new();
 
