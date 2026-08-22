@@ -2,7 +2,9 @@ using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
 using System.Reflection;
+using System.Security.AccessControl;
 using System.Security.Cryptography;
+using System.Security.Principal;
 using Newtonsoft.Json.Linq;
 
 namespace Pulse.Services;
@@ -27,6 +29,10 @@ public enum UpdateDownloadStatus
     DownloadFailed,
     VerificationFailed,
     VerificationUnavailable,
+
+    /// The download location could not be secured against tampering, so we refused to run
+    /// an installer from it. See CreateSecureDownloadDirectory.
+    LocationNotSecurable,
 }
 
 public class UpdateService
@@ -184,7 +190,16 @@ public class UpdateService
         var fileName = string.IsNullOrEmpty(info.InstallerName)
             ? $"PulseSetup-{info.TagName}.exe"
             : info.InstallerName;
-        var target = Path.Combine(Path.GetTempPath(), fileName);
+
+        string target;
+        try
+        {
+            target = Path.Combine(CreateSecureDownloadDirectory(), fileName);
+        }
+        catch
+        {
+            return UpdateDownloadStatus.LocationNotSecurable;
+        }
 
         try
         {
@@ -246,6 +261,83 @@ public class UpdateService
         {
             return UpdateDownloadStatus.DownloadFailed;
         }
+    }
+
+    private const string DownloadDirPrefix = "Pulse-update-";
+
+    /// <summary>
+    /// Creates a private directory to download the installer into.
+    ///
+    /// The plain temp directory is writable by the logged-on user, and Pulse runs elevated.
+    /// Downloading there means anything else running as that (non-admin) user can swap the
+    /// installer in the window between our hash check and Process.Start, and the replacement
+    /// then inherits our elevation. Granting only Administrators and SYSTEM removes the
+    /// window: an unprivileged process cannot write into the directory at all.
+    ///
+    /// Throws if the ACL cannot be applied. Callers fail closed rather than running an
+    /// elevated installer out of a location they could not secure — the same stance as
+    /// refusing an installer whose checksum will not verify.
+    /// </summary>
+    private static string CreateSecureDownloadDirectory()
+    {
+        var path = Path.Combine(Path.GetTempPath(), DownloadDirPrefix + Guid.NewGuid().ToString("N"));
+
+        var admins = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
+        var system = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
+
+        var security = new DirectorySecurity();
+        security.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+
+        foreach (var sid in new[] { admins, system })
+        {
+            security.AddAccessRule(new FileSystemAccessRule(
+                sid,
+                FileSystemRights.FullControl,
+                InheritanceFlags.ObjectInherit | InheritanceFlags.ContainerInherit,
+                PropagationFlags.None,
+                AccessControlType.Allow));
+        }
+
+        var dir = new DirectoryInfo(path);
+        dir.Create(security);
+
+        // Ownership is set afterwards, deliberately. Putting the owner into the descriptor
+        // passed to Create makes Create itself throw ("This security ID may not be assigned
+        // as the owner of this object") when the process cannot assign it, which would take
+        // the whole directory with it. As a separate step the failure is catchable, and the
+        // DACL above — the part that actually keeps other users out — is already in place.
+        //
+        // It matters because an owner can always rewrite the DACL, so we would rather that
+        // be Administrators than the logged-on user.
+        try
+        {
+            var ownerInfo = dir.GetAccessControl(AccessControlSections.Owner);
+            ownerInfo.SetOwner(admins);
+            dir.SetAccessControl(ownerInfo);
+        }
+        catch { }
+
+        return path;
+    }
+
+    /// <summary>
+    /// Removes download directories left behind by earlier updates. Cleanup cannot happen at
+    /// the end of an update because Pulse exits while the installer it launched is still
+    /// running out of that directory, so it happens on the next launch instead.
+    /// </summary>
+    public static void CleanupStaleDownloads()
+    {
+        try
+        {
+            foreach (var dir in Directory.EnumerateDirectories(Path.GetTempPath(), DownloadDirPrefix + "*"))
+            {
+                try { Directory.Delete(dir, recursive: true); } catch { }
+            }
+
+            // Older builds downloaded straight into the temp root.
+            TryDelete(Path.Combine(Path.GetTempPath(), "PulseSetup.exe"));
+        }
+        catch { }
     }
 
     private static void TryDelete(string path)
