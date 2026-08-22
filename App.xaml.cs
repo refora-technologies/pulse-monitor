@@ -28,6 +28,10 @@ public partial class App : WinApplication
     /// <summary>Whether the overlay is currently visible.</summary>
     public bool IsOverlayVisible => _overlayWindow != null && _overlayWindow.IsLoaded && _overlayWindow.IsVisible;
 
+    /// The live overlay, for the settings panel's X/Y position controls. Null before the
+    /// overlay has been created or after it has been closed.
+    public OverlayWindow? Overlay => _overlayWindow is { IsLoaded: true } ? _overlayWindow : null;
+
     protected override void OnStartup(StartupEventArgs e)
     {
         _mutex = new Mutex(true, MutexName, out bool createdNew);

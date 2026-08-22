@@ -177,6 +177,55 @@ public class SettingsViewModel : BaseViewModel
         }
     }
 
+    // --- Precise overlay placement -------------------------------------------------
+    // Pixels here rather than the fraction actually stored, because a pixel is what people
+    // expect to type. Both directions go through the overlay window, which owns the maths
+    // and the monitor it belongs to.
+
+    private Views.OverlayWindow? LiveOverlay =>
+        (System.Windows.Application.Current as App)?.Overlay;
+
+    public int OverlayX
+    {
+        get => LiveOverlay?.GetPositionPixels().X ?? 0;
+        set
+        {
+            var overlay = LiveOverlay;
+            if (overlay == null) return;
+            overlay.SetPositionPixels(value, overlay.GetPositionPixels().Y);
+            NotifyPositionChanged();
+        }
+    }
+
+    public int OverlayY
+    {
+        get => LiveOverlay?.GetPositionPixels().Y ?? 0;
+        set
+        {
+            var overlay = LiveOverlay;
+            if (overlay == null) return;
+            overlay.SetPositionPixels(overlay.GetPositionPixels().X, value);
+            NotifyPositionChanged();
+        }
+    }
+
+    /// Upper bounds for the position boxes: the overlay can never be moved further than its
+    /// own size short of the far edge.
+    public int OverlayMaxX => LiveOverlay?.GetPositionPixels().MaxX ?? 0;
+    public int OverlayMaxY => LiveOverlay?.GetPositionPixels().MaxY ?? 0;
+
+    /// <summary>
+    /// Refreshes the position boxes. Called after the overlay is dragged, so typing a
+    /// position and dragging it stay two views of the same thing rather than competing.
+    /// </summary>
+    public void NotifyPositionChanged()
+    {
+        OnPropertyChanged(nameof(OverlayX));
+        OnPropertyChanged(nameof(OverlayY));
+        OnPropertyChanged(nameof(OverlayMaxX));
+        OnPropertyChanged(nameof(OverlayMaxY));
+    }
+
     private bool _showStatusBar;
     public bool ShowStatusBar
     {
