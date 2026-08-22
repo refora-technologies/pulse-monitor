@@ -41,9 +41,10 @@ MinVersion=10.0
 DisableDirPage=yes
 UsePreviousAppDir=yes
 
-; Lets Setup detect a running Pulse properly instead of relying on restart manager alone.
-; Must match the mutex name in App.xaml.cs.
-AppMutex=Global\PulseMonitor_SingleInstance
+; Deliberately no AppMutex. It is checked before the wizard even starts and can only refuse
+; to continue, so it replaced the "Applications in use" page — which closes Pulse for the
+; user — with a dead end telling them to go and close it themselves. CloseApplications above
+; already detects a running instance through the Restart Manager and handles it gracefully.
 
 ; Acknowledged deliberately. The [UninstallDelete] entry below touches a per-user temp path,
 ; which in an elevated uninstall resolves to whichever account approved the UAC prompt. For
