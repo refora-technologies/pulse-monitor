@@ -32,6 +32,7 @@ public partial class OverlayWindow : Window
 
     // --- Always-on-top enforcement -------------------------------------------------
     private static readonly IntPtr HWND_TOPMOST = new(-1);
+    private const int WS_EX_TOPMOST = 0x00000008;
     private const uint SWP_NOSIZE     = 0x0001;
     private const uint SWP_NOMOVE     = 0x0002;
     private const uint SWP_NOZORDER   = 0x0004;
@@ -47,9 +48,13 @@ public partial class OverlayWindow : Window
 
     [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassName(IntPtr hWnd, System.Text.StringBuilder lpClassName, int nMaxCount);
     [DllImport("user32.dll", CharSet = CharSet.Auto)] static extern IntPtr FindWindow(string? lpClassName, string? lpWindowName);
     [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
     [DllImport("user32.dll")] static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint dwFlags);
+    [DllImport("user32.dll")] static extern bool EnumWindows(EnumWindowsProc callback, IntPtr lParam);
+
+    private delegate bool EnumWindowsProc(IntPtr hwnd, IntPtr lParam);
     [DllImport("user32.dll")] static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFO lpmi);
 
     [StructLayout(LayoutKind.Sequential)]
@@ -72,6 +77,20 @@ public partial class OverlayWindow : Window
         "SearchHost",
         "ShellHost",
         "TextInputHost",
+    };
+
+    // The process alone is too coarse to act on. "explorer" also owns every File Explorer
+    // window and the desktop itself, and "Windows.UI.Core.CoreWindow" is the class of any
+    // UWP app, so matching on either one by itself would have us treating a folder window
+    // or Settings as shell furniture. A surface has to match on both counts to qualify.
+    private static readonly HashSet<string> ShellWindowClasses = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Shell_TrayWnd",                       // taskbar
+        "Shell_SecondaryTrayWnd",              // taskbar on an additional display
+        "TopLevelWindowForOverflowXamlIsland", // hidden icons / tray overflow flyout
+        "ControlCenterWindow",                 // Quick Settings
+        "Windows.UI.Core.CoreWindow",          // Start, search, IME candidate window
+        "XamlExplorerHostIslandWindow_WASDK",  // newer shell islands
     };
 
     private delegate void WinEventDelegate(IntPtr hWinEventHook, uint eventType,
@@ -336,9 +355,25 @@ public partial class OverlayWindow : Window
         var hwnd = new WindowInteropHelper(this).Handle;
         if (hwnd == IntPtr.Zero) return;
 
-        // A transient shell flyout (Quick Settings, tray overflow, Start menu, search) is
-        // currently open and focused — don't fight it for the top slot at all.
-        if (IsShellForegroundWindow()) return;
+        // A shell surface (taskbar, Quick Settings, tray overflow, Start menu, search) is
+        // open and focused. Don't fight it for the top slot.
+        if (IsShellSurfaceForeground(out var surface, out bool surfaceIsTopmost))
+        {
+            // Standing still is enough for a surface that is itself topmost: it shares our
+            // band and was raised more recently, so it already sits above us.
+            //
+            // The tray overflow flyout — the "hidden icons" popup — is the one shell surface
+            // Windows does not mark topmost, and every topmost window sits above every
+            // non-topmost one regardless of the order inside each band. So we have to leave
+            // the topmost band for it. Dropping to HWND_NOTOPMOST is not enough on its own:
+            // that is documented as placing the window *above all non-topmost windows*, which
+            // put us right back on top of the very flyout we were trying to reveal. Anchoring
+            // directly beneath the surface itself both clears topmost and lands us below it.
+            if (!surfaceIsTopmost) SlipBehind(hwnd, surface);
+            return;
+        }
+
+        _anchoredBehind = IntPtr.Zero;
 
         // Otherwise reassert topmost. During ordinary desktop use we insert ourselves
         // just behind the taskbar's own window instead of the very top of the z-order,
@@ -353,12 +388,64 @@ public partial class OverlayWindow : Window
         var insertAfter = HWND_TOPMOST;
         if (!IsForegroundWindowFullScreen())
         {
-            var taskbar = FindWindow("Shell_TrayWnd", null);
+            var taskbar = FindTaskbarOnOurMonitor(hwnd);
             if (taskbar != IntPtr.Zero) insertAfter = taskbar;
         }
 
         SetWindowPos(hwnd, insertAfter, 0, 0, 0, 0,
             SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    }
+
+    /// The window we are currently parked beneath, so the call isn't repeated on every
+    /// foreground change and timer tick for as long as one surface stays open.
+    private IntPtr _anchoredBehind;
+
+    private void SlipBehind(IntPtr hwnd, IntPtr surface)
+    {
+        if (_anchoredBehind == surface) return;
+        _anchoredBehind = surface;
+
+        SetWindowPos(hwnd, surface, 0, 0, 0, 0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    }
+
+    /// <summary>
+    /// The taskbar belonging to the display the overlay is actually on.
+    ///
+    /// Only the primary monitor's taskbar is Shell_TrayWnd; every additional display gets a
+    /// Shell_SecondaryTrayWnd of its own. Anchoring to the primary one regardless is what
+    /// let an overlay on a second screen sit over that screen's taskbar, because being just
+    /// beneath one topmost window says nothing about where you land relative to another.
+    /// </summary>
+    private static IntPtr FindTaskbarOnOurMonitor(IntPtr hwnd)
+    {
+        var ourMonitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+        var match = IntPtr.Zero;
+
+        try
+        {
+            // Held in a local so the delegate cannot be collected while EnumWindows runs.
+            EnumWindowsProc scan = (candidate, _) =>
+            {
+                var name = new System.Text.StringBuilder(64);
+                if (GetClassName(candidate, name, name.Capacity) == 0) return true;
+
+                var cls = name.ToString();
+                if (cls is not ("Shell_TrayWnd" or "Shell_SecondaryTrayWnd")) return true;
+                if (MonitorFromWindow(candidate, MONITOR_DEFAULTTONEAREST) != ourMonitor) return true;
+
+                match = candidate;
+                return false;   // stop, we have the one on our display
+            };
+
+            EnumWindows(scan, IntPtr.Zero);
+        }
+        catch
+        {
+            // fall through to the primary taskbar below
+        }
+
+        return match != IntPtr.Zero ? match : FindWindow("Shell_TrayWnd", null);
     }
 
     private static bool IsForegroundWindowFullScreen()
@@ -386,16 +473,35 @@ public partial class OverlayWindow : Window
         }
     }
 
-    private static bool IsShellForegroundWindow()
+    /// <summary>
+    /// True when the foreground window is one of Windows' own shell surfaces.
+    /// </summary>
+    /// <param name="surface">That window, so we can anchor ourselves directly beneath it.</param>
+    /// <param name="surfaceIsTopmost">
+    /// Whether the surface is itself topmost, which decides whether we need to stand aside
+    /// or move below it outright.
+    /// </param>
+    private static bool IsShellSurfaceForeground(out IntPtr surface, out bool surfaceIsTopmost)
     {
+        surface = IntPtr.Zero;
+        surfaceIsTopmost = false;
         try
         {
             var fg = GetForegroundWindow();
             if (fg == IntPtr.Zero) return false;
+
             GetWindowThreadProcessId(fg, out uint pid);
             if (pid == 0) return false;
             using var process = Process.GetProcessById((int)pid);
-            return ShellProcessNames.Contains(process.ProcessName);
+            if (!ShellProcessNames.Contains(process.ProcessName)) return false;
+
+            var name = new System.Text.StringBuilder(256);
+            if (GetClassName(fg, name, name.Capacity) == 0) return false;
+            if (!ShellWindowClasses.Contains(name.ToString())) return false;
+
+            surface = fg;
+            surfaceIsTopmost = (GetWindowLong(fg, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0;
+            return true;
         }
         catch
         {
