@@ -1284,6 +1284,13 @@
                                 <!-- Exact placement, for anything a corner or a drag can't hit -->
                                 <TextBlock Text="Exact position" FontSize="12" FontWeight="SemiBold"
                                            Foreground="#A9A4CE" Margin="0,18,0,4"/>
+                                <!-- Sliding is the main way to use these, so it has to be said
+                                     out loud. It was only ever mentioned in a tooltip, and a
+                                     tooltip you have to hover to find is no way to advertise the
+                                     primary interaction. -->
+                                <TextBlock Text="Drag the X or Y field to slide the overlay, or type a value"
+                                           FontSize="10.5" FontWeight="Medium" Foreground="#A9A4CE"
+                                           Margin="0,0,0,3" TextWrapping="Wrap"/>
                                 <TextBlock x:Name="PositionHint"
                                            Text="Pixels from the top-left of the display"
                                            FontSize="10.5" FontWeight="Medium" Foreground="#8B86B4"
@@ -1300,7 +1307,8 @@
                                              PreviewTextInput="PositionBox_PreviewTextInput"
                                              PreviewMouseLeftButtonDown="PositionBox_PreviewMouseDown"
                                              PreviewMouseMove="PositionBox_PreviewMouseMove"
-                                             PreviewMouseLeftButtonUp="PositionBox_PreviewMouseUp"/>
+                                             PreviewMouseLeftButtonUp="PositionBox_PreviewMouseUp"
+                                             LostMouseCapture="PositionBox_LostMouseCapture"/>
                                     <TextBlock Text="Y" FontSize="12" FontWeight="SemiBold"
                                                Foreground="#A9A4CE" VerticalAlignment="Center"
                                                Margin="16,0,8,0"/>
@@ -1312,7 +1320,8 @@
                                              PreviewTextInput="PositionBox_PreviewTextInput"
                                              PreviewMouseLeftButtonDown="PositionBox_PreviewMouseDown"
                                              PreviewMouseMove="PositionBox_PreviewMouseMove"
-                                             PreviewMouseLeftButtonUp="PositionBox_PreviewMouseUp"/>
+                                             PreviewMouseLeftButtonUp="PositionBox_PreviewMouseUp"
+                                             LostMouseCapture="PositionBox_LostMouseCapture"/>
                                 </StackPanel>
                             </StackPanel>
                         </StackPanel>
