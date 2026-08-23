@@ -321,6 +321,14 @@ public partial class MainWindow : Window
 
     private bool _updatingPositionBoxes;
 
+    // The last values this code put into the boxes. Anything else in them was typed by the
+    // user, which is the difference between a box worth committing and one that is simply
+    // sitting there showing a number.
+    private string _writtenX = "", _writtenY = "";
+
+    private bool XBoxEdited => PositionXBox != null && PositionXBox.Text != _writtenX;
+    private bool YBoxEdited => PositionYBox != null && PositionYBox.Text != _writtenY;
+
     private void OnSettingsViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
         if (e.PropertyName is nameof(SettingsViewModel.OverlayX) or nameof(SettingsViewModel.OverlayY))
@@ -338,8 +346,17 @@ public partial class MainWindow : Window
 
             // Not while the user is mid-edit: the overlay repositions itself as tiles resize
             // it, and overwriting a half-typed value would be maddening.
-            if (!PositionXBox.IsKeyboardFocusWithin) PositionXBox.Text = x.ToString();
-            if (!PositionYBox.IsKeyboardFocusWithin) PositionYBox.Text = y.ToString();
+            //
+            // Being focused is not enough to count as mid-edit though. Clicking a box and
+            // typing nothing used to freeze the number in it, so if the overlay then moved by
+            // any other route the box sat there showing a position that was no longer true —
+            // and handed that stale number straight back to the overlay on the way out. A box
+            // is only left alone once something has actually been typed into it.
+            if (!(PositionXBox.IsKeyboardFocusWithin && XBoxEdited))
+                PositionXBox.Text = _writtenX = x.ToString();
+
+            if (!(PositionYBox.IsKeyboardFocusWithin && YBoxEdited))
+                PositionYBox.Text = _writtenY = y.ToString();
 
             // Naming the display matters on a multi-monitor setup: "0-2354" means nothing
             // unless you know which screen it is measured across.
@@ -436,7 +453,39 @@ public partial class MainWindow : Window
         e.Handled = true;
     }
 
-    private void PositionBox_Commit(object sender, RoutedEventArgs e) => CommitPositionBoxes();
+    private void PositionBox_Commit(object sender, RoutedEventArgs e)
+    {
+        // Nothing was typed, so there is nothing to apply. Just re-read the overlay, which
+        // also picks up anything that moved while the box held focus.
+        if (!XBoxEdited && !YBoxEdited)
+        {
+            RefreshPositionBoxes();
+            return;
+        }
+
+        CommitPositionBoxes();
+    }
+
+    /// <summary>
+    /// Ends a scrub that lost the mouse without a button-up ever reaching the box.
+    ///
+    /// Capture can be taken away by another window grabbing it, by an elevation prompt, or
+    /// by the window being deactivated mid-press. None of those raise the mouse-up handler,
+    /// so the scrub state survived and the box kept believing a drag was in progress. With
+    /// capture still nominally held, later mouse movement anywhere with the button down was
+    /// routed back here and slid the overlay from an origin recorded long before.
+    /// </summary>
+    private void PositionBox_LostMouseCapture(object sender, System.Windows.Input.MouseEventArgs e)
+    {
+        // An ordinary mouse-up clears _scrubBox before releasing capture, so this only runs
+        // for the abnormal case.
+        if (!ReferenceEquals(sender, _scrubBox)) return;
+
+        if (_scrubbing) _vm?.CommitOverlayPosition();   // keep wherever it actually ended up
+
+        _scrubBox  = null;
+        _scrubbing = false;
+    }
 
     private void CommitPositionBoxes()
     {
@@ -449,6 +498,10 @@ public partial class MainWindow : Window
 
         _vm.OverlayX = x;
         _vm.OverlayY = y;
+
+        // Applied, so the boxes are back in step with the overlay and nothing is pending.
+        _writtenX = PositionXBox.Text;
+        _writtenY = PositionYBox.Text;
 
         // Reflects any clamping the overlay applied, rather than leaving the box showing a
         // position it could not actually take.
