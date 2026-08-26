@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -276,6 +276,13 @@ public partial class OverlayWindow : Window
     private void OnOverlaySizeChanged(object sender, SizeChangedEventArgs e)
     {
         if (!IsVisible) return;   // frozen while hidden; OnIsVisibleChanged repositions on show
+
+        // Re-anchoring mid-adjustment fights the slider. The overlay resizes whenever a
+        // reading changes width, which is most polls, and re-placing from the anchor shifts it
+        // by a pixel or two each time — enough to tug the slider's value away from the thumb
+        // the user is holding. The resting place is re-anchored once the drag settles.
+        if (ViewModels.SettingsViewModel.Instance.IsAdjustingPosition) return;
+
         Dispatcher.InvokeAsync(ApplyPosition, DispatcherPriority.Loaded);
     }
 
@@ -774,9 +781,17 @@ public partial class OverlayWindow : Window
         return System.Windows.Forms.Screen.PrimaryScreen ?? screens[0];
     }
 
-    /// Records where the user dropped the overlay as a physical-pixel offset into its
-    /// monitor's work area, plus that monitor's device name.
-    private void SavePosition()
+    /// <summary>
+    /// Records where the overlay now is, as a fraction of its monitor's work area.
+    ///
+    /// <paramref name="writeToDisk"/> is false while a position slider is being dragged, so a
+    /// drag across the screen does not mean a settings file write per pixel. The anchor in
+    /// memory is still updated every time, and that part is not optional: ApplyPosition
+    /// re-places the overlay from that anchor, and the overlay auto-sizes on almost every
+    /// sensor poll. Leaving it stale meant the next poll during a drag snapped the overlay
+    /// back to wherever it sat before the drag began.
+    /// </summary>
+    private void SavePosition(bool writeToDisk = true)
     {
         var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
         if (hwnd == IntPtr.Zero || !GetWindowRect(hwnd, out var bounds)) return;
@@ -803,10 +818,10 @@ public partial class OverlayWindow : Window
         settings.OverlayCustomX = -1;
         settings.OverlayCustomY = -1;
 
-        SettingsService.Instance.Save();
+        if (writeToDisk) SettingsService.Instance.Save();
 
-        // Keep the settings panel's X/Y boxes showing where the overlay actually is, so
-        // dragging and typing stay two views of one position.
+        // Keep the settings panel's position sliders showing where the overlay actually is,
+        // so dragging it and moving the sliders stay two views of one position.
         ViewModels.SettingsViewModel.Instance.NotifyPositionChanged();
     }
 
@@ -917,7 +932,8 @@ public partial class OverlayWindow : Window
             work.Top  + Math.Clamp(y, 0, maxY),
             0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
 
-        if (persist) SavePosition();
+        // Always record the new anchor; only the disk write is deferred.
+        SavePosition(writeToDisk: persist);
     }
 
     /// <summary>

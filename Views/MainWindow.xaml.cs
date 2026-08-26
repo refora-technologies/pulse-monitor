@@ -14,7 +14,6 @@ using WpfDragEventArgs = System.Windows.DragEventArgs;
 using WpfDataObject = System.Windows.DataObject;
 using WpfDragDropEffects = System.Windows.DragDropEffects;
 using WpfBorder = System.Windows.Controls.Border;
-using WpfTextBox = System.Windows.Controls.TextBox;
 
 namespace Pulse.Views;
 
@@ -54,16 +53,11 @@ public partial class MainWindow : Window
             UpdateOverlayButton();
             PopulateMonitorButtons();
             PopulateGpuButtons();
-            RefreshPositionBoxes();
-
-            // Dragging the overlay updates these, so the typed values and the overlay never
-            // disagree about where it is.
-            if (_vm != null) _vm.PropertyChanged += OnSettingsViewModelPropertyChanged;
 
             // The panel is hidden and re-shown rather than recreated, so Loaded fires only
-            // once. Without this the position boxes would keep whatever they read the first
+            // once. Without this the position sliders would keep whatever they read the first
             // time, however far the overlay had been dragged since.
-            IsVisibleChanged += (_, args) => { if (args.NewValue is true) RefreshPositionBoxes(); };
+            IsVisibleChanged += (_, args) => { if (args.NewValue is true) _vm?.NotifyPositionChanged(); };
 
             // The GPU list isn't known until the first sensor poll completes, so rebuild
             // the picker when it arrives (and if an eGPU is plugged in later).
@@ -314,199 +308,17 @@ public partial class MainWindow : Window
     }
 
     private bool _gpuRefreshPending;
-
     // --- Exact overlay position ------------------------------------------------------
-    // Committed on Enter or focus loss rather than bound two-way: a live binding would move
-    // the overlay on every keystroke, so typing "120" would drag it to 1, then 12, then 120.
+    // Two sliders bound straight to the view model. This used to be a pair of text boxes,
+    // which needed a surprising amount of scaffolding to be safe: tracking whether a box had
+    // really been typed in, committing on focus loss, filtering pasted text, clearing a stuck
+    // mouse grab. A slider cannot hold a value that disagrees with the overlay, so all of it
+    // went away along with the bugs it kept producing.
 
-    private bool _updatingPositionBoxes;
+    /// Puts the opacity and background sliders back to the values Pulse ships with, so a
+    /// transparent panel can be tried out without having to remember what it was before.
+    private void ResetAppearance_Click(object sender, RoutedEventArgs e) => _vm?.ResetAppearance();
 
-    // The last values this code put into the boxes. Anything else in them was typed by the
-    // user, which is the difference between a box worth committing and one that is simply
-    // sitting there showing a number.
-    private string _writtenX = "", _writtenY = "";
-
-    private bool XBoxEdited => PositionXBox != null && PositionXBox.Text != _writtenX;
-    private bool YBoxEdited => PositionYBox != null && PositionYBox.Text != _writtenY;
-
-    private void OnSettingsViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
-    {
-        if (e.PropertyName is nameof(SettingsViewModel.OverlayX) or nameof(SettingsViewModel.OverlayY))
-            RefreshPositionBoxes();
-    }
-
-    private void RefreshPositionBoxes()
-    {
-        if (_vm == null || PositionXBox == null || PositionYBox == null) return;
-
-        _updatingPositionBoxes = true;
-        try
-        {
-            var (x, y, maxX, maxY, display) = _vm.OverlayPlacement;
-
-            // Not while the user is mid-edit: the overlay repositions itself as tiles resize
-            // it, and overwriting a half-typed value would be maddening.
-            //
-            // Being focused is not enough to count as mid-edit though. Clicking a box and
-            // typing nothing used to freeze the number in it, so if the overlay then moved by
-            // any other route the box sat there showing a position that was no longer true —
-            // and handed that stale number straight back to the overlay on the way out. A box
-            // is only left alone once something has actually been typed into it.
-            if (!(PositionXBox.IsKeyboardFocusWithin && XBoxEdited))
-                PositionXBox.Text = _writtenX = x.ToString();
-
-            if (!(PositionYBox.IsKeyboardFocusWithin && YBoxEdited))
-                PositionYBox.Text = _writtenY = y.ToString();
-
-            // Naming the display matters on a multi-monitor setup: "0-2354" means nothing
-            // unless you know which screen it is measured across.
-            PositionHint.Text = display.Length > 0
-                ? $"Pixels from the top-left of {display} (0-{maxX}, 0-{maxY})"
-                : $"Pixels from the top-left of the display (0-{maxX}, 0-{maxY})";
-        }
-        finally
-        {
-            _updatingPositionBoxes = false;
-        }
-    }
-
-    /// Digits only, so the box can never hold something that will not parse.
-    private void PositionBox_PreviewTextInput(object sender, System.Windows.Input.TextCompositionEventArgs e)
-        => e.Handled = !e.Text.All(char.IsAsciiDigit);
-
-    // --- Drag a position box to slide the overlay ------------------------------------
-    // Press and drag on a box to move the overlay live, the way a numeric field scrubs in
-    // an editor. The X box follows horizontal movement and the Y box vertical, so the drag
-    // matches the direction the overlay travels.
-    //
-    // A press on an unfocused box starts a scrub rather than placing a caret, which is what
-    // makes dragging feel immediate. Releasing without having moved focuses the box for
-    // typing instead, so a plain click still does the obvious thing.
-
-    private const double ScrubThreshold = 3;   // px of travel before a press becomes a drag
-
-    private WpfTextBox? _scrubBox;
-    private System.Windows.Point _scrubOrigin;
-    private int  _scrubStartX, _scrubStartY;
-    private bool _scrubbing;
-
-    private void PositionBox_PreviewMouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
-    {
-        if (sender is not WpfTextBox box || _vm == null) return;
-        if (box.IsKeyboardFocusWithin) return;   // already typing in it; leave text editing alone
-
-        _scrubBox    = box;
-        _scrubOrigin = e.GetPosition(this);
-        _scrubStartX = _vm.OverlayX;
-        _scrubStartY = _vm.OverlayY;
-        _scrubbing   = false;
-
-        box.CaptureMouse();
-        e.Handled = true;   // suppresses the caret placement and text selection
-    }
-
-    private void PositionBox_PreviewMouseMove(object sender, System.Windows.Input.MouseEventArgs e)
-    {
-        if (_scrubBox == null || _vm == null) return;
-        if (e.LeftButton != System.Windows.Input.MouseButtonState.Pressed) return;
-
-        var offset = e.GetPosition(this) - _scrubOrigin;
-        bool isX   = ReferenceEquals(_scrubBox, PositionXBox);
-        double travel = isX ? offset.X : offset.Y;
-
-        if (!_scrubbing && Math.Abs(travel) < ScrubThreshold) return;
-        _scrubbing = true;
-
-        _vm.MoveOverlayLive(
-            isX ? _scrubStartX + (int)travel : _scrubStartX,
-            isX ? _scrubStartY : _scrubStartY + (int)travel);
-    }
-
-    private void PositionBox_PreviewMouseUp(object sender, System.Windows.Input.MouseButtonEventArgs e)
-    {
-        if (_scrubBox == null) return;
-
-        var box = _scrubBox;
-        _scrubBox = null;
-        box.ReleaseMouseCapture();
-
-        if (_scrubbing)
-        {
-            _scrubbing = false;
-            _vm?.CommitOverlayPosition();
-        }
-        else
-        {
-            // Never moved, so this was an ordinary click: give it focus and select the value
-            // so typing a new one replaces it.
-            box.Focus();
-            box.SelectAll();
-        }
-
-        e.Handled = true;
-    }
-
-    private void PositionBox_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
-    {
-        if (e.Key != System.Windows.Input.Key.Enter) return;
-        CommitPositionBoxes();
-        e.Handled = true;
-    }
-
-    private void PositionBox_Commit(object sender, RoutedEventArgs e)
-    {
-        // Nothing was typed, so there is nothing to apply. Just re-read the overlay, which
-        // also picks up anything that moved while the box held focus.
-        if (!XBoxEdited && !YBoxEdited)
-        {
-            RefreshPositionBoxes();
-            return;
-        }
-
-        CommitPositionBoxes();
-    }
-
-    /// <summary>
-    /// Ends a scrub that lost the mouse without a button-up ever reaching the box.
-    ///
-    /// Capture can be taken away by another window grabbing it, by an elevation prompt, or
-    /// by the window being deactivated mid-press. None of those raise the mouse-up handler,
-    /// so the scrub state survived and the box kept believing a drag was in progress. With
-    /// capture still nominally held, later mouse movement anywhere with the button down was
-    /// routed back here and slid the overlay from an origin recorded long before.
-    /// </summary>
-    private void PositionBox_LostMouseCapture(object sender, System.Windows.Input.MouseEventArgs e)
-    {
-        // An ordinary mouse-up clears _scrubBox before releasing capture, so this only runs
-        // for the abnormal case.
-        if (!ReferenceEquals(sender, _scrubBox)) return;
-
-        if (_scrubbing) _vm?.CommitOverlayPosition();   // keep wherever it actually ended up
-
-        _scrubBox  = null;
-        _scrubbing = false;
-    }
-
-    private void CommitPositionBoxes()
-    {
-        if (_vm == null || _updatingPositionBoxes) return;
-        if (!int.TryParse(PositionXBox.Text, out int x) || !int.TryParse(PositionYBox.Text, out int y))
-        {
-            RefreshPositionBoxes();   // put back what it really is
-            return;
-        }
-
-        _vm.OverlayX = x;
-        _vm.OverlayY = y;
-
-        // Applied, so the boxes are back in step with the overlay and nothing is pending.
-        _writtenX = PositionXBox.Text;
-        _writtenY = PositionYBox.Text;
-
-        // Reflects any clamping the overlay applied, rather than leaving the box showing a
-        // position it could not actually take.
-        RefreshPositionBoxes();
-    }
 
     /// BeginInvoke rather than Invoke: this fires from the polling thread, and blocking it
     /// on the UI thread is one half of a deadlock — the UI thread takes the same hardware
@@ -841,10 +653,6 @@ public partial class MainWindow : Window
         // control panel is reopened, so leaving this attached would pin every closed
         // instance in memory for the lifetime of the app.
         Pulse.Services.HardwareService.Instance.GpuListChanged -= OnGpuListChanged;
-
-        // SettingsViewModel is a singleton too, so the position-box subscription pins this
-        // window exactly the same way.
-        if (_vm != null) _vm.PropertyChanged -= OnSettingsViewModelPropertyChanged;
 
         base.OnClosed(e);
     }

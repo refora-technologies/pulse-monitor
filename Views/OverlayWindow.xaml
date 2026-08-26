@@ -85,14 +85,20 @@
             </Grid.LayoutTransform>
 
             <!-- ═══ NORMAL MODE ═══ -->
+            <!-- The fade is applied to the brushes, never to the Border itself: fading the
+                 element would take the readings down with it, and keeping those legible while
+                 the panel disappears is the entire point.
+
+                 BorderBrush is bound as a whole brush because a Border does not give its
+                 BorderBrush a data context, so a binding written inside that brush silently
+                 never resolves and Opacity stays at 1. -->
             <Border x:Name="NormalPanel" CornerRadius="18"
                     MinWidth="288" MaxWidth="334"
-                    BorderThickness="1">
-                <Border.BorderBrush>
-                    <SolidColorBrush Color="#8B5CF6" Opacity="0.22"/>
-                </Border.BorderBrush>
+                    BorderThickness="1"
+                    BorderBrush="{Binding NormalBorderBrush}">
                 <Border.Background>
-                    <LinearGradientBrush StartPoint="0,0" EndPoint="0.5,1">
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="0.5,1"
+                                         Opacity="{Binding NormalPanelOpacity}">
                         <GradientStop Color="#17122C" Offset="0"/>
                         <GradientStop Color="#0C0A18" Offset="1"/>
                     </LinearGradientBrush>
@@ -220,12 +226,10 @@
 
             <!-- ═══ COMPACT HUD MODE ═══ -->
             <Border x:Name="CompactPanel" CornerRadius="12" Visibility="Collapsed" MinWidth="172"
-                    BorderThickness="1">
-                <Border.BorderBrush>
-                    <SolidColorBrush Color="#8B5CF6" Opacity="0.18"/>
-                </Border.BorderBrush>
+                    BorderThickness="1"
+                    BorderBrush="{Binding CompactBorderBrush}">
                 <Border.Background>
-                    <SolidColorBrush Color="#0C0A18" Opacity="0.82"/>
+                    <SolidColorBrush Color="#0C0A18" Opacity="{Binding CompactPanelOpacity}"/>
                 </Border.Background>
                 <StackPanel Margin="14,10,14,9">
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,7">
