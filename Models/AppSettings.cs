@@ -12,6 +12,14 @@ public class AppSettings
     /// this list (because a newer version added them) are appended on load.
     public List<string> TileOrder { get; set; } = new();
     public double OverlayOpacity { get; set; } = 0.85;
+
+    /// <summary>
+    /// How solid the overlay's panel is, separately from OverlayOpacity which fades the whole
+    /// thing including the readings. Taken to zero this leaves the values floating on the
+    /// screen with no panel behind them. 1 is the original look.
+    /// </summary>
+    public double OverlayBackgroundOpacity { get; set; } = 1.0;
+
     public string OverlayPosition { get; set; } = "TopRight"; // TopLeft, TopRight, BottomLeft, BottomRight, Custom
 
     /// <summary>
@@ -126,6 +134,9 @@ public class AppSettings
         static bool IsFraction(double v) => double.IsFinite(v) && v >= 0 && v <= 1;
 
         OverlayOpacity         = Clamp(OverlayOpacity, 0.15, 1.0, 0.85);
+        // Unlike OverlayOpacity this is allowed all the way to zero: a fully transparent
+        // panel is the point of it, and the readings stay visible on their own.
+        OverlayBackgroundOpacity = Clamp(OverlayBackgroundOpacity, 0.0, 1.0, 1.0);
         OverlayScale           = Clamp(OverlayScale, 0.5, 3.0, 1.0);
         PollingIntervalSeconds = Clamp(PollingIntervalSeconds, 0.5, 60.0, 2.0);
 

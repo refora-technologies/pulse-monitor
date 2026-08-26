@@ -547,39 +547,6 @@
             </Setter>
         </Style>
 
-        <!-- Numeric entry for the precise overlay position. Matches DarkCombo's field
-             colours so the two sit together in the same panel. -->
-        <Style x:Key="DarkNumberBox" TargetType="TextBox">
-            <Setter Property="FontFamily" Value="{StaticResource Jakarta}"/>
-            <Setter Property="FontSize" Value="12"/>
-            <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="Foreground" Value="#DBD7F2"/>
-            <Setter Property="CaretBrush" Value="#8B5CF6"/>
-            <Setter Property="SelectionBrush" Value="#8B5CF6"/>
-            <Setter Property="Width" Value="64"/>
-            <Setter Property="TextAlignment" Value="Center"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="TextBox">
-                        <Border x:Name="Bd" Background="#0E0C1C" BorderBrush="#241F42"
-                                BorderThickness="1" CornerRadius="9" Padding="8,7">
-                            <ScrollViewer x:Name="PART_ContentHost" Focusable="False"
-                                          HorizontalScrollBarVisibility="Hidden"
-                                          VerticalScrollBarVisibility="Hidden"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="BorderBrush" Value="#3A3266"/>
-                            </Trigger>
-                            <!-- Visible focus, which the other custom templates lack -->
-                            <Trigger Property="IsKeyboardFocused" Value="True">
-                                <Setter TargetName="Bd" Property="BorderBrush" Value="#8B5CF6"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
 
         <Style x:Key="DarkCombo" TargetType="ComboBox">
             <Setter Property="ItemContainerStyle" Value="{StaticResource ComboItem}"/>
@@ -1118,8 +1085,36 @@
                                 <TextBlock Text="How visible the overlay is over your games"
                                            FontSize="10.5" FontWeight="Medium" Foreground="#8B86B4" Margin="0,0,0,12"/>
                                 <Slider Style="{StaticResource VioletSlider}"
+                                        AutomationProperties.Name="Overlay opacity"
                                         Minimum="0.2" Maximum="1.0" SmallChange="0.05"
                                         Value="{Binding Opacity, Mode=TwoWay}"/>
+                            </StackPanel>
+
+                            <!-- Background -->
+                            <StackPanel Margin="18,0,18,15">
+                                <Grid Margin="0,0,0,4">
+                                    <TextBlock Text="Background" FontSize="13" FontWeight="SemiBold" Foreground="#DBD7F2"/>
+                                    <TextBlock HorizontalAlignment="Right" FontSize="15" FontWeight="Bold" Foreground="#A78BFA">
+                                        <Run Text="{Binding BackgroundPercent, Mode=OneWay}"/>
+                                        <Run Text="%" Foreground="#8B86B4" FontSize="11"/>
+                                    </TextBlock>
+                                </Grid>
+                                <TextBlock Text="Turn it all the way down to leave just the readings on screen"
+                                           FontSize="10.5" FontWeight="Medium" Foreground="#8B86B4"
+                                           Margin="0,0,0,12" TextWrapping="Wrap"/>
+                                <!-- Goes to zero, unlike opacity above: an invisible panel is the
+                                     point, and the readings stay put because this fades the
+                                     panel's brushes rather than the panel itself. -->
+                                <Slider Style="{StaticResource VioletSlider}"
+                                        AutomationProperties.Name="Overlay background"
+                                        Minimum="0.0" Maximum="1.0" SmallChange="0.05"
+                                        Value="{Binding BackgroundOpacity, Mode=TwoWay}"/>
+
+                                <Button Style="{StaticResource LinkBtn}" Content="Reset to default look"
+                                        HorizontalAlignment="Right" Margin="0,13,0,0"
+                                        AutomationProperties.Name="Reset overlay opacity and background to their defaults"
+                                        ToolTip="Puts opacity and background back to how Pulse looks out of the box"
+                                        Click="ResetAppearance_Click"/>
                             </StackPanel>
 
                             <Border Height="1" Background="#131128"/>
@@ -1284,45 +1279,40 @@
                                 <!-- Exact placement, for anything a corner or a drag can't hit -->
                                 <TextBlock Text="Exact position" FontSize="12" FontWeight="SemiBold"
                                            Foreground="#A9A4CE" Margin="0,18,0,4"/>
-                                <!-- Sliding is the main way to use these, so it has to be said
-                                     out loud. It was only ever mentioned in a tooltip, and a
-                                     tooltip you have to hover to find is no way to advertise the
-                                     primary interaction. -->
-                                <TextBlock Text="Drag the X or Y field to slide the overlay, or type a value"
-                                           FontSize="10.5" FontWeight="Medium" Foreground="#A9A4CE"
-                                           Margin="0,0,0,3" TextWrapping="Wrap"/>
-                                <TextBlock x:Name="PositionHint"
-                                           Text="Pixels from the top-left of the display"
+                                <TextBlock Text="{Binding PositionHintText}"
                                            FontSize="10.5" FontWeight="Medium" Foreground="#8B86B4"
-                                           Margin="0,0,0,10" TextWrapping="Wrap"/>
-                                <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="X" FontSize="12" FontWeight="SemiBold"
-                                               Foreground="#A9A4CE" VerticalAlignment="Center"
-                                               Margin="0,0,8,0"/>
-                                    <TextBox x:Name="PositionXBox" Style="{StaticResource DarkNumberBox}"
-                                             Cursor="SizeWE"
-                                             ToolTip="Drag left or right to slide the overlay, or click to type a value"
-                                             AutomationProperties.Name="Overlay X position in pixels"
-                                             KeyDown="PositionBox_KeyDown" LostFocus="PositionBox_Commit"
-                                             PreviewTextInput="PositionBox_PreviewTextInput"
-                                             PreviewMouseLeftButtonDown="PositionBox_PreviewMouseDown"
-                                             PreviewMouseMove="PositionBox_PreviewMouseMove"
-                                             PreviewMouseLeftButtonUp="PositionBox_PreviewMouseUp"
-                                             LostMouseCapture="PositionBox_LostMouseCapture"/>
-                                    <TextBlock Text="Y" FontSize="12" FontWeight="SemiBold"
-                                               Foreground="#A9A4CE" VerticalAlignment="Center"
-                                               Margin="16,0,8,0"/>
-                                    <TextBox x:Name="PositionYBox" Style="{StaticResource DarkNumberBox}"
-                                             Cursor="SizeNS"
-                                             ToolTip="Drag up or down to slide the overlay, or click to type a value"
-                                             AutomationProperties.Name="Overlay Y position in pixels"
-                                             KeyDown="PositionBox_KeyDown" LostFocus="PositionBox_Commit"
-                                             PreviewTextInput="PositionBox_PreviewTextInput"
-                                             PreviewMouseLeftButtonDown="PositionBox_PreviewMouseDown"
-                                             PreviewMouseMove="PositionBox_PreviewMouseMove"
-                                             PreviewMouseLeftButtonUp="PositionBox_PreviewMouseUp"
-                                             LostMouseCapture="PositionBox_LostMouseCapture"/>
-                                </StackPanel>
+                                           Margin="0,0,0,12" TextWrapping="Wrap"/>
+
+                                <!-- The range is the room the overlay actually has on its own
+                                     display, so each slider spans exactly the positions it can
+                                     occupy however the screens are arranged. -->
+                                <Grid Margin="0,0,0,4">
+                                    <TextBlock Text="Left to right" FontSize="12" FontWeight="SemiBold" Foreground="#A9A4CE"/>
+                                    <TextBlock HorizontalAlignment="Right" FontSize="13" FontWeight="Bold" Foreground="#A78BFA"
+                                               Text="{Binding OverlayX, Mode=OneWay}"/>
+                                </Grid>
+                                <Slider Style="{StaticResource VioletSlider}" Margin="0,0,0,15"
+                                        AutomationProperties.Name="Overlay position from the left, in pixels"
+                                        Minimum="0" Maximum="{Binding OverlayMaxX}"
+                                        SmallChange="1" LargeChange="10"
+                                        IsSnapToTickEnabled="True" TickFrequency="1"
+                                        Value="{Binding OverlayX, Mode=TwoWay}"/>
+
+                                <Grid Margin="0,0,0,4">
+                                    <TextBlock Text="Top to bottom" FontSize="12" FontWeight="SemiBold" Foreground="#A9A4CE"/>
+                                    <TextBlock HorizontalAlignment="Right" FontSize="13" FontWeight="Bold" Foreground="#A78BFA"
+                                               Text="{Binding OverlayY, Mode=OneWay}"/>
+                                </Grid>
+                                <Slider Style="{StaticResource VioletSlider}"
+                                        AutomationProperties.Name="Overlay position from the top, in pixels"
+                                        Minimum="0" Maximum="{Binding OverlayMaxY}"
+                                        SmallChange="1" LargeChange="10"
+                                        IsSnapToTickEnabled="True" TickFrequency="1"
+                                        Value="{Binding OverlayY, Mode=TwoWay}"/>
+
+                                <TextBlock Text="Drag for a rough spot, then use the arrow keys for single pixels"
+                                           FontSize="10.5" FontWeight="Medium" Foreground="#8B86B4"
+                                           Margin="0,11,0,0" TextWrapping="Wrap"/>
                             </StackPanel>
                         </StackPanel>
                     </Border>

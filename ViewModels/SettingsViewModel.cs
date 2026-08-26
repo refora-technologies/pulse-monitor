@@ -52,6 +52,39 @@ public class SettingsViewModel : BaseViewModel
         }
     }
 
+    /// <summary>
+    /// How solid the panel behind the readings is. Separate from Opacity, which fades the
+    /// readings too; taking this to zero leaves the values on screen with no panel at all.
+    /// </summary>
+    private double _backgroundOpacity;
+    public double BackgroundOpacity
+    {
+        get => _backgroundOpacity;
+        set
+        {
+            if (!Set(ref _backgroundOpacity, value)) return;
+
+            OnPropertyChanged(nameof(BackgroundPercent));
+            SettingsService.Instance.Settings.OverlayBackgroundOpacity = value;
+
+            OverlayViewModel.Instance.BackgroundOpacity = value;
+            ScheduleSettingsSave();
+        }
+    }
+
+    /// <summary>
+    /// Puts the two appearance sliders back to how the overlay looks out of the box.
+    ///
+    /// Assigned through the properties rather than the backing fields so the overlay, the
+    /// stored settings and the sliders all follow, which a direct field write would skip.
+    /// </summary>
+    public void ResetAppearance()
+    {
+        var defaults = new Models.AppSettings();
+        Opacity           = defaults.OverlayOpacity;
+        BackgroundOpacity = defaults.OverlayBackgroundOpacity;
+    }
+
     private System.Windows.Threading.DispatcherTimer? _saveTimer;
 
     /// <summary>
@@ -88,6 +121,14 @@ public class SettingsViewModel : BaseViewModel
     /// </summary>
     public void FlushPendingSave()
     {
+        // A position slider moved a moment ago has its anchor recorded in memory but not yet
+        // written, so this has to cover that timer too or the last nudge is lost on exit.
+        if (_positionSaveTimer is { IsEnabled: true })
+        {
+            _positionSaveTimer.Stop();
+            CommitOverlayPosition();
+        }
+
         if (_saveTimer is not { IsEnabled: true }) return;
 
         _saveTimer.Stop();
@@ -228,8 +269,8 @@ public class SettingsViewModel : BaseViewModel
     }
 
     // --- Precise overlay placement -------------------------------------------------
-    // Pixels here rather than the fraction actually stored, because a pixel is what people
-    // expect to type. Both directions go through the overlay window, which owns the maths
+    // Pixels here rather than the fraction actually stored, because a pixel is what the
+    // sliders move in. Both directions go through the overlay window, which owns the maths
     // and the monitor it belongs to.
 
     private Views.OverlayWindow? LiveOverlay =>
@@ -238,28 +279,70 @@ public class SettingsViewModel : BaseViewModel
     public int OverlayX
     {
         get => LiveOverlay?.GetPositionPixels().X ?? 0;
-        set
-        {
-            var overlay = LiveOverlay;
-            if (overlay == null) return;
-            overlay.SetPositionPixels(value, overlay.GetPositionPixels().Y);
-            NotifyPositionChanged();
-        }
+        set => MoveAxis(x: value, y: null);
     }
 
     public int OverlayY
     {
         get => LiveOverlay?.GetPositionPixels().Y ?? 0;
-        set
-        {
-            var overlay = LiveOverlay;
-            if (overlay == null) return;
-            overlay.SetPositionPixels(overlay.GetPositionPixels().X, value);
-            NotifyPositionChanged();
-        }
+        set => MoveAxis(x: null, y: value);
     }
 
-    /// Upper bounds for the position boxes: the overlay can never be moved further than its
+    /// <summary>
+    /// Moves one axis while its slider is being dragged.
+    ///
+    /// Nothing is written to disk here. A slider raises this for every pixel of travel, and
+    /// persisting each one would mean a settings write per pixel — the same trap the opacity
+    /// slider fell into. The final resting place is stored once the drag settles.
+    /// </summary>
+    private void MoveAxis(int? x, int? y)
+    {
+        var overlay = LiveOverlay;
+        if (overlay == null) return;
+
+        var (curX, curY, _, _) = overlay.GetPositionPixels();
+        int newX = x ?? curX;
+        int newY = y ?? curY;
+
+        // Guards against the round trip: moving the overlay re-raises OverlayX/OverlayY,
+        // which writes back to this setter. Without this the binding would ping-pong.
+        if (newX == curX && newY == curY) return;
+
+        // SetPositionPixels records the anchor and reports the move, so no notify here.
+        overlay.SetPositionPixels(newX, newY, persist: false);
+        SchedulePositionSave();
+    }
+
+    private System.Windows.Threading.DispatcherTimer? _positionSaveTimer;
+
+    /// <summary>
+    /// True while a position slider is still being moved, i.e. changes are arriving and the
+    /// resting place has not been written yet. The overlay uses this to hold off re-anchoring
+    /// itself, which would otherwise tug the slider out from under the user's thumb.
+    /// </summary>
+    public bool IsAdjustingPosition => _positionSaveTimer is { IsEnabled: true };
+
+    /// Stores the position once a slider stops moving, rather than on every tick.
+    private void SchedulePositionSave()
+    {
+        if (_positionSaveTimer == null)
+        {
+            _positionSaveTimer = new System.Windows.Threading.DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(400),
+            };
+            _positionSaveTimer.Tick += (_, _) =>
+            {
+                _positionSaveTimer!.Stop();
+                CommitOverlayPosition();
+            };
+        }
+
+        _positionSaveTimer.Stop();
+        _positionSaveTimer.Start();
+    }
+
+    /// Upper bounds for the position sliders: the overlay can never be moved further than its
     /// own size short of the far edge.
     public int OverlayMaxX => LiveOverlay?.GetPositionPixels().MaxX ?? 0;
     public int OverlayMaxY => LiveOverlay?.GetPositionPixels().MaxY ?? 0;
@@ -268,36 +351,12 @@ public class SettingsViewModel : BaseViewModel
     /// on a multi-monitor setup.
     public string OverlayDisplayLabel => LiveOverlay?.CurrentDisplayLabel ?? "";
 
-    /// <summary>
-    /// Everything the position row needs, read in one go.
-    ///
-    /// The individual properties each query the overlay window separately, which is fine for
-    /// a one-off but wasteful now that the overlay reports every reposition — that would be
-    /// five round trips per notification, several times a second while tiles settle.
-    /// </summary>
-    public (int X, int Y, int MaxX, int MaxY, string Display) OverlayPlacement
-    {
-        get
-        {
-            var overlay = LiveOverlay;
-            if (overlay == null) return (0, 0, 0, 0, "");
-
-            var (x, y, maxX, maxY) = overlay.GetPositionPixels();
-            return (x, y, maxX, maxY, overlay.CurrentDisplayLabel);
-        }
-    }
-
-    /// <summary>
-    /// Moves the overlay while a position field is being dragged, without saving.
-    ///
-    /// Writing settings on every mouse move would mean a file write per pixel of travel;
-    /// CommitOverlayPosition stores the result once the drag finishes.
-    /// </summary>
-    public void MoveOverlayLive(int x, int y)
-    {
-        LiveOverlay?.SetPositionPixels(x, y, persist: false);
-        NotifyPositionChanged();
-    }
+    /// Names the display the sliders are measured on, so the numbers are never ambiguous on a
+    /// multi-monitor setup.
+    public string PositionHintText =>
+        OverlayDisplayLabel.Length > 0
+            ? $"Measured from the top-left of {OverlayDisplayLabel}"
+            : "Measured from the top-left of the display";
 
     /// Stores wherever the overlay currently sits, ending a drag.
     public void CommitOverlayPosition()
@@ -307,12 +366,11 @@ public class SettingsViewModel : BaseViewModel
 
         var (x, y, _, _) = overlay.GetPositionPixels();
         overlay.SetPositionPixels(x, y);   // persists
-        NotifyPositionChanged();
     }
 
     /// <summary>
-    /// Refreshes the position boxes. Called after the overlay is dragged, so typing a
-    /// position and dragging it stay two views of the same thing rather than competing.
+    /// Re-reads the overlay's position so the sliders follow it, whatever moved it — dragging
+    /// the overlay itself, snapping to a corner, or a layout change that re-anchored it.
     /// </summary>
     public void NotifyPositionChanged()
     {
@@ -321,6 +379,7 @@ public class SettingsViewModel : BaseViewModel
         OnPropertyChanged(nameof(OverlayMaxX));
         OnPropertyChanged(nameof(OverlayMaxY));
         OnPropertyChanged(nameof(OverlayDisplayLabel));
+        OnPropertyChanged(nameof(PositionHintText));
     }
 
     private bool _showStatusBar;
@@ -429,6 +488,7 @@ public class SettingsViewModel : BaseViewModel
 
     public int SelectedCount  => AllTiles.Count(t => t.IsSelected);
     public int OpacityPercent => (int)Math.Round(_opacity * 100);
+    public int BackgroundPercent => (int)Math.Round(_backgroundOpacity * 100);
 
     public string AppVersionLabel => UpdateService.CurrentVersionLabel;
 
@@ -558,6 +618,7 @@ public class SettingsViewModel : BaseViewModel
     {
         var settings  = SettingsService.Instance.Settings;
         _opacity               = settings.OverlayOpacity;
+        _backgroundOpacity     = settings.OverlayBackgroundOpacity;
         _pollingInterval       = settings.PollingIntervalSeconds;
         _overlayPosition       = settings.OverlayPosition;
         _startWithWindows      = settings.StartWithWindows;

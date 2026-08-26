@@ -207,6 +207,59 @@ public class OverlayViewModel : BaseViewModel
     private double _overlayOpacity = 0.85;
     public double OverlayOpacity { get => _overlayOpacity; set => Set(ref _overlayOpacity, value); }
 
+    /// <summary>
+    /// How solid the panel behind the readings is.
+    ///
+    /// Applied to the panel's brushes rather than to the panel element, because setting
+    /// Opacity on the Border would take the readings down with it — and the whole point is
+    /// to keep the text while the panel goes. Each brush already carries a designed alpha,
+    /// so they are exposed pre-scaled rather than making the XAML do arithmetic.
+    /// </summary>
+    private double _backgroundOpacity = 1.0;
+    public double BackgroundOpacity
+    {
+        get => _backgroundOpacity;
+        set
+        {
+            if (!Set(ref _backgroundOpacity, Math.Clamp(value, 0, 1))) return;
+            RebuildBorderBrushes();
+            OnPropertyChanged(nameof(NormalPanelOpacity));
+            OnPropertyChanged(nameof(CompactPanelOpacity));
+        }
+    }
+
+    public double NormalPanelOpacity  => _backgroundOpacity;           // gradient, full alpha
+    public double CompactPanelOpacity => _backgroundOpacity * 0.82;
+
+    // The outlines are handed over as finished brushes, while the fills bind Opacity inside
+    // the brush. That asymmetry is not a matter of taste: a Border gives its Background brush
+    // a data context but does not give one to its BorderBrush, so a binding written inside
+    // the BorderBrush never resolves. It fails silently and Opacity keeps its default of 1,
+    // which turned a barely-there 0.22 outline into a hard violet line around the overlay.
+    // Binding the element's own BorderBrush property has no such problem.
+    private const byte AccentR = 0x8B, AccentG = 0x5C, AccentB = 0xF6;
+
+    private WpfBrush _normalBorderBrush  = MakeBorderBrush(1.0 * 0.22);
+    private WpfBrush _compactBorderBrush = MakeBorderBrush(1.0 * 0.18);
+
+    public WpfBrush NormalBorderBrush  => _normalBorderBrush;
+    public WpfBrush CompactBorderBrush => _compactBorderBrush;
+
+    private static WpfBrush MakeBorderBrush(double alpha)
+    {
+        var brush = new WpfBrush(WpfColor.FromRgb(AccentR, AccentG, AccentB)) { Opacity = alpha };
+        brush.Freeze();
+        return brush;
+    }
+
+    private void RebuildBorderBrushes()
+    {
+        _normalBorderBrush  = MakeBorderBrush(_backgroundOpacity * 0.22);
+        _compactBorderBrush = MakeBorderBrush(_backgroundOpacity * 0.18);
+        OnPropertyChanged(nameof(NormalBorderBrush));
+        OnPropertyChanged(nameof(CompactBorderBrush));
+    }
+
     private double _overlayScale = 1.0;
     public double OverlayScale
     {
@@ -242,6 +295,8 @@ public class OverlayViewModel : BaseViewModel
         _isDragEnabled  = s.IsDragEnabled;
         _showStatusBar  = s.ShowStatusBar;
         _overlayScale   = s.OverlayScale;
+        _backgroundOpacity = s.OverlayBackgroundOpacity;
+        RebuildBorderBrushes();
         LoadActiveTiles();
         HardwareService.Instance.SensorsUpdated += OnSensorsUpdated;
         SettingsService.Instance.SettingsChanged += (_, _) =>
