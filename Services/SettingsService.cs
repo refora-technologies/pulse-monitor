@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using Microsoft.Win32;
 using Pulse.Models;
 
@@ -19,8 +19,6 @@ public class SettingsService
         new(() => new SettingsService(), LazyThreadSafetyMode.ExecutionAndPublication);
 
     public static SettingsService Instance => LazyInstance.Value;
-
-    private const string TaskName = "PulseMonitor";
 
     public AppSettings Settings { get; private set; } = AppSettings.Load();
 
@@ -43,18 +41,9 @@ public class SettingsService
         // logon. A scheduled task with highest privileges starts it silently instead.
         RemoveLegacyRunEntry();
 
-        bool succeeded;
-
-        if (enabled)
-        {
-            var exePath = Environment.ProcessPath;
-            succeeded = !string.IsNullOrEmpty(exePath) &&
-                RunSchTasks($"/Create /TN \"{TaskName}\" /TR \"\\\"{exePath}\\\" --startup\" /SC ONLOGON /RL HIGHEST /F");
-        }
-        else
-        {
-            succeeded = RunSchTasks($"/Delete /TN \"{TaskName}\" /F");
-        }
+        bool succeeded = enabled
+            ? StartupTask.Install(Environment.ProcessPath ?? "")
+            : StartupTask.Remove();
 
         Settings.StartWithWindows = succeeded ? enabled : !enabled;
         Save();
@@ -76,64 +65,33 @@ public class SettingsService
     /// thread, where its subscribers touch bound collections.
     public bool ReconcileStartupTask()
     {
-        var taskPath = GetTaskTargetPath();
-        bool exists  = taskPath != null;
+        var task    = StartupTask.Query();
+        var current = Environment.ProcessPath ?? "";
 
-        if (exists)
+        if (task.Exists && current.Length > 0)
         {
-            // Repoint a task left behind by another install at the build actually running.
-            var current = Environment.ProcessPath;
-            if (!string.IsNullOrEmpty(current) &&
-                taskPath!.IndexOf(current, StringComparison.OrdinalIgnoreCase) < 0)
+            // Two reasons to rewrite an existing task. It may point at a build that is no
+            // longer here — every version shares one task name and stores an absolute path,
+            // so whichever build last had the toggle on owned startup permanently. Or it may
+            // carry the schtasks defaults that stop it running on battery and kill Pulse
+            // after three days, which is every task Pulse created before 1.1.1.
+            bool wrongPath = task.CommandPath.IndexOf(current, StringComparison.OrdinalIgnoreCase) < 0;
+
+            if (wrongPath || !task.SettingsCorrect)
             {
-                RunSchTasks($"/Create /TN \"{TaskName}\" /TR \"\\\"{current}\\\" --startup\" /SC ONLOGON /RL HIGHEST /F");
+                LogService.Info(nameof(SettingsService),
+                    $"Repairing startup task (wrongPath={wrongPath}, badSettings={!task.SettingsCorrect}).");
+
+                if (StartupTask.Install(current)) task = StartupTask.Query();
             }
         }
 
-        if (Settings.StartWithWindows == exists) return false;
+        // Deliberately does not create a missing task. Absent means the user turned startup
+        // off, or never turned it on; recreating it here would override that silently.
+        if (Settings.StartWithWindows == task.Exists) return false;
 
-        Settings.StartWithWindows = exists;
+        Settings.StartWithWindows = task.Exists;
         return true;
-    }
-
-    /// <summary>
-    /// The command line the startup task runs, or null when there is no such task.
-    ///
-    /// /V /FO LIST rather than /XML because /XML comes back as UTF-16, which does not
-    /// survive being read as redirected standard output here.
-    /// </summary>
-    private static string? GetTaskTargetPath()
-    {
-        try
-        {
-            var process = Process.Start(new ProcessStartInfo
-            {
-                FileName        = "schtasks.exe",
-                Arguments       = $"/Query /TN \"{TaskName}\" /V /FO LIST",
-                CreateNoWindow  = true,
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError  = true,
-            });
-
-            if (process is null) return null;
-
-            // Read before waiting: a full pipe buffer would otherwise block the child and
-            // leave us waiting out the timeout for output that is already there.
-            var output = process.StandardOutput.ReadToEnd();
-
-            if (!process.WaitForExit(5000))
-            {
-                try { process.Kill(true); } catch { }
-                return null;
-            }
-
-            return process.ExitCode == 0 ? output : null;
-        }
-        catch
-        {
-            return null;
-        }
     }
 
     private static void RemoveLegacyRunEntry()
@@ -145,53 +103,5 @@ public class SettingsService
             key?.DeleteValue("PulseMonitor", false);
         }
         catch { }
-    }
-
-    /// <summary>
-    /// Returns whether schtasks actually succeeded. Callers used to assume it did and record
-    /// the requested state either way, so a failure left Pulse claiming "start with Windows"
-    /// was on when no task existed.
-    /// </summary>
-    private static bool RunSchTasks(string arguments)
-    {
-        try
-        {
-            using var process = Process.Start(new ProcessStartInfo
-            {
-                FileName        = "schtasks.exe",
-                Arguments       = arguments,
-                CreateNoWindow  = true,
-                UseShellExecute = false,
-            });
-
-            if (process is null)
-            {
-                LogService.Warn(nameof(SettingsService), "schtasks did not start; startup setting unchanged.");
-                return false;
-            }
-
-            if (!process.WaitForExit(5000))
-            {
-                // Never leave an orphan holding a console handle.
-                try { process.Kill(true); } catch { }
-                LogService.Warn(nameof(SettingsService), $"schtasks timed out: {arguments}");
-                return false;
-            }
-
-            if (process.ExitCode != 0)
-            {
-                // "Start with Windows does nothing" is a real support case, and without this
-                // there was no way to tell a refused task from one that was never created.
-                LogService.Warn(nameof(SettingsService),
-                    $"schtasks failed with exit code {process.ExitCode}: {arguments}");
-            }
-
-            return process.ExitCode == 0;
-        }
-        catch (Exception ex)
-        {
-            LogService.Error(nameof(SettingsService), $"Could not run schtasks: {arguments}", ex);
-            return false;
-        }
     }
 }

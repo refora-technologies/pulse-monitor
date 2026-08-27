@@ -34,6 +34,27 @@ public partial class App : WinApplication
 
     protected override void OnStartup(StartupEventArgs e)
     {
+        // Registering the startup task is a job, not a launch. The installer calls this so
+        // there is exactly one definition of that task rather than the installer and the
+        // settings toggle each building their own schtasks command line — which is how three
+        // harmful defaults went unnoticed in it for so long.
+        //
+        // Handled before the single-instance mutex: this has to work while Pulse is already
+        // running, which is exactly the case during an upgrade.
+        if (e.Args.Contains("--install-startup-task"))
+        {
+            Environment.ExitCode = Services.StartupTask.Install(Environment.ProcessPath ?? "") ? 0 : 1;
+            Shutdown();
+            return;
+        }
+
+        if (e.Args.Contains("--remove-startup-task"))
+        {
+            Environment.ExitCode = Services.StartupTask.Remove() ? 0 : 1;
+            Shutdown();
+            return;
+        }
+
         _mutex = new Mutex(true, MutexName, out bool createdNew);
         if (!createdNew)
         {
