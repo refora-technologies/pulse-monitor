@@ -277,11 +277,9 @@ public partial class OverlayWindow : Window
     {
         if (!IsVisible) return;   // frozen while hidden; OnIsVisibleChanged repositions on show
 
-        // Re-anchoring mid-adjustment fights the slider. The overlay resizes whenever a
-        // reading changes width, which is most polls, and re-placing from the anchor shifts it
-        // by a pixel or two each time — enough to tug the slider's value away from the thumb
-        // the user is holding. The resting place is re-anchored once the drag settles.
-        if (ViewModels.SettingsViewModel.Instance.IsAdjustingPosition) return;
+        // ApplyPosition makes the same check, but skipping the queue entirely while the user
+        // is positioning saves piling up callbacks that will only be discarded.
+        if (IsUserPositioning) return;
 
         Dispatcher.InvokeAsync(ApplyPosition, DispatcherPriority.Loaded);
     }
@@ -545,25 +543,90 @@ public partial class OverlayWindow : Window
         }
     }
 
+    /// <summary>
+    /// True while the user is physically dragging the overlay.
+    ///
+    /// DragMove blocks here running its own nested message loop, which keeps pumping this
+    /// dispatcher. Anything already queued — an ApplyPosition from a size change a moment
+    /// earlier — therefore runs *during* the drag, so checking a flag in SizeChanged alone
+    /// would not stop it. ApplyPosition checks this itself.
+    /// </summary>
+    private bool _userDragging;
+
     private void OnDragStart(object sender, MouseButtonEventArgs e)
     {
         if (!_vm.IsDragEnabled) return;
-        DragMove();
-        SavePosition();
+
+        _userDragging = true;
+        LocationChanged += OnDragLocationChanged;
+        try
+        {
+            DragMove();   // blocks until the button is released
+        }
+        finally
+        {
+            LocationChanged -= OnDragLocationChanged;
+            _userDragging = false;
+        }
+
+        SavePosition();    // the one disk write for the whole drag
+        ApplyPosition();   // settle on the new anchor now that re-anchoring is allowed again
     }
+
+    /// <summary>
+    /// Keeps the stored anchor level with the window while it is being dragged.
+    ///
+    /// Nothing is written to disk — that would be a settings write per pixel of travel. The
+    /// anchor in memory is not optional though: ApplyPosition places the overlay from it, and
+    /// the overlay auto-sizes on almost every sensor poll. Leaving it stale for the length of
+    /// a drag is what made the overlay snap back to where it started, mid-drag, on the first
+    /// reading that changed width.
+    /// </summary>
+    private void OnDragLocationChanged(object? sender, EventArgs e) => SavePosition(writeToDisk: false);
 
     /// Uniform scale (Option B): the whole panel grows/shrinks together via a
     /// LayoutTransform, so the window's SizeToContent measures the scaled size
     /// correctly and grows toward bottom-right — the grip's own corner.
-    private void OnResizeDragDelta(object sender, DragDeltaEventArgs e)
+    // Where the cursor was when the resize began, in screen pixels, and the scale at that
+    // moment. Both are needed because the scale is worked out from total travel rather than
+    // accumulated deltas — see OnResizeDragDelta.
+    private System.Drawing.Point _scaleDragOrigin;
+    private double _scaleAtDragStart;
+    private bool   _scaling;
+
+    private void OnResizeDragStarted(object sender, DragStartedEventArgs e)
     {
         if (!_vm.IsDragEnabled) return;
-        double delta = (e.HorizontalChange + e.VerticalChange) / 2.0;
-        _vm.OverlayScale += delta / 300.0;
+
+        _scaleDragOrigin  = System.Windows.Forms.Cursor.Position;
+        _scaleAtDragStart = _vm.OverlayScale;
+        _scaling          = true;
+    }
+
+    /// <summary>
+    /// Resizes the overlay from the grip.
+    ///
+    /// Driven by how far the cursor has travelled since the drag began, rather than by the
+    /// per-event deltas the Thumb reports. Those deltas are measured against the Thumb's own
+    /// position, and this Thumb sits in the corner of the very window being resized — so
+    /// every size change moved the grip out from under the cursor, which fed back into the
+    /// next delta. The result grew and shrank in lurches instead of following the hand.
+    /// Total travel from a fixed screen point cannot feed back on itself.
+    /// </summary>
+    private void OnResizeDragDelta(object sender, DragDeltaEventArgs e)
+    {
+        if (!_vm.IsDragEnabled || !_scaling) return;
+
+        var cursor = System.Windows.Forms.Cursor.Position;
+        double travel = ((cursor.X - _scaleDragOrigin.X) + (cursor.Y - _scaleDragOrigin.Y)) / 2.0;
+
+        _vm.OverlayScale = _scaleAtDragStart + travel / 300.0;
     }
 
     private void OnResizeDragCompleted(object sender, DragCompletedEventArgs e)
     {
+        _scaling = false;
+
         var settings = SettingsService.Instance.Settings;
         settings.OverlayScale = _vm.OverlayScale;
         SettingsService.Instance.Save();
@@ -673,12 +736,23 @@ public partial class OverlayWindow : Window
     /// </summary>
     private bool _positioning;
 
+    /// The user is placing the overlay right now, by dragging the window itself or by moving
+    /// one of the position sliders. Either way, nothing else may move it until they finish.
+    private bool IsUserPositioning =>
+        _userDragging || ViewModels.SettingsViewModel.Instance.IsAdjustingPosition;
+
     private void ApplyPosition()
     {
         // Re-entrancy guard: this is reached from SizeChanged, and the UpdateLayout below
         // can itself raise SizeChanged. Without this the two would queue each other on the
         // dispatcher indefinitely.
         if (_positioning) return;
+
+        // Never re-place the overlay out from under someone who is positioning it, whether by
+        // dragging the window or by moving a position slider. Checked here rather than only at
+        // the event sources, because a queued ApplyPosition can still be delivered mid-drag by
+        // DragMove's nested message loop.
+        if (IsUserPositioning) return;
 
         var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
         if (hwnd == IntPtr.Zero) return;
@@ -708,7 +782,10 @@ public partial class OverlayWindow : Window
         var settings = SettingsService.Instance.Settings;
         var work     = ResolveTargetScreen(hwnd).WorkingArea;
 
-        const int margin = 20;
+        // Just enough to read as deliberate rather than clipped. This was 20, which left
+        // corner-snapped overlays sitting noticeably inside the screen when the point of
+        // a corner preset is to be in the corner.
+        const int margin = 2;
         int x, y;
 
         if (settings.OverlayPosition == "Custom" && settings.OverlayAnchorFx >= 0)
@@ -736,9 +813,17 @@ public partial class OverlayWindow : Window
         // Keep it on the monitor it belongs to without persisting the correction: the stored
         // anchor stays valid for the resolution the user chose it at, so a temporary drop to
         // a smaller mode does not permanently move an overlay placed at a larger one.
-        const int edge = 8;
-        x = Math.Clamp(x, work.Left + edge, Math.Max(work.Left + edge, work.Right  - width  - edge));
-        y = Math.Clamp(y, work.Top  + edge, Math.Max(work.Top  + edge, work.Bottom - height - edge));
+        // Clamped to the work area itself, with no inset. There used to be an 8px margin
+        // here, which meant the overlay could never sit flush against a screen edge: drag it
+        // into the corner, let go, and it drifted 8px back out. Dragging into a corner to sit
+        // just above the tray is one of the main things people want from a free-placed
+        // overlay, and the margin quietly forbade it. Keeping it on the monitor does not
+        // require holding it away from the edge.
+        //
+        // The corner presets are unaffected — they place themselves with their own deliberate
+        // inset further in than this ever was.
+        x = Math.Clamp(x, work.Left, Math.Max(work.Left, work.Right  - width));
+        y = Math.Clamp(y, work.Top,  Math.Max(work.Top,  work.Bottom - height));
 
         SetWindowPos(hwnd, IntPtr.Zero, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
 
