@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.IO;
 using System.Security.Principal;
 using System.Text;
@@ -46,7 +46,7 @@ public static class StartupTask
     /// </summary>
     public static State Query()
     {
-        var xml = RunCapture($"/Query /TN \"{TaskName}\" /XML", Encoding.Unicode);
+        var xml = RunCapture($"/Query /TN \"{TaskName}\" /XML");
         if (string.IsNullOrWhiteSpace(xml) || xml.IndexOf("<Task", StringComparison.Ordinal) < 0)
             return State.Missing;
 
@@ -170,15 +170,17 @@ public static class StartupTask
         return end < 0 ? "" : text[start..end];
     }
 
-    private static bool Run(string arguments) => RunCapture(arguments, null) != null;
+    private static bool Run(string arguments) => RunCapture(arguments) != null;
 
     /// <summary>
     /// Runs schtasks and returns its standard output, or null when it failed.
     ///
-    /// The encoding matters for /XML, which comes back as UTF-16 and is unreadable if the
-    /// stream is decoded as anything else.
+    /// The output encoding is deliberately left alone. Task XML declares itself as UTF-16 and
+    /// Windows writes it that way to a console, but redirected it arrives in the console
+    /// codepage like everything else. Forcing the stream to Unicode turns it into mojibake,
+    /// the task looks absent, and Pulse concludes startup is switched off.
     /// </summary>
-    private static string? RunCapture(string arguments, Encoding? outputEncoding)
+    private static string? RunCapture(string arguments)
     {
         try
         {
@@ -191,15 +193,16 @@ public static class StartupTask
                 RedirectStandardOutput = true,
                 RedirectStandardError  = true,
             };
-            if (outputEncoding != null) info.StandardOutputEncoding = outputEncoding;
-
             using var process = Process.Start(info);
             if (process is null) return null;
 
-            // Read before waiting: a full pipe buffer would block the child, leaving us
-            // waiting out the timeout for output that is already sitting there.
+            // Both pipes are drained together. Reading one to the end and only then starting
+            // on the other deadlocks if the child fills the second pipe's buffer in the
+            // meantime, and neither WaitForExit nor its timeout is ever reached because we
+            // are still blocked in the read.
+            var errorTask = process.StandardError.ReadToEndAsync();
             string output = process.StandardOutput.ReadToEnd();
-            string error  = process.StandardError.ReadToEnd();
+            string error  = errorTask.GetAwaiter().GetResult();
 
             if (!process.WaitForExit(10_000))
             {
