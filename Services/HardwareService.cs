@@ -1,4 +1,4 @@
-using System.Windows.Threading;
+﻿using System.Windows.Threading;
 using LibreHardwareMonitor.Hardware;
 using Pulse.Models;
 
@@ -154,11 +154,18 @@ public class HardwareService : IDisposable
         {
             try
             {
+                // Named before the call, not after. Opening sensors means initialising vendor
+                // driver libraries, and a fault down there kills the process outright without
+                // reaching any managed handler. If that happens this is the only record of
+                // where Pulse was when it stopped.
+                LogService.RecordActivity($"opening sensors (attempt {attempt})");
+
                 _computer.Open();
 
                 IsHardwareReady = true;
                 HardwareFault   = null;
                 LogService.Info(nameof(HardwareService), $"Sensors opened (attempt {attempt}).");
+                LogService.RecordActivity("reading sensors");
                 HardwareStateChanged?.Invoke(this, EventArgs.Empty);
                 return;
             }

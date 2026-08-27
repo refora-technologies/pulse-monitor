@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Text;
 
 namespace Pulse.Services;
@@ -14,12 +14,24 @@ public enum LogLevel { Info, Warn, Error }
 /// reporting "it stopped reading my GPU" gave us nothing to work from. Swallowing the
 /// exception is still right; throwing away the evidence was not.
 ///
-/// Deliberately not a logging framework. One file, capped, no dependencies, and every
-/// method silent on failure — logging must never become a source of faults itself.
+/// Deliberately not a logging framework. A handful of files, capped, no dependencies, and
+/// every method silent on failure — logging must never become a source of faults itself.
+///
+/// Two properties matter more than they look:
+///
+///   Every line is on disk before Write returns. AppendAllText opens, writes and closes, so
+///   nothing waits in a buffer. When the process is killed outright — by a driver fault, by
+///   Task Scheduler, by anything that never reaches managed code — the last line written is
+///   still there to read afterwards. That is the only way to see such a death at all.
+///
+///   History is kept across runs and across upgrades. It lives under %APPDATA%, which an
+///   upgrade does not touch, and old files are aged out rather than discarded, so a problem
+///   reported today can still be traced back through earlier sessions.
 /// </summary>
 public static class LogService
 {
-    private const long MaxBytes = 1024 * 1024;   // rotate at 1 MB, keep one previous file
+    private const long MaxBytes    = 1024 * 1024;   // rotate the active file at 1 MB
+    private const int  MaxArchives = 5;             // keep this many older files
 
     private static readonly object Gate = new();
 
@@ -27,8 +39,18 @@ public static class LogService
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "Refora", "Pulse", "logs");
 
-    public static string LogPath      => Path.Combine(Directory, "pulse.log");
-    private static string PreviousPath => Path.Combine(Directory, "pulse.previous.log");
+    public static string LogPath => Path.Combine(Directory, "pulse.log");
+
+    /// <summary>
+    /// Records that a session is in progress and what it was last doing.
+    ///
+    /// Deleted on a clean exit, so finding it at startup means the last run ended without
+    /// one. That is the whole crash detector: a native fault, a forced termination or a
+    /// power-off never gets to run any managed code, but it also never gets to delete this.
+    /// </summary>
+    private static string SessionStatePath => Path.Combine(Directory, "session.state");
+
+    private static string ArchivePath(int index) => Path.Combine(Directory, $"pulse.{index}.log");
 
     public static void Info (string source, string message)              => Write(LogLevel.Info,  source, message, null);
     public static void Warn (string source, string message)              => Write(LogLevel.Warn,  source, message, null);
@@ -80,7 +102,16 @@ public static class LogService
         }
     }
 
+    /// <summary>
+    /// Ages the log files along by one when the active file is full.
+    ///
+    /// pulse.log becomes pulse.1.log, pulse.1.log becomes pulse.2.log and so on, and only the
+    /// oldest is dropped. Keeping a single previous file was not enough: a fault that takes a
+    /// few sessions to reproduce would have had its own evidence overwritten by the sessions
+    /// spent reproducing it.
+    ///
     /// Caller holds <see cref="Gate"/>.
+    /// </summary>
     private static void RotateIfNeeded()
     {
         try
@@ -88,15 +119,112 @@ public static class LogService
             var file = new FileInfo(LogPath);
             if (!file.Exists || file.Length < MaxBytes) return;
 
-            if (File.Exists(PreviousPath)) File.Delete(PreviousPath);
-            File.Move(LogPath, PreviousPath);
+            // The oldest falls off the end. Everything else shifts up one, working backwards
+            // so nothing is overwritten before it has been moved.
+            var oldest = ArchivePath(MaxArchives);
+            if (File.Exists(oldest)) File.Delete(oldest);
+
+            for (int i = MaxArchives - 1; i >= 1; i--)
+            {
+                var from = ArchivePath(i);
+                if (File.Exists(from)) File.Move(from, ArchivePath(i + 1), overwrite: true);
+            }
+
+            File.Move(LogPath, ArchivePath(1), overwrite: true);
+        }
+        catch { }
+    }
+
+    // ── Sessions ────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Opens a session, and reports on the previous one if it never closed.
+    ///
+    /// Returns true when the last run ended unexpectedly, so the caller can note it. The
+    /// distinction matters: until now a crash and an ordinary exit left identical logs, which
+    /// is exactly why a user reporting "it just disappears" gave us nothing to work with.
+    /// </summary>
+    public static bool BeginSession(string version)
+    {
+        bool previousCrashed = false;
+
+        try
+        {
+            System.IO.Directory.CreateDirectory(Directory);
+
+            if (File.Exists(SessionStatePath))
+            {
+                previousCrashed = true;
+
+                string details;
+                try   { details = File.ReadAllText(SessionStatePath).Replace(Environment.NewLine, " | ").Trim(); }
+                catch { details = "(unreadable)"; }
+
+                Warn(nameof(LogService),
+                     $"Previous session ended without shutting down. It was: {details}");
+            }
+
+            Info(nameof(LogService), $"Session started. Pulse {version} on Windows {Environment.OSVersion.Version}.");
+            RecordActivity("starting up");
+        }
+        catch { }
+
+        return previousCrashed;
+    }
+
+    /// Closes the session cleanly. Anything that skips this is treated as a crash next time.
+    public static void EndSession()
+    {
+        try
+        {
+            Info(nameof(LogService), "Session ended cleanly.");
+            lock (Gate)
+            {
+                if (File.Exists(SessionStatePath)) File.Delete(SessionStatePath);
+            }
         }
         catch { }
     }
 
     /// <summary>
-    /// Writes both log files, plus a short machine summary, to a single file the user can
-    /// attach to a report. Returns the path, or null if it could not be produced.
+    /// Notes what Pulse is doing, so a death that reaches no managed code still leaves a
+    /// clue about where it happened.
+    ///
+    /// Overwrites rather than appends, so it costs one small write and never grows. Meant for
+    /// moments worth naming — opening sensors, re-reading hardware after a GPU change — and
+    /// deliberately not for every poll, which would be thousands of writes an hour and would
+    /// age the real log out within one.
+    /// </summary>
+    public static void RecordActivity(string activity)
+    {
+        try
+        {
+            var text = new StringBuilder()
+                .Append("started=").Append(SessionStart.ToString("yyyy-MM-dd HH:mm:ss")).AppendLine()
+                .Append("activity=").Append(Redact(activity)).AppendLine()
+                .Append("at=").Append(DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff")).AppendLine()
+                .ToString();
+
+            lock (Gate)
+            {
+                System.IO.Directory.CreateDirectory(Directory);
+                File.WriteAllText(SessionStatePath, text);
+            }
+        }
+        catch { }
+    }
+
+    private static readonly DateTime SessionStart = DateTime.Now;
+
+    // ── Export ──────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Writes every log file we still hold, plus a summary of the machine and what Pulse
+    /// currently believes about it, to one file the user can attach to a report.
+    ///
+    /// The summary matters as much as the logs. Half the questions asked in a bug report are
+    /// "which GPU was it reading" and "was startup actually registered", and answering those
+    /// by asking costs a day each time.
     /// </summary>
     public static string? Export()
     {
@@ -109,19 +237,27 @@ public static class LogService
             var report = new StringBuilder()
                 .AppendLine("Pulse diagnostics")
                 .AppendLine("=================")
-                .AppendLine($"Version   : {UpdateService.CurrentVersionLabel}")
+                .AppendLine($"Version   : {Safe(() => UpdateService.CurrentVersionLabel)}")
                 .AppendLine($"Windows   : {Environment.OSVersion.Version}")
                 .AppendLine($"Exe       : {Redact(Environment.ProcessPath)}")
                 .AppendLine($"Exported  : {DateTime.Now:yyyy-MM-dd HH:mm:ss}")
-                .AppendLine();
+                .AppendLine($"Running   : {Safe(() => (DateTime.Now - SessionStart).ToString(@"hh\:mm\:ss"))}");
+
+            AppendHardware(report);
+            AppendStartup(report);
+
+            report.AppendLine();
 
             lock (Gate)
             {
-                foreach (var (label, path) in new[] { ("previous", PreviousPath), ("current", LogPath) })
+                // Oldest first, so the file reads forwards in time.
+                for (int i = MaxArchives; i >= 1; i--) AppendFile(report, ArchivePath(i), $"log {i} (older)");
+                AppendFile(report, LogPath, "log (current)");
+
+                if (File.Exists(SessionStatePath))
                 {
-                    if (!File.Exists(path)) continue;
-                    report.AppendLine($"--- {label} log ---");
-                    report.AppendLine(File.ReadAllText(path));
+                    report.AppendLine("--- session in progress ---");
+                    report.AppendLine(Safe(() => File.ReadAllText(SessionStatePath)));
                 }
             }
 
@@ -132,5 +268,70 @@ public static class LogService
         {
             return null;
         }
+    }
+
+    private static void AppendFile(StringBuilder report, string path, string label)
+    {
+        try
+        {
+            if (!File.Exists(path)) return;
+            report.AppendLine($"--- {label} ---");
+            report.AppendLine(File.ReadAllText(path));
+        }
+        catch { }
+    }
+
+    /// What Pulse currently thinks the hardware is. Wrapped tightly: a diagnostics export
+    /// must never fail because the thing it is describing is broken.
+    private static void AppendHardware(StringBuilder report)
+    {
+        // Read from settings, not from the sensor layer, so the user's GPU choice is still
+        // reported when the sensor layer is itself the thing that has failed. Losing the whole
+        // section exactly when hardware is broken would drop the detail most worth having.
+        var pinned = Safe(() => SettingsService.Instance.Settings.SelectedGpuId);
+        report.AppendLine($"GPU choice: {(string.IsNullOrEmpty(pinned) ? "automatic" : pinned)}");
+
+        try
+        {
+            var hardware = HardwareService.Instance;
+
+            report.AppendLine($"Sensors   : {(hardware.IsHardwareReady ? "ready" : "not ready")}"
+                            + (hardware.HardwareFault is { Length: > 0 } fault ? $" ({Redact(fault)})" : ""));
+
+            var gpus = hardware.AvailableGpus;
+            report.AppendLine($"GPUs seen : {gpus.Count}");
+            foreach (var gpu in gpus)
+                report.AppendLine($"          - {gpu.Name} ({(gpu.IsDiscrete ? "discrete" : "integrated")}) [{gpu.Id}]");
+        }
+        catch (Exception ex)
+        {
+            report.AppendLine($"Sensors   : could not be read ({ex.GetType().Name})");
+            report.AppendLine("GPUs seen : unavailable, because the sensor layer could not be reached");
+        }
+    }
+
+    /// The startup task as Windows actually has it, not as settings claim.
+    private static void AppendStartup(StringBuilder report)
+    {
+        try
+        {
+            var task = StartupTask.Query();
+            var wanted = Safe(() => SettingsService.Instance.Settings.StartWithWindows.ToString());
+
+            report.AppendLine($"Startup   : setting={wanted}, task={(task.Exists ? "present" : "absent")}"
+                            + (task.Exists ? $", settings {(task.SettingsCorrect ? "correct" : "OUTDATED")}" : ""));
+
+            if (task.Exists) report.AppendLine($"          - runs {Redact(task.CommandPath)}");
+        }
+        catch (Exception ex)
+        {
+            report.AppendLine($"Startup   : could not be read ({ex.GetType().Name})");
+        }
+    }
+
+    private static string Safe(Func<string> read)
+    {
+        try   { return read() ?? ""; }
+        catch { return "(unavailable)"; }
     }
 }
