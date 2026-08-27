@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Windows;
 using Pulse.Services;
 using Pulse.ViewModels;
@@ -70,6 +70,13 @@ public partial class App : WinApplication
 
         base.OnStartup(e);
         _initialized = true;
+
+        // Before anything else can fail. This also reports on the previous run if it never
+        // shut down, which is the only way a death that reaches no managed code — a driver
+        // fault, a forced termination — leaves any trace at all.
+        InstallCrashReporting();
+        Services.LogService.BeginSession(Services.UpdateService.CurrentVersionLabel);
+
         StartShowUiListener();
 
         // Housekeeping and startup-task reconciliation, off the startup path: between them
@@ -315,6 +322,35 @@ public partial class App : WinApplication
         Dispatcher.Invoke(() => Shutdown());
     }
 
+    /// <summary>
+    /// Records unhandled failures instead of losing them.
+    ///
+    /// None of this keeps Pulse alive; an unhandled exception ends the process either way.
+    /// It only means the reason is written down first. Note that it cannot catch everything:
+    /// a fault inside a driver corrupts the process state, and the runtime terminates without
+    /// running managed handlers at all. Those are what the session marker is for.
+    /// </summary>
+    private void InstallCrashReporting()
+    {
+        AppDomain.CurrentDomain.UnhandledException += (_, args) =>
+        {
+            var error = args.ExceptionObject as Exception;
+            if (error != null) Services.LogService.Error("Crash", "Unhandled exception; Pulse is closing", error);
+            else               Services.LogService.Warn ("Crash", "Unhandled non-exception failure; Pulse is closing");
+        };
+
+        DispatcherUnhandledException += (_, args) =>
+            Services.LogService.Error("Crash", "Unhandled exception on the UI thread", args.Exception);
+
+        // Faults on background tasks nobody awaited. Silent until now, and they are exactly
+        // the kind that make an app "just stop working" with no explanation.
+        TaskScheduler.UnobservedTaskException += (_, args) =>
+        {
+            Services.LogService.Error("Crash", "Unobserved background task failure", args.Exception);
+            args.SetObserved();
+        };
+    }
+
     protected override void OnExit(ExitEventArgs e)
     {
         _trayIcon?.Dispose();
@@ -330,6 +366,10 @@ public partial class App : WinApplication
         }
 
         try { _showUiSignal?.Dispose(); _showUiSignal = null; } catch { }
+
+        // Last, so anything that fails on the way out is recorded before we say we left
+        // cleanly. Missing this marker is what tells the next run that we did not.
+        if (_initialized) Services.LogService.EndSession();
         try { _mutex?.ReleaseMutex(); _mutex?.Dispose(); _mutex = null; } catch { }
         base.OnExit(e);
     }
