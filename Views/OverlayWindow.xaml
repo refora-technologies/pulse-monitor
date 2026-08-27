@@ -1,4 +1,4 @@
-<Window x:Class="Pulse.Views.OverlayWindow"
+﻿<Window x:Class="Pulse.Views.OverlayWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="clr-namespace:Pulse.ViewModels"
@@ -73,7 +73,12 @@
         </Style>
     </Window.Resources>
 
-    <Border x:Name="DragBorder" Padding="6" TextElement.FontFamily="{StaticResource Jakarta}">
+    <!-- No padding: this used to inset the panel 6px inside the window on every side. The
+         padding is transparent and, with no background on this border, not even
+         hit-testable, so it bought nothing - but it meant the window was 12px larger
+         than the panel on screen. Every position we reported described that invisible
+         box, and dragging into a corner left a 6px gap that could not be closed. -->
+    <Border x:Name="DragBorder" Padding="0" TextElement.FontFamily="{StaticResource Jakarta}">
         <Grid>
         <!-- Scaled content lives in its own Grid so the resize grip below (a sibling,
              outside this transform) stays a constant, easily-grabbable size regardless
@@ -287,6 +292,7 @@
                HorizontalAlignment="Right" VerticalAlignment="Bottom"
                Cursor="SizeNWSE"
                Visibility="{Binding IsDragEnabled, Converter={StaticResource BoolToVis}}"
+               DragStarted="OnResizeDragStarted"
                DragDelta="OnResizeDragDelta"
                DragCompleted="OnResizeDragCompleted">
             <Thumb.Template>
