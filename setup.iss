@@ -86,7 +86,12 @@ Name: "{autodesktop}\Pulse"; Filename: "{app}\Pulse.exe"; IconFilename: "{app}\P
 
 [Run]
 Filename: "{app}\PawnIO_setup.exe"; Parameters: "-install -silent"; Flags: runhidden waituntilterminated; StatusMsg: "Installing sensor driver..."
-Filename: "schtasks.exe"; Parameters: "/Create /TN ""PulseMonitor"" /TR ""\""{app}\Pulse.exe\"" --startup"" /SC ONLOGON /RL HIGHEST /F"; Flags: runhidden; Tasks: startupentry
+; Registered through Pulse rather than schtasks so there is one definition of this task.
+; The bare schtasks command line cannot express three settings that matter here, and it
+; silently defaults all three the wrong way for an app meant to run all day: the task will
+; not start on battery, Windows terminates it when the machine is unplugged, and Windows
+; terminates it again after 72 hours of uptime. See Services\StartupTask.cs.
+Filename: "{app}\Pulse.exe"; Parameters: "--install-startup-task"; Flags: runhidden waituntilterminated; Tasks: startupentry; StatusMsg: "Setting up startup..."
 Filename: "{app}\Pulse.exe"; Description: "Launch Pulse"; Flags: nowait postinstall skipifsilent runascurrentuser
 
 [UninstallRun]
