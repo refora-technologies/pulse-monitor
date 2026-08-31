@@ -1049,11 +1049,18 @@
                                 <TextBlock Text="Which GPU the GPU tiles read from"
                                            FontSize="10.5" FontWeight="Medium"
                                            Foreground="#8B86B4" Margin="0,0,0,12"/>
+                                <!-- One way on purpose. What is shown as selected is not always
+                                     what the user chose: when their GPU is switched off the
+                                     dropdown shows whichever adapter is actually being read.
+                                     A two way binding would write that straight back and turn
+                                     a deliberate choice into a permanent one. Real choices
+                                     come through SelectionChanged instead. -->
                                 <ComboBox x:Name="GpuCombo"
                                           Style="{StaticResource DarkCombo}"
                                           ItemsSource="{Binding GpuChoices}"
-                                          SelectedItem="{Binding SelectedGpuChoice, Mode=TwoWay}"
+                                          SelectedItem="{Binding SelectedGpuChoice, Mode=OneWay}"
                                           PreviewMouseWheel="GpuCombo_PreviewMouseWheel"
+                                          SelectionChanged="GpuCombo_SelectionChanged"
                                           DropDownClosed="GpuCombo_DropDownClosed"/>
                             </StackPanel>
                         </Border>
