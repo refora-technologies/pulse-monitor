@@ -1057,7 +1057,7 @@
                                           DropDownClosed="GpuCombo_DropDownClosed"/>
                             </StackPanel>
                         </Border>
-                        <TextBlock Text="Auto picks the GPU with dedicated video memory, which is the discrete one on a laptop."
+                        <TextBlock Text="{Binding GpuSourceHint}"
                                    FontSize="10.5" Foreground="#8B86B4" FontWeight="Medium"
                                    Margin="0,0,0,22" TextWrapping="Wrap"/>
                     </StackPanel>
