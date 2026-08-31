@@ -144,6 +144,7 @@ public static class SensorHost
 
         while (!stop.IsSet)
         {
+            var pollStarted = Environment.TickCount64;
             bool rescan = false;
 
             lock (pending)
@@ -197,8 +198,20 @@ public static class SensorHost
                 }
             }
 
+            // Wait out the remainder of the interval, not the whole of it.
+            //
+            // The interval is how often readings should arrive, not how long to rest between
+            // them. Sleeping the full amount after the work made the real period the interval
+            // plus however long a poll took, and a poll is not cheap: reading a discrete GPU
+            // can take the better part of a second on a laptop, so "every 0.5s" was delivering
+            // a reading every 1.2s. Subtracting the work restores what the setting says, and a
+            // poll slower than the interval simply runs back to back.
+            var elapsed = Environment.TickCount64 - pollStarted;
+            var remaining = (long)(interval * 1000) - elapsed;
+
             // Interruptible, so a quit or a closed input does not have to wait out a poll.
-            if (stop.Wait(TimeSpan.FromSeconds(interval))) break;
+            if (remaining > 0 && stop.Wait(TimeSpan.FromMilliseconds(remaining))) break;
+            if (remaining <= 0 && stop.IsSet) break;
         }
 
         Log("info", "Sensor host stopping.");
