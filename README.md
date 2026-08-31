@@ -36,7 +36,8 @@
 - **GPU Selection:** On laptops and multi-GPU systems, choose exactly which adapter the GPU tiles read from, or leave it on automatic.
 - **Dynamic Overlay:** A seamless glassmorphic HUD that sits unobtrusively on your screen, featuring a secondary "Compact Mode" designed specifically for distraction-free in-game monitoring. Right-click the overlay in free-drag mode for quick access to the control panel.
 - **Ultra-Fast Polling:** Customizable interval polling directly integrated with LibreHardwareMonitor, down to 0.5 seconds for instantaneous tracking.
-- **Arrange It Your Way:** Drag tiles into any order you like, or move them with the keyboard, and place the overlay by dragging it, snapping it to a corner, or typing an exact position.
+- **Arrange It Your Way:** Drag tiles into any order you like, or move them with the keyboard, and place the overlay by dragging it, snapping it to a corner, or sliding it into position.
+- **Resilient Sensor Reading:** Sensors are read in an isolated background process, so a graphics driver fault cannot take Pulse down with it. Pulse also notices when a GPU is switched off or comes back, and re-detects your hardware on its own.
 - **Verified Updates:** The in-app updater checks a SHA-256 checksum before installing anything and refuses to run an update that doesn't match, and downloads to a location only administrators can write to.
 - **Diagnostics:** One click writes a log of recent errors to your desktop, so a problem can be reported with something concrete attached.
 - **Refora Design Language:** A customized, violet-accented dark theme powered by the Plus Jakarta Sans font family for crisp, elegant readability.
@@ -68,7 +69,8 @@ Once launched, right-click the Pulse icon in the Windows system tray and select 
 - Choose which GPU the GPU tiles read from on multi-GPU systems.
 - Show RAM and VRAM as used / total instead of just used.
 - Define overlay opacity and screen position, including which display to use on multi-monitor setups.
-- Place the overlay precisely by typing an **X and Y** position, or by dragging those fields to slide it across the screen.
+- Fade the overlay's background independently of its text, down to just the readings floating on screen, and reset both to the default look in one click.
+- Place the overlay precisely with the **X and Y** sliders, or drag it where you want it.
 - Enable **Compact Mode** for a minimized, text-only HUD.
 - Adjust the hardware polling rate (0.5s, 1s, 2s, 5s).
 - Un-dock the overlay to manually drag it to any custom position on your desktop — right-click it in this mode for quick access to the control panel or to hide the overlay.
