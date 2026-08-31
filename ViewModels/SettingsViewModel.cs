@@ -438,38 +438,152 @@ public class SettingsViewModel : BaseViewModel
         }
     }
 
-    /// True once more than one adapter has been seen, which is the only time the
-    /// picker is worth showing at all.
-    public bool HasMultipleGpus => AvailableGpus.Count > 1;
+    /// <summary>
+    /// Whether the GPU picker is worth showing at all.
+    ///
+    /// Latches on. Once this machine has been seen to have two adapters it keeps the picker,
+    /// even when only one is reported now — because "only one is reported now" is a normal,
+    /// temporary state on a laptop: a game holding the discrete card stops the integrated one
+    /// being enumerated, and switching a card off in Device Manager removes it until it comes
+    /// back. Letting the section vanish at those moments took away the one piece of UI that
+    /// says which GPU is being read, at precisely the moment the answer had just changed.
+    /// </summary>
+    public bool HasMultipleGpus
+    {
+        get
+        {
+            if (AvailableGpus.Count > 1) _hasSeenMultipleGpus = true;
+            return _hasSeenMultipleGpus;
+        }
+    }
 
+    private bool _hasSeenMultipleGpus;
+
+    /// <summary>
     /// Rebuilds the dropdown entries from the adapters detected so far.
+    ///
+    /// When there is genuinely only one adapter to read there is nothing to choose between, so
+    /// "Automatic" is left out and the single entry simply names the GPU in use. That entry
+    /// carries the empty identifier, meaning it *is* the automatic choice wearing the name of
+    /// what it resolved to — so a card that comes back is picked up again without the user
+    /// having to touch anything, and nothing has been written to their settings behind their
+    /// back.
+    /// </summary>
     public void RefreshGpuChoices()
     {
-        GpuChoices.Clear();
-        GpuChoices.Add(new GpuChoice { Id = "", Label = "Automatic", Detail = "Picks the discrete GPU" });
+        var pinned = SelectedGpuId ?? "";
 
-        foreach (var gpu in AvailableGpus)
-        {
-            GpuChoices.Add(new GpuChoice
-            {
-                Id     = gpu.Id,
-                Label  = gpu.Name,
-                Detail = gpu.IsDiscrete ? "Discrete" : "Integrated",
-            });
-        }
+        GpuChoices.Clear();
+        foreach (var choice in BuildGpuChoices(AvailableGpus, pinned, NameOfPinnedGpu(pinned)))
+            GpuChoices.Add(choice);
 
         // The pinned GPU is deliberately never cleared here.
         //
         // This runs at startup before LibreHardwareMonitor has finished enumerating, when
-        // the only entry is "Automatic" — so resetting a selection that is merely "not
-        // found yet" wiped the user's choice on every single launch. It also fires while a
-        // game has the discrete GPU active and the integrated one stops being reported.
-        // HardwareService.SelectGpu already falls back to auto-detection when a pinned id
-        // does not resolve, so leaving the setting alone costs nothing and the choice
-        // survives until the user changes it.
+        // there are no entries at all — so resetting a selection that is merely "not found
+        // yet" wiped the user's choice on every single launch. It also fires while a game has
+        // the discrete GPU active and the integrated one stops being reported. The sensor host
+        // already falls back to automatic when a pinned id does not resolve, so leaving the
+        // setting alone costs nothing and the choice survives until the user changes it.
 
         OnPropertyChanged(nameof(HasMultipleGpus));
+        OnPropertyChanged(nameof(GpuSourceHint));
         OnPropertyChanged(nameof(SelectedGpuChoice));
+    }
+
+    /// <summary>
+    /// Works out what the GPU dropdown should contain. Free of any UI, so the behaviour that
+    /// matters here can be checked directly: which entries appear, and — more importantly —
+    /// which identifier each one carries, since that is what does or does not get written into
+    /// the user's settings.
+    /// </summary>
+    public static List<GpuChoice> BuildGpuChoices(
+        IReadOnlyList<GpuInfo> available, string pinned, string pinnedName)
+    {
+        var choices = new List<GpuChoice>();
+        pinned ??= "";
+
+        if (available.Count > 1)
+        {
+            choices.Add(new GpuChoice { Id = "", Label = "Automatic", Detail = "Picks the discrete GPU" });
+
+            foreach (var gpu in available)
+            {
+                choices.Add(new GpuChoice
+                {
+                    Id     = gpu.Id,
+                    Label  = gpu.Name,
+                    Detail = gpu.IsDiscrete ? "Discrete" : "Integrated",
+                });
+            }
+
+            return choices;
+        }
+
+        if (available.Count == 1)
+        {
+            var only = available[0];
+
+            choices.Add(new GpuChoice
+            {
+                // Its own identifier only when that is what the user actually pinned.
+                // Otherwise the empty one, so an automatic choice stays automatic and a card
+                // that comes back is picked up again without them touching anything.
+                Id     = pinned == only.Id ? only.Id : "",
+                Label  = only.Name,
+                Detail = only.IsDiscrete ? "Discrete" : "Integrated",
+            });
+
+            // A GPU the user pinned that is not here right now still needs an entry, or the
+            // dropdown would show nothing selected and give no hint why. Naming it as
+            // unavailable answers both questions at once, and leaves them able to switch.
+            if (pinned.Length > 0 && pinned != only.Id)
+            {
+                choices.Add(new GpuChoice
+                {
+                    Id     = pinned,
+                    Label  = string.IsNullOrEmpty(pinnedName) ? pinned : pinnedName,
+                    Detail = "Not available right now",
+                });
+            }
+        }
+
+        return choices;
+    }
+
+    /// The last known name for an adapter that is no longer being reported. Falls back to the
+    /// identifier, which is ugly but still better than an empty row.
+    private string _lastPinnedGpuName = "";
+
+    private string NameOfPinnedGpu(string id)
+    {
+        foreach (var gpu in AvailableGpus)
+            if (gpu.Id == id) { _lastPinnedGpuName = gpu.Name; return gpu.Name; }
+
+        return _lastPinnedGpuName.Length > 0 ? _lastPinnedGpuName : id;
+    }
+
+    /// <summary>
+    /// The line under the picker. Says which adapter the GPU tiles are actually reading from
+    /// rather than describing the rule in the abstract, because after a card is switched off
+    /// the only thing anyone wants to know is which one took over.
+    /// </summary>
+    public string GpuSourceHint
+    {
+        get
+        {
+            var active = HardwareService.Instance.ActiveGpuName;
+
+            if (active.Length == 0)
+                return "Auto picks the GPU with dedicated video memory, which is the discrete one on a laptop.";
+
+            if (AvailableGpus.Count <= 1)
+                return $"Currently reading {active}. It is the only graphics adapter available right now; "
+                     + "if another comes back, Pulse picks it up on its own.";
+
+            return $"Currently reading {active}. Auto picks the GPU with dedicated video memory, "
+                 + "which is the discrete one on a laptop.";
+        }
     }
 
     private bool _showMaxValues;

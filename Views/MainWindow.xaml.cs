@@ -534,9 +534,12 @@ public partial class MainWindow : Window
 
         _vm.RefreshGpuChoices();
 
-        // Nothing to choose between on a single-GPU machine, so don't add noise. Once a
-        // second adapter has been seen the section stays put, because LibreHardwareMonitor
-        // stops reporting an iGPU while a game holds the discrete card.
+        // Nothing to choose between on a machine that only ever had one GPU, so don't add
+        // noise. On anything hybrid the section stays put once seen — LibreHardwareMonitor
+        // stops reporting an iGPU while a game holds the discrete card, and a card switched
+        // off in Device Manager disappears until it comes back. Hiding the picker at those
+        // moments removed the one thing on screen that says which GPU is being read, right
+        // when that answer had just changed.
         GpuSourceSection.Visibility = _vm.HasMultipleGpus
             ? System.Windows.Visibility.Visible
             : System.Windows.Visibility.Collapsed;
