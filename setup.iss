@@ -153,14 +153,36 @@ end;
   being upgraded or removed may predate that. Its capture process holds
   Resources\PresentMon\PresentMon-2.5.1-x64.exe open, which is what made installs stall on a
   "the file is in use, try again" prompt and left the Resources folder behind afterwards. }
+{ Builds a taskkill filter for one image name, owned by the account running this installer.
+
+  The account name has to be substituted here rather than written as %USERNAME%. Exec calls
+  CreateProcess directly, with no shell involved, and ExpandConstant is only applied to the
+  program path above, not to the parameters. A literal %USERNAME% therefore reached taskkill
+  unexpanded and matched no process at all, so every one of these kills silently did nothing.
+  That is how the change which added this filter, to stop cleanup reaching other users, ended
+  up stopping it reaching anyone.
+
+  Falls back to matching on the image name alone if the account cannot be read, since killing
+  slightly too much is better than the uninstaller failing to release its own files. }
+function OwnProcessFilter(const ImageName: String): String;
+var
+  User: String;
+begin
+  Result := '/FI "IMAGENAME eq ' + ImageName + '"';
+
+  User := GetEnv('USERNAME');
+  if User <> '' then
+    Result := Result + ' /FI "USERNAME eq ' + User + '"';
+end;
+
 procedure CloseOrphanedCapture();
 var
   ResultCode: Integer;
 begin
-  { Filtered to this user's own processes rather than by image name alone, which would
-    end any similarly named process anywhere on the machine, including another user's. }
+  { Scoped to this user's own processes rather than by image name alone, which would end any
+    similarly named process anywhere on the machine, including another user's. }
   Exec(ExpandConstant('{sys}\taskkill.exe'),
-       '/F /FI "IMAGENAME eq PresentMon-2.5.1-x64.exe" /FI "USERNAME eq %USERNAME%"',
+       '/F ' + OwnProcessFilter('PresentMon-2.5.1-x64.exe'),
        '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Sleep(400);
 end;
@@ -169,13 +191,21 @@ procedure CloseRunningPulse();
 var
   ResultCode: Integer;
 begin
+  { Politely first. Note this only asks: Pulse minimises to the tray when its window is
+    closed, so the request is expected to be declined and the forced kill below is what
+    actually ends it. It is still worth sending, because a Pulse that does decide to exit
+    here closes its sensor library cleanly and releases the driver handle, which is what
+    lets PawnIO be removed afterwards. }
   Exec(ExpandConstant('{sys}\taskkill.exe'),
-       '/FI "IMAGENAME eq Pulse.exe" /FI "USERNAME eq %USERNAME%"',
+       OwnProcessFilter('Pulse.exe'),
        '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Sleep(1500);
 
+  { The sensor host is a second process running the same executable, so one image name
+    covers both. It is also tied to Pulse's lifetime by a job object and would go on its
+    own, but not before the uninstaller has already tried to delete the file it is running. }
   Exec(ExpandConstant('{sys}\taskkill.exe'),
-       '/F /FI "IMAGENAME eq Pulse.exe" /FI "USERNAME eq %USERNAME%"',
+       '/F ' + OwnProcessFilter('Pulse.exe'),
        '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Sleep(800);
 
