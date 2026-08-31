@@ -1,6 +1,7 @@
-﻿using System.Windows.Threading;
-using LibreHardwareMonitor.Hardware;
-using Pulse.Models;
+﻿using System.Diagnostics;
+using System.Globalization;
+using System.Text;
+using System.Windows.Threading;
 
 namespace Pulse.Services;
 
@@ -52,13 +53,29 @@ public class GpuInfo
 {
     public string Id { get; init; } = "";
     public string Name { get; init; } = "";
-    /// True when the adapter has its own dedicated video memory.
+    /// True when the adapter is a real graphics card rather than graphics built into the CPU.
     public bool IsDiscrete { get; init; }
 }
 
+/// <summary>
+/// Supplies the readings, by supervising the process that takes them.
+///
+/// Pulse used to read the hardware itself, on a timer, in this class. It no longer does, and
+/// the reason is worth stating plainly: a fault inside a vendor driver cannot be caught. When a
+/// user disabled their NVIDIA card while Pulse was running, reading GPU power through a handle
+/// that card still owned raised an access violation deep inside NVML, and .NET ended the
+/// process without running one line of managed code. The try/catch around the poll was not
+/// bypassed by accident — it cannot run at all. Pulse simply vanished, and the only trace was
+/// an entry in the Windows event log.
+///
+/// So the reading happens in a child process now, and this class watches it. If it dies, this
+/// starts another; if it stops answering, this replaces it. The public surface is unchanged
+/// from when the reading was done here, because from the outside nothing about it should look
+/// different — except that hardware faults now cost a second of "--" instead of the whole app.
+/// </summary>
 public class HardwareService : IDisposable
 {
-    /// Lazy rather than `??=`: that is not atomic, and these are reached from the polling
+    /// Lazy rather than `??=`: that is not atomic, and these are reached from the reader
     /// thread and the UI thread at the same time during startup. Losing the race builds two
     /// instances, each with its own event subscribers, so notifications reach an object
     /// nobody is listening to.
@@ -67,14 +84,9 @@ public class HardwareService : IDisposable
 
     public static HardwareService Instance => LazyInstance.Value;
 
-    private readonly Computer _computer;
-    private readonly DispatcherTimer _timer;
-    private readonly UpdateVisitor _updateVisitor = new();
-    private bool _isPolling;
-
     public SensorData Current { get; private set; } = new();
     public event EventHandler<SensorData>? SensorsUpdated;
-    public double PollingIntervalSeconds { get; set; } = 2;
+    public double PollingIntervalSeconds { get; private set; } = 2;
 
     public float TotalRamGb { get; private set; } = 16f;
     public float TotalVramGb { get; private set; } = 6f;
@@ -82,54 +94,15 @@ public class HardwareService : IDisposable
     /// Every GPU detected on this machine, for the settings picker.
     public IReadOnlyList<GpuInfo> AvailableGpus { get; private set; } = Array.Empty<GpuInfo>();
 
-    /// Accumulates adapters seen this session, keyed by identifier. See PublishGpuList.
-    private readonly Dictionary<string, GpuInfo> _seenGpus = new();
-
     /// Name of the GPU the GPU tiles are currently reading from.
     public string ActiveGpuName { get; private set; } = "";
 
-    /// Raised when the set of detected GPUs changes (first poll, or an eGPU appearing).
+    /// Raised when the set of detected GPUs changes (first reading, or an eGPU appearing).
     public event EventHandler? GpuListChanged;
 
-    private HardwareService()
-    {
-        _computer = new Computer();
-        ConfigureSubsystems(_computer, RequiredSubsystems());
-
-        // Opening enumerates every device and loads the sensor driver, which takes long
-        // enough to visibly stall the window if it runs inline. Do it in the background
-        // and let polls skip until it's ready.
-        _openTask = Task.Run(OpenWithRetry);
-
-        _timer = new DispatcherTimer
-        {
-            Interval = TimeSpan.FromSeconds(PollingIntervalSeconds)
-        };
-        _timer.Tick += async (_, _) => await PollAsync();
-        _timer.Start();
-
-        // Reconfigure if the user turns a whole category of tiles on or off.
-        //
-        // Off the UI thread: SettingsChanged is raised there, and toggling these flags makes
-        // LibreHardwareMonitor construct and enumerate a whole hardware group inside the
-        // property setter. Doing that inline froze the control panel for as long as the
-        // enumeration took, which is the very thing opening in the background avoids.
-        SettingsService.Instance.SettingsChanged += (_, _) => Task.Run(() =>
-        {
-            try { SyncSubsystems(); }
-            catch (Exception ex) { LogService.Error(nameof(HardwareService), "Reconfiguring sensor groups failed", ex); }
-        });
-
-        _ = PollAsync(); // immediate first read
-    }
-
-    private readonly Task _openTask;
-    private readonly object _computerLock = new();
-    private Subsystems _activeSubsystems;
-
     /// <summary>
-    /// True once the sensor library has opened successfully. While false every tile reads
-    /// "--", which previously looked identical to hardware that genuinely reports nothing.
+    /// True once sensors have been opened successfully. While false every tile reads "--",
+    /// which previously looked identical to hardware that genuinely reports nothing.
     /// </summary>
     public bool IsHardwareReady { get; private set; }
 
@@ -139,83 +112,125 @@ public class HardwareService : IDisposable
     public event EventHandler? HardwareStateChanged;
 
     /// <summary>
-    /// Opens the sensor library, retrying a few times before giving up.
+    /// A one-line summary of the process taking the readings, for the diagnostics export.
     ///
-    /// The driver is installed by our own installer moments earlier and occasionally is not
-    /// ready on the first attempt, particularly on the reboot straight after installation.
-    /// A single silent attempt meant Pulse polled empty hardware forever, showing "--" on
-    /// every tile with nothing to say why and no way back short of restarting it.
+    /// The restart count is the part worth having. Once a fault has been recovered from there
+    /// is nothing in the readings to say it ever happened, so a report from a machine whose
+    /// graphics driver keeps falling over looks identical to one where everything is fine.
     /// </summary>
-    private void OpenWithRetry()
+    public string SensorHostStatus
     {
-        const int attempts = 3;
-
-        for (int attempt = 1; attempt <= attempts; attempt++)
+        get
         {
-            try
+            lock (_hostLock)
             {
-                // Named before the call, not after. Opening sensors means initialising vendor
-                // driver libraries, and a fault down there kills the process outright without
-                // reaching any managed handler. If that happens this is the only record of
-                // where Pulse was when it stopped.
-                LogService.RecordActivity($"opening sensors (attempt {attempt})");
+                var host = _host;
+                var age  = TimeSpan.FromMilliseconds(Environment.TickCount64 - _hostStartedAt);
+                var silence = TimeSpan.FromMilliseconds(Environment.TickCount64 - _lastSnapshotAt);
 
-                _computer.Open();
+                if (host == null) return $"not running, restarted {_restarts} time(s) this session";
 
-                IsHardwareReady = true;
-                HardwareFault   = null;
-                LogService.Info(nameof(HardwareService), $"Sensors opened (attempt {attempt}).");
-                LogService.RecordActivity("reading sensors");
-                HardwareStateChanged?.Invoke(this, EventArgs.Empty);
-                return;
-            }
-            catch (Exception ex)
-            {
-                LogService.Error(nameof(HardwareService), $"Opening sensors failed (attempt {attempt} of {attempts})", ex);
-
-                if (attempt == attempts)
-                {
-                    HardwareFault = "Sensors unavailable. The PawnIO driver may not be installed, "
-                                  + "or Pulse may not be running as administrator.";
-                    HardwareStateChanged?.Invoke(this, EventArgs.Empty);
-                    return;
-                }
-
-                Thread.Sleep(2000 * attempt);
+                return $"running {age.TotalMinutes:F0}m, last reading {silence.TotalSeconds:F0}s ago, "
+                     + $"restarted {_restarts} time(s) this session";
             }
         }
     }
 
-    [Flags]
-    private enum Subsystems
+    // ── Supervision ─────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// How long GPU readings may stop arriving before those tiles are blanked.
+    ///
+    /// Only the GPU tiles, because the GPU is the part actually in doubt. Switching a graphics
+    /// card off is the one event that reliably interrupts readings, and blanking the CPU,
+    /// memory, disk and network tiles at the same moment made a recovery that works look like
+    /// the whole app had fallen over. Those readings are held for a while longer instead — see
+    /// <see cref="EverythingStaleAfter"/>.
+    ///
+    /// A stale GPU number is the specific thing worth removing quickly. It looks live and is
+    /// not, which is exactly what a user saw when their readings froze at whatever they had
+    /// been at the moment the card went away.
+    /// </summary>
+    private static readonly TimeSpan GpuStaleAfter = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// How long everything else may be held before it is blanked too.
+    ///
+    /// Long enough to cover a card being switched off, the sensor host being replaced, and the
+    /// machine's hardware being enumerated again — the whole sequence, without the tiles that
+    /// have nothing to do with graphics ever flickering. Past this, readings are old enough
+    /// that showing them would be a lie rather than a courtesy.
+    /// </summary>
+    private static readonly TimeSpan EverythingStaleAfter = TimeSpan.FromSeconds(30);
+
+    /// When a host stops answering entirely. Generous, because opening sensors on a cold
+    /// machine genuinely can take this long.
+    private static readonly TimeSpan SilentAfter = TimeSpan.FromSeconds(45);
+
+    /// A host that lasts this long is considered healthy, and the restart backoff resets.
+    /// Without it a machine that faults once a day would eventually be waiting minutes.
+    private static readonly TimeSpan Settled = TimeSpan.FromSeconds(60);
+
+    private readonly object _hostLock = new();
+    private readonly Dispatcher? _dispatcher;
+
+    private Process? _host;
+    private int _restarts;
+    private long _hostStartedAt;
+    private long _lastSnapshotAt;
+    private bool _gpuBlanked;
+    private bool _blanked;
+    private bool _disposed;
+
+    /// Set while we are deliberately ending a host, so its exit is not treated as a fault.
+    private bool _replacing;
+
+    private readonly System.Threading.Timer _watchdog;
+
+    /// UTF-8 on every stream, explicitly on both sides. The default is the console's OEM
+    /// codepage, which mangles anything outside ASCII — and adapter names are not ours.
+    private static readonly Encoding Utf8 = new UTF8Encoding(false);
+
+    private HardwareService()
     {
-        None = 0, Cpu = 1, Gpu = 2, Memory = 4, Storage = 8, Network = 16,
+        _dispatcher = System.Windows.Application.Current?.Dispatcher;
+
+        try { PollingIntervalSeconds = SettingsService.Instance.Settings.PollingIntervalSeconds; }
+        catch { }
+
+        StartHost();
+
+        _watchdog = new System.Threading.Timer(_ => CheckHost(), null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
+
+        // Reconfigure when the user turns a whole category of tiles on or off, or picks a
+        // different GPU. Both are just a line down the pipe now; the host does the work.
+        SettingsService.Instance.SettingsChanged += (_, _) => ApplySettings();
     }
 
     /// <summary>
     /// Works out which sensor groups are actually needed for the tiles in use.
     ///
-    /// LibreHardwareMonitor updates every sensor in an enabled group on each poll, and
-    /// that isn't cheap — reading the discrete GPU alone dominates a poll. Enabling only
-    /// what the visible tiles require avoids paying for data nothing displays.
+    /// LibreHardwareMonitor updates every sensor in an enabled group on each poll, and that
+    /// isn't cheap — reading the discrete GPU alone dominates a poll. Enabling only what the
+    /// visible tiles require avoids paying for data nothing displays.
     /// </summary>
-    private static Subsystems RequiredSubsystems()
+    private static SensorSubsystems RequiredSubsystems()
     {
         var active = SettingsService.Instance.Settings.ActiveTileIds;
-        var needed = Subsystems.None;
+        var needed = SensorSubsystems.None;
 
         foreach (var id in active)
         {
             needed |= id switch
             {
-                "cpu_usage" or "cpu_temp" or "cpu_clock" or "cpu_power" => Subsystems.Cpu,
-                "gpu_usage" or "gpu_temp" or "gpu_clock" or "gpu_power" or "gpu_vram" => Subsystems.Gpu,
-                "ram_used"      => Subsystems.Memory,
-                "disk_activity" => Subsystems.Storage,
-                "net_upload" or "net_download" => Subsystems.Network,
+                "cpu_usage" or "cpu_temp" or "cpu_clock" or "cpu_power" => SensorSubsystems.Cpu,
+                "gpu_usage" or "gpu_temp" or "gpu_clock" or "gpu_power" or "gpu_vram" => SensorSubsystems.Gpu,
+                "ram_used"      => SensorSubsystems.Memory,
+                "disk_activity" => SensorSubsystems.Storage,
+                "net_upload" or "net_download" => SensorSubsystems.Network,
                 // Total power is derived from both chips, so it needs each of them.
-                "sys_power"     => Subsystems.Cpu | Subsystems.Gpu,
-                _               => Subsystems.None,
+                "sys_power"     => SensorSubsystems.Cpu | SensorSubsystems.Gpu,
+                _               => SensorSubsystems.None,
             };
         }
 
@@ -224,563 +239,518 @@ public class HardwareService : IDisposable
         // integrated GPU's sensors hang off the CPU package. Gating the CPU subsystem away
         // therefore removes every GPU reading on an Intel-iGPU-only machine — the user only
         // finds out after a restart. The CPU read costs ~14ms, which is worth paying.
-        if (needed.HasFlag(Subsystems.Gpu)) needed |= Subsystems.Cpu;
+        if (needed.HasFlag(SensorSubsystems.Gpu)) needed |= SensorSubsystems.Cpu;
 
         return needed;
     }
 
-    private void ConfigureSubsystems(Computer computer, Subsystems s)
+    private static string SubsystemsArgument() =>
+        RequiredSubsystems().ToString().Replace(" ", "");
+
+    private static string PinnedGpu()
     {
-        computer.IsCpuEnabled         = s.HasFlag(Subsystems.Cpu);
-        computer.IsGpuEnabled         = s.HasFlag(Subsystems.Gpu);
-        computer.IsMemoryEnabled      = s.HasFlag(Subsystems.Memory);
-        computer.IsStorageEnabled     = s.HasFlag(Subsystems.Storage);
-        computer.IsNetworkEnabled     = s.HasFlag(Subsystems.Network);
-        computer.IsMotherboardEnabled = false;
-        _activeSubsystems             = s;
+        try   { return SettingsService.Instance.Settings.SelectedGpuId ?? ""; }
+        catch { return ""; }
     }
 
-    /// Applies a change in which sensor groups are needed. Toggling the flags makes
-    /// LibreHardwareMonitor add or drop that hardware, so no reopen is required.
-    private void SyncSubsystems()
-    {
-        var needed = RequiredSubsystems();
-        if (needed == _activeSubsystems) return;
+    private SensorSubsystems _sentSubsystems = (SensorSubsystems)(-1);
+    private string _sentGpu = "\0";   // deliberately not a value any identifier can take
 
-        lock (_computerLock)
+    /// Sends whatever has actually changed. Settings are saved often and mostly for reasons
+    /// the host does not care about, so this is called far more than it does anything.
+    private void ApplySettings()
+    {
+        try
         {
-            ConfigureSubsystems(_computer, needed);
+            var subsystems = RequiredSubsystems();
+            if (subsystems != _sentSubsystems)
+            {
+                _sentSubsystems = subsystems;
+                Send(SensorCommand.Subsystems(subsystems.ToString().Replace(" ", "")));
+            }
+
+            var gpu = PinnedGpu();
+            if (gpu != _sentGpu)
+            {
+                _sentGpu = gpu;
+                Send(SensorCommand.Gpu(gpu));
+            }
+        }
+        catch (Exception ex)
+        {
+            LogService.Error(nameof(HardwareService), "Passing a settings change to the sensor host failed", ex);
         }
     }
 
     public void SetInterval(double seconds)
     {
         PollingIntervalSeconds = seconds;
-        _timer.Interval = TimeSpan.FromSeconds(seconds);
+        Send(SensorCommand.Interval(seconds));
     }
 
     /// <summary>
-    /// Runs the sensor read on a background thread so a slow driver/device can't freeze the
-    /// UI (this timer ticks on the dispatcher thread). The re-entrancy guard skips a tick if
-    /// the previous read hasn't finished yet, instead of piling up overlapping reads.
+    /// Asks the host to enumerate the machine's hardware again.
+    ///
+    /// LibreHardwareMonitor builds its device list once, when it opens, so a graphics card
+    /// that has been switched off keeps being polled through handles the driver no longer
+    /// honours, and one that has just appeared is never polled at all. Neither resolves
+    /// itself, and the first of the two is what makes readings freeze at a stale value.
     /// </summary>
-    private async Task PollAsync()
+    public void Rescan()
     {
-        if (_isPolling) return;
-        if (!_openTask.IsCompleted) return;   // still enumerating hardware
-        _isPolling = true;
-        try
-        {
-            var data = await Task.Run(ReadAll);
+        LogService.Info(nameof(HardwareService), "Asking the sensor host to re-enumerate hardware.");
+        Send(SensorCommand.RescanHardware());
+    }
 
-            if (data.TotalRamGb > 0) TotalRamGb = data.TotalRamGb;
-            if (data.TotalVramGb > 0) TotalVramGb = data.TotalVramGb;
-
-            Current = data;
-            SensorsUpdated?.Invoke(this, data); // resumes on the UI thread via the captured SynchronizationContext
-        }
-        finally
+    private void Send(string command)
+    {
+        lock (_hostLock)
         {
-            _isPolling = false;
+            var host = _host;
+            if (host == null || host.HasExited) return;
+
+            try
+            {
+                host.StandardInput.Write(command);
+                host.StandardInput.Flush();
+            }
+            catch (Exception ex)
+            {
+                // The host has gone or the pipe broke. The watchdog will notice; a command
+                // lost in the meantime is resent when the replacement starts, because the
+                // replacement is given the current settings on its command line.
+                LogService.Warn(nameof(HardwareService), $"Could not reach the sensor host: {ex.GetType().Name}");
+            }
         }
     }
 
-    private SensorData ReadAll()
+    // ── The child ───────────────────────────────────────────────────────────────────
+
+    private void StartHost()
     {
-        var data = new SensorData();
-        bool gpuListChanged = false;
-
-        // Held so a subsystem change can't alter the hardware list mid-enumeration.
-        lock (_computerLock)
-        try
+        lock (_hostLock)
         {
-            var gpus = new List<IHardware>();
+            if (_disposed) return;
 
-            foreach (var hw in _computer.Hardware)
+            var exe = Environment.ProcessPath;
+            if (string.IsNullOrEmpty(exe))
             {
-                // Accept recurses: UpdateVisitor.VisitHardware updates this device and then
-                // visits its children, so the children must not be Accept'ed again below or
-                // every subhardware sensor is read twice per poll.
-                hw.Accept(_updateVisitor);
-                ReadHardware(hw, data);
-                if (IsGpu(hw.HardwareType)) gpus.Add(hw);
-
-                foreach (var sub in hw.SubHardware)
-                {
-                    ReadHardware(sub, data);
-                    if (IsGpu(sub.HardwareType)) gpus.Add(sub);
-                }
+                Fail("Sensors unavailable. Pulse could not locate its own program file.");
+                return;
             }
 
-            gpuListChanged = PublishGpuList(gpus);
+            var subsystems = SubsystemsArgument();
+            var gpu = PinnedGpu();
 
-            // Read GPU fields from a single chosen device so temp/power/clock/usage never
-            // get mixed across an iGPU and a dGPU on the same poll.
-            var chosen = SelectGpu(gpus);
-            if (chosen != null)
+            _sentSubsystems = RequiredSubsystems();
+            _sentGpu        = gpu;
+
+            var info = new ProcessStartInfo(exe)
             {
-                ActiveGpuName = chosen.Name;
-                ReadGpu(chosen, data);
+                UseShellExecute        = false,
+                CreateNoWindow         = true,
+                RedirectStandardInput  = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError  = true,
+                StandardOutputEncoding = Utf8,
+                StandardErrorEncoding  = Utf8,
+                StandardInputEncoding  = Utf8,
+            };
+
+            // One argument per value, so an identifier straight out of a driver never has to
+            // survive a second round of quoting.
+            info.ArgumentList.Add(SensorHost.Argument);
+            info.ArgumentList.Add($"--subsystems={subsystems}");
+            info.ArgumentList.Add($"--gpu={gpu}");
+            info.ArgumentList.Add($"--interval={PollingIntervalSeconds.ToString(CultureInfo.InvariantCulture)}");
+
+            try
+            {
+                var host = new Process { StartInfo = info };
+                host.Start();
+
+                // Immediately after Start, so the window where an abrupt end to Pulse could
+                // strand this process is as small as possible.
+                if (!ChildProcessJob.Adopt(host))
+                    LogService.Warn(nameof(HardwareService), "The sensor host could not be tied to Pulse's lifetime.");
+
+                _host           = host;
+                _hostStartedAt  = Environment.TickCount64;
+                _lastSnapshotAt = Environment.TickCount64;
+                _replacing      = false;
+
+                Pump($"Pulse sensor readings",     () => ReadSnapshots(host));
+                Pump($"Pulse sensor diagnostics",  () => ReadDiagnostics(host));
+
+                LogService.Info(nameof(HardwareService), $"Sensor host started (pid {host.Id}, reading {subsystems}).");
+            }
+            catch (Exception ex)
+            {
+                LogService.Error(nameof(HardwareService), "Starting the sensor host failed", ex);
+                _host = null;
+                Fail("Sensors unavailable. Pulse could not start the process that reads them.");
+            }
+        }
+    }
+
+    /// Dedicated threads rather than the thread pool. These block on a pipe for the lifetime
+    /// of the host, which is exactly the thing pool threads must not do.
+    private static void Pump(string name, Action work)
+    {
+        new Thread(() => { try { work(); } catch { } })
+        {
+            IsBackground = true,
+            Name         = name,
+        }.Start();
+    }
+
+    /// <summary>
+    /// Reads snapshots until the host closes its output, which happens when it exits for any
+    /// reason at all — including being terminated mid-instruction by a driver fault.
+    /// </summary>
+    private void ReadSnapshots(Process host)
+    {
+        try
+        {
+            while (host.StandardOutput.ReadLine() is { } line)
+            {
+                var snapshot = SensorProtocol.TryParse(line);
+                if (snapshot == null) continue;   // the ready banner, or a line we cannot use
+
+                _lastSnapshotAt = Environment.TickCount64;
+                Publish(snapshot);
             }
         }
         catch (Exception ex)
         {
-            // One misbehaving device aborts the whole enumeration, so unrelated tiles go
-            // blank for that cycle. Still swallowed — a monitoring overlay must not fall over
-            // because one sensor threw — but recorded now, and only once per fault rather
-            // than every poll, which at two-second intervals would bury the log in minutes.
-            ReportPollFailure(ex);
+            LogService.Warn(nameof(HardwareService), $"The reading channel closed: {ex.GetType().Name}");
         }
 
-        // Raised only after the lock is released. Subscribers marshal to the UI thread, and
-        // the UI thread takes _computerLock whenever the tile selection changes, so firing
-        // this while still holding the lock deadlocks the two threads against each other.
-        if (gpuListChanged) GpuListChanged?.Invoke(this, EventArgs.Empty);
-
-        // Only a real total. Adding whichever of the two happened to be readable produced a
-        // number labelled "CPU+GPU Power" that was silently just one of them — indisting-
-        // uishable from a genuine total, and roughly half the true figure.
-        data.SysPower = data.CpuPower.HasValue && data.GpuPower.HasValue
-            ? data.CpuPower.Value + data.GpuPower.Value
-            : null;
-
-        data.Fps     = FpsService.Instance.CurrentFps;
-        data.Fps1Low = FpsService.Instance.OnePercentLowFps;
-
-        return data;
+        OnHostEnded(host);
     }
 
-    private string? _lastPollFault;
-    private int _pollFaultCount;
-
-    /// <summary>
-    /// Logs a polling failure once per distinct fault, with a count when it recurs.
-    ///
-    /// Polling runs every couple of seconds, so logging each occurrence would fill the file
-    /// with the same line and drown anything useful. The first is recorded immediately, then
-    /// every hundredth, which is enough to show it is persistent rather than a one-off.
-    /// </summary>
-    private void ReportPollFailure(Exception ex)
+    /// The host's log lines, folded into ours. It deliberately does not write to the log file
+    /// itself: two processes appending to one file lose lines to each other, and these are
+    /// exactly the lines worth keeping.
+    private void ReadDiagnostics(Process host)
     {
-        var signature = ex.GetType().Name + ": " + ex.Message;
-
-        if (signature != _lastPollFault)
+        try
         {
-            _lastPollFault  = signature;
-            _pollFaultCount = 1;
-            LogService.Error(nameof(HardwareService), "A sensor read failed; this poll is incomplete", ex);
-            return;
-        }
-
-        if (++_pollFaultCount % 100 == 0)
-            LogService.Warn(nameof(HardwareService), $"Same sensor read has now failed {_pollFaultCount} times: {signature}");
-    }
-
-    private static bool IsGpu(HardwareType type) =>
-        type is HardwareType.GpuNvidia or HardwareType.GpuAmd or HardwareType.GpuIntel;
-
-    /// <summary>
-    /// Publishes the GPU picker list. Adapters are accumulated for the lifetime of the
-    /// process rather than replaced each poll: LibreHardwareMonitor stops enumerating an
-    /// integrated GPU entirely while a game has the discrete one active, so rebuilding
-    /// from each poll would make the picker empty itself mid-session and reappear later.
-    ///
-    /// Returns whether the list changed. The caller raises GpuListChanged once it has let
-    /// go of _computerLock; see ReadAll.
-    /// </summary>
-    private bool PublishGpuList(List<IHardware> gpus)
-    {
-        bool changed = false;
-
-        foreach (var g in gpus)
-        {
-            var id = g.Identifier.ToString();
-            if (_seenGpus.ContainsKey(id)) continue;
-
-            _seenGpus[id] = new GpuInfo
+            while (host.StandardError.ReadLine() is { } line)
             {
-                Id         = id,
-                Name       = g.Name,
-                IsDiscrete = GetDedicatedVramMb(g) > 0,
-            };
-            changed = true;
-        }
+                var split = line.IndexOf('|');
+                var level = split > 0 ? line[..split] : "info";
+                var text  = split > 0 ? line[(split + 1)..] : line;
 
-        if (!changed) return false;
-
-        // Discrete first, so the picker reads in the order people expect.
-        var list = new List<GpuInfo>(_seenGpus.Values);
-        list.Sort((a, b) => b.IsDiscrete.CompareTo(a.IsDiscrete));
-
-        AvailableGpus = list;
-        return true;
-    }
-
-    /// <summary>
-    /// Chooses which GPU every GPU tile reads from. An explicit user choice always wins.
-    /// Otherwise we prefer the adapter with real dedicated video memory, because that is
-    /// what actually distinguishes a discrete GPU from integrated graphics. Vendor alone
-    /// is not a reliable signal: an AMD APU's Radeon iGPU reports as HardwareType.GpuAmd
-    /// exactly like a discrete Radeon does, which previously caused Pulse to lock onto
-    /// the integrated GPU on Ryzen laptops that also have an NVIDIA card.
-    /// </summary>
-    private static IHardware? SelectGpu(List<IHardware> gpus)
-    {
-        if (gpus.Count == 0) return null;
-
-        var pinned = SettingsService.Instance.Settings.SelectedGpuId;
-        if (!string.IsNullOrEmpty(pinned))
-        {
-            foreach (var g in gpus)
-                if (g.Identifier.ToString() == pinned) return g;
-            // Pinned GPU is gone (eGPU unplugged, driver change) — fall through to auto.
-        }
-
-        IHardware? best = null;
-        float bestVram = -1f;
-        int   bestVendor = -1;
-
-        foreach (var g in gpus)
-        {
-            float vram   = GetDedicatedVramMb(g);
-            int   vendor = VendorRank(g);
-
-            if (vram > bestVram || (vram == bestVram && vendor > bestVendor))
-            {
-                best       = g;
-                bestVram   = vram;
-                bestVendor = vendor;
+                switch (level)
+                {
+                    case "error": LogService.Warn("SensorHost", text); break;   // logged, but not our crash
+                    case "warn":  LogService.Warn("SensorHost", text); break;
+                    default:      LogService.Info("SensorHost", text); break;
+                }
             }
         }
-
-        return best;
-    }
-
-    /// Dedicated video memory in MB, or 0 for an adapter that only carves out of system
-    /// RAM. Integrated graphics report shared memory only ("D3D Shared Memory *"), while
-    /// a discrete card reports "GPU Memory Total" and/or "D3D Dedicated Memory Used".
-    private static float GetDedicatedVramMb(IHardware gpu)
-    {
-        float total = 0f, dedicated = 0f;
-
-        foreach (var s in gpu.Sensors)
-        {
-            if (s.SensorType != SensorType.SmallData || s.Value is null) continue;
-
-            // Exact match so "D3D Shared Memory Total" can never be mistaken for this.
-            if (s.Name.Equals("GPU Memory Total", StringComparison.OrdinalIgnoreCase))
-                total = s.Value.Value;
-            else if (s.Name.Contains("Dedicated Memory", StringComparison.OrdinalIgnoreCase))
-                dedicated = MathF.Max(dedicated, s.Value.Value);
-        }
-
-        return total > 0f ? total : dedicated;
-    }
-
-    /// Tiebreaker only, used when two adapters report the same dedicated memory (usually
-    /// when neither reports any). There are no integrated NVIDIA parts in this context.
-    private static int VendorRank(IHardware gpu)
-    {
-        // LibreHardwareMonitor tags integrated adapters in the identifier itself,
-        // e.g. "/gpu-intel-integrated/...". Trust that when it is present.
-        if (gpu.Identifier.ToString().Contains("integrated", StringComparison.OrdinalIgnoreCase))
-            return 0;
-
-        return gpu.HardwareType switch
-        {
-            HardwareType.GpuNvidia => 3,
-            HardwareType.GpuAmd    => 2,
-            HardwareType.GpuIntel  => 1,
-            _                      => 0,
-        };
-    }
-
-    private static void ReadHardware(IHardware hw, SensorData data)
-    {
-        switch (hw.HardwareType)
-        {
-            case HardwareType.Cpu:
-                ReadCpu(hw, data);
-                break;
-            case HardwareType.Memory:
-                ReadMemory(hw, data);
-                break;
-            case HardwareType.Network:
-                ReadNetwork(hw, data);
-                break;
-            case HardwareType.Storage:
-                ReadStorage(hw, data);
-                break;
-        }
-    }
-
-    private static void ReadCpu(IHardware hw, SensorData data)
-    {
-        float clockSum = 0; int clockCount = 0;
-        float usageSum = 0; int usageCount = 0;
-
-        // Priority-based temp/power tracking for Intel + AMD compatibility
-        // Intel: "CPU Package" (temp), "CPU Package" (power)
-        // AMD:   "Core (Tctl/Tdie)" or "Tdie" (temp), "Package" or "PPT" (power)
-        float? tempPackage = null, tempTctl = null, tempFallback = null;
-        float? powerPackage = null, powerPpt = null, powerFallback = null;
-
-        foreach (var s in hw.Sensors)
-        {
-            if (s.Value is null) continue;
-
-            switch (s.SensorType)
-            {
-                case SensorType.Temperature:
-                    if (s.Name.Contains("Package", StringComparison.OrdinalIgnoreCase))
-                        tempPackage = s.Value;
-                    else if (s.Name.Contains("Tctl", StringComparison.OrdinalIgnoreCase)
-                          || s.Name.Contains("Tdie", StringComparison.OrdinalIgnoreCase))
-                        tempTctl = s.Value;
-                    else if (tempFallback is null && s.Name.Contains("Core", StringComparison.OrdinalIgnoreCase))
-                        tempFallback = s.Value;
-                    break;
-
-                case SensorType.Power:
-                    if (s.Name.Contains("Package", StringComparison.OrdinalIgnoreCase))
-                        powerPackage = s.Value;
-                    else if (s.Name.Contains("PPT", StringComparison.OrdinalIgnoreCase))
-                        powerPpt = s.Value;
-                    else if (powerFallback is null)
-                        powerFallback = s.Value;
-                    break;
-
-                case SensorType.Clock when !s.Name.Contains("Bus", StringComparison.OrdinalIgnoreCase):
-                    clockSum += s.Value.Value; clockCount++;
-                    break;
-
-                case SensorType.Load when s.Name.Contains("Total", StringComparison.OrdinalIgnoreCase):
-                    data.CpuUsage = s.Value;
-                    break;
-
-                case SensorType.Load:
-                    usageSum += s.Value.Value; usageCount++;
-                    break;
-            }
-        }
-
-        // Apply priority: Package > Tctl/Tdie > any Core sensor
-        data.CpuTemp  = tempPackage  ?? tempTctl  ?? tempFallback;
-        data.CpuPower = powerPackage ?? powerPpt  ?? powerFallback;
-
-        if (clockCount > 0 && data.CpuClock is null)
-            data.CpuClock = MathF.Round(clockSum / clockCount / 1000f, 2);
-
-        if (data.CpuUsage is null && usageCount > 0)
-            data.CpuUsage = usageSum / usageCount;
-    }
-
-    private static void ReadGpu(IHardware hw, SensorData data)
-    {
-        // GPU Usage comes from the D3D 3D engine counter in preference to the vendor's own
-        // "GPU Core" load.
-        //
-        // Measured on an RTX 3050 under sustained load: D3D 3D averaged 80.9% while GPU Core
-        // averaged 99.3%. Task Manager read 79% and NVIDIA's overlay 82% — both agree with
-        // the engine counter, so reporting the vendor figure made Pulse look wrong against
-        // every other tool a user can check it against.
-        //
-        // It also makes the number mean the same thing on every vendor. Intel iGPUs expose
-        // no Core load at all, so they were already being read this way, and GPU Usage
-        // silently changed meaning depending on which GPU was selected.
-        //
-        // Core load is kept as the fallback for any adapter that reports no engine counters.
-        float? d3dEngineLoad = null;
-        float? coreLoad      = null;
-
-        foreach (var s in hw.Sensors)
-        {
-            if (s.Value is null) continue;
-            switch (s.SensorType)
-            {
-                case SensorType.Load when s.Name.Equals("D3D 3D", StringComparison.OrdinalIgnoreCase)
-                                       && d3dEngineLoad is null:
-                    d3dEngineLoad = s.Value;
-                    break;
-                case SensorType.Temperature when data.GpuTemp is null:
-                    data.GpuTemp = s.Value;
-                    break;
-                case SensorType.Power when data.GpuPower is null:
-                    data.GpuPower = s.Value;
-                    break;
-                case SensorType.Clock when s.Name.Contains("Core", StringComparison.OrdinalIgnoreCase) && data.GpuClock is null:
-                    data.GpuClock = s.Value;
-                    break;
-                // Dedicated memory only, and only the first match.
-                //
-                // A plain "Memory Used" test also catches "D3D Shared Memory Used" and
-                // "GPU Memory Used", so whichever the driver happened to enumerate last won.
-                // On a hybrid laptop that meant VRAM flipping between the card's own memory
-                // and system memory borrowed for sharing, with nothing to indicate which was
-                // on screen.
-                case SensorType.SmallData when data.GpuVram is null
-                                            && IsDedicatedMemorySensor(s.Name, "Used"):
-                    data.GpuVram = MathF.Round(s.Value.Value / 1024f, 2);
-                    break;
-                case SensorType.SmallData when data.TotalVramGb == 0
-                                            && IsDedicatedMemorySensor(s.Name, "Total"):
-                    data.TotalVramGb = MathF.Round(s.Value.Value / 1024f, 0);
-                    break;
-                case SensorType.Load when s.Name.Contains("Core", StringComparison.OrdinalIgnoreCase) && coreLoad is null:
-                    coreLoad = s.Value;
-                    break;
-            }
-        }
-
-        data.GpuUsage = d3dEngineLoad ?? coreLoad;
+        catch { }
     }
 
     /// <summary>
-    /// Whether a sensor name refers to the adapter's own video memory rather than system
-    /// memory it has been lent. Vendors name these differently — "GPU Memory Used",
-    /// "D3D Dedicated Memory Used" — but the shared ones consistently say so.
+    /// Called when a host's output ends. Decides whether that was expected and, if not,
+    /// says so and starts another.
     /// </summary>
-    private static bool IsDedicatedMemorySensor(string name, string suffix)
+    private void OnHostEnded(Process host)
     {
-        if (!name.Contains("Memory", StringComparison.OrdinalIgnoreCase)) return false;
-        if (!name.Contains(suffix, StringComparison.OrdinalIgnoreCase))   return false;
-
-        return !name.Contains("Shared", StringComparison.OrdinalIgnoreCase)
-            && !name.Contains("Virtual", StringComparison.OrdinalIgnoreCase)
-            && !name.Contains("System", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static void ReadMemory(IHardware hw, SensorData data)
-    {
-        float? used = null, available = null;
-        foreach (var s in hw.Sensors)
+        lock (_hostLock)
         {
-            if (s.Value is null || s.SensorType != SensorType.Data) continue;
-            var name = s.Name;
-            if (name.Contains("Used", StringComparison.OrdinalIgnoreCase)
-                && !name.Contains("Virtual", StringComparison.OrdinalIgnoreCase))
-                used = s.Value.Value;
-            else if (name.Contains("Available", StringComparison.OrdinalIgnoreCase)
-                && !name.Contains("Virtual", StringComparison.OrdinalIgnoreCase))
-                available = s.Value.Value;
-        }
-        if (used.HasValue)
-            data.RamUsed = MathF.Round(used.Value, 2);
-        if (used.HasValue && available.HasValue)
-            data.TotalRamGb = MathF.Round(used.Value + available.Value, 0);
-    }
+            if (_disposed) return;
+            if (!ReferenceEquals(_host, host)) return;   // already replaced
 
-    /// <summary>
-    /// Adds an adapter's throughput to the totals, skipping anything that isn't a real
-    /// network card.
-    ///
-    /// Every adapter used to be summed together, so a VPN, a Hyper-V switch or a virtual
-    /// display's network stack counted the same packets a second time — the tiles could
-    /// report two or three times the traffic actually crossing the wire.
-    /// </summary>
-    private static void ReadNetwork(IHardware hw, SensorData data)
-    {
-        if (!IsPhysicalAdapter(hw.Name)) return;
+            int code;
+            try   { host.WaitForExit(2000); code = host.HasExited ? host.ExitCode : -1; }
+            catch { code = -1; }
 
-        foreach (var s in hw.Sensors)
-        {
-            if (s.Value is null || s.SensorType != SensorType.Throughput) continue;
-            if (s.Name.Contains("Upload", StringComparison.OrdinalIgnoreCase))
-                data.NetUpload = (data.NetUpload ?? 0) + s.Value.Value / 1_048_576f;
-            else if (s.Name.Contains("Download", StringComparison.OrdinalIgnoreCase))
-                data.NetDownload = (data.NetDownload ?? 0) + s.Value.Value / 1_048_576f;
-        }
-    }
+            var lived = TimeSpan.FromMilliseconds(Environment.TickCount64 - _hostStartedAt);
 
-    /// Substrings that mark an adapter as something other than a physical network card.
-    private static readonly string[] VirtualAdapterMarkers =
-    {
-        "virtual", "vethernet", "hyper-v", "vmware", "virtualbox", "loopback",
-        "wireguard", "openvpn", "tailscale", "zerotier", "parsec", "npcap",
-        "pseudo", "wan miniport", "bluetooth", "tap-windows",
-    };
-
-    private static readonly object PhysicalAdapterLock = new();
-    private static HashSet<string>? _physicalAdapters;
-    private static long _physicalAdaptersFetchedAt;
-
-    /// <summary>
-    /// Whether this adapter should count toward network throughput. The list is rebuilt
-    /// periodically rather than per poll, since enumerating interfaces is not free and
-    /// adapters rarely appear or disappear.
-    /// </summary>
-    private static bool IsPhysicalAdapter(string name)
-    {
-        lock (PhysicalAdapterLock)
-        {
-            long now = Environment.TickCount64;
-            if (_physicalAdapters is null || now - _physicalAdaptersFetchedAt > 30_000)
+            if (_replacing)
             {
-                _physicalAdapters          = BuildPhysicalAdapterSet();
-                _physicalAdaptersFetchedAt = now;
+                LogService.Info(nameof(HardwareService), "Sensor host replaced.");
+            }
+            else
+            {
+                // The whole reason this process exists. An access violation inside a driver
+                // shows up here as a nonzero exit code and nothing else — there is no
+                // exception to catch, in this process or in that one.
+                LogService.Warn(nameof(HardwareService),
+                    $"The sensor host stopped unexpectedly after {lived.TotalSeconds:F0}s (exit code {code}). Starting another.");
             }
 
-            // If nothing survived the filter, something about this machine's naming defeats
-            // it — count everything rather than reporting a flat zero.
-            return _physicalAdapters.Count == 0 || _physicalAdapters.Contains(name);
+            _host = null;
+
+            // A host that stayed up long enough to be healthy earns a clean slate, so a
+            // machine that faults occasionally never accumulates its way into a long wait.
+            if (lived >= Settled) _restarts = 0;
+            _restarts++;
+        }
+
+        // Backoff, capped. Unlimited restarts on purpose: a driver being reinstalled can fault
+        // repeatedly for a minute and then work perfectly, and giving up would leave Pulse
+        // showing "--" until someone restarted it by hand.
+        var wait = TimeSpan.FromSeconds(Math.Min(_restarts, 10));
+        Thread.Sleep(wait);
+
+        if (_restarts >= 4)
+            Fail("Sensor readings keep stopping. A graphics driver on this machine may be faulting; "
+               + "see the log for details.");
+
+        StartHost();
+    }
+
+    /// <summary>
+    /// Ends the current host so a fresh one takes its place. Used when it has stopped
+    /// answering: there is nothing to ask a wedged process, and its replacement starts clean.
+    /// </summary>
+    private void ReplaceHost(string why)
+    {
+        lock (_hostLock)
+        {
+            var host = _host;
+            if (host == null) return;
+
+            LogService.Warn(nameof(HardwareService), $"Replacing the sensor host: {why}");
+            _replacing = true;
+
+            try { if (!host.HasExited) host.Kill(entireProcessTree: true); } catch { }
         }
     }
 
-    private static HashSet<string> BuildPhysicalAdapterSet()
+    /// <summary>
+    /// Runs every couple of seconds and answers two questions: are readings still arriving,
+    /// and if not, is what is on screen still worth believing?
+    /// </summary>
+    private void CheckHost()
     {
-        var physical = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (_disposed) return;
 
         try
         {
-            foreach (var nic in System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces())
+            var silent = TimeSpan.FromMilliseconds(Environment.TickCount64 - _lastSnapshotAt);
+
+            // Stale readings are worse than none. A frozen number looks live, and looking live
+            // while being an hour old is how a user ends up reporting that their GPU sits at a
+            // constant temperature. Taken away in two stages so that switching a graphics card
+            // off does not blank the tiles that have nothing to do with graphics.
+            if (silent > GpuStaleAfter && !_gpuBlanked)
             {
-                if (nic.NetworkInterfaceType is System.Net.NetworkInformation.NetworkInterfaceType.Loopback
-                                             or System.Net.NetworkInformation.NetworkInterfaceType.Tunnel)
-                    continue;
+                _gpuBlanked = true;
+                Hold(alsoClearTheRest: false);
+            }
 
-                if (nic.OperationalStatus != System.Net.NetworkInformation.OperationalStatus.Up) continue;
-                if (LooksVirtual(nic.Name) || LooksVirtual(nic.Description)) continue;
+            if (silent > EverythingStaleAfter && !_blanked)
+            {
+                _blanked = true;
+                Hold(alsoClearTheRest: true);
+            }
 
-                physical.Add(nic.Name);
+            // Alive but not answering. Rarer than a crash and more confusing, because nothing
+            // has ended and nothing is logged; the readings simply stop.
+            if (silent > SilentAfter)
+            {
+                _lastSnapshotAt = Environment.TickCount64;   // don't re-trigger while it dies
+                ReplaceHost($"no readings for {silent.TotalSeconds:F0}s");
+            }
+        }
+        catch { }
+    }
+
+    /// <summary>
+    /// Republishes the last reading with the parts we can no longer vouch for removed.
+    ///
+    /// Called when readings have stopped arriving — a graphics card switched off, the sensor
+    /// host being replaced, hardware being enumerated again. The GPU tiles go first and the
+    /// rest follow much later, so the common case (a card disappearing, the host recovering,
+    /// the integrated GPU taking over) shows exactly the tiles that are genuinely unknown and
+    /// leaves the others alone.
+    ///
+    /// Frame rate is deliberately left as it is. It comes from the capture process in Pulse
+    /// itself, which is entirely unaffected by any of this and is still perfectly live.
+    /// </summary>
+    private void Hold(bool alsoClearTheRest)
+    {
+        var previous = Current;
+
+        var data = new SensorData
+        {
+            // Never in doubt: measured here, not by the sensor host.
+            Fps         = previous.Fps,
+            Fps1Low     = previous.Fps1Low,
+
+            // Totals are properties of the machine, not readings. Clearing them would make
+            // every tile that shows "used of total" lose its scale as well as its value.
+            TotalRamGb  = previous.TotalRamGb,
+            TotalVramGb = previous.TotalVramGb,
+        };
+
+        if (!alsoClearTheRest)
+        {
+            data.CpuTemp      = previous.CpuTemp;
+            data.CpuPower     = previous.CpuPower;
+            data.CpuClock     = previous.CpuClock;
+            data.CpuUsage     = previous.CpuUsage;
+            data.RamUsed      = previous.RamUsed;
+            data.NetUpload    = previous.NetUpload;
+            data.NetDownload  = previous.NetDownload;
+            data.DiskActivity = previous.DiskActivity;
+
+            // Not carried over: it is the sum of CPU and GPU power, and half of that sum has
+            // just become unknown. A total that silently means "CPU only" is the exact bug
+            // this field was rewritten to avoid.
+        }
+
+        Current = data;
+        Raise(() => SensorsUpdated?.Invoke(this, data));
+    }
+
+    // ── Publishing ──────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Takes one snapshot from the host, fills in what only Pulse knows, and raises it.
+    ///
+    /// Everything reaching subscribers goes through here and through the dispatcher, because
+    /// tiles are bound to the UI. This used to be guaranteed by polling on a DispatcherTimer;
+    /// the readings now arrive on a pipe thread instead, so the marshalling has to be explicit.
+    /// </summary>
+    private void Publish(SensorSnapshot snapshot)
+    {
+        var data = snapshot.Data;
+
+        // Frame rate is captured here, not in the host: PresentMon belongs to this process.
+        //
+        // Only if it already exists. This runs on the thread reading the pipe, and touching
+        // FpsService for the first time from here would build its DispatcherTimer against a
+        // thread that has no message loop. App creates it during startup a moment after this
+        // class, so at worst the first reading or two carry no frame rate.
+        try
+        {
+            if (FpsService.IsStarted)
+            {
+                data.Fps     = FpsService.Instance.CurrentFps;
+                data.Fps1Low = FpsService.Instance.OnePercentLowFps;
             }
         }
         catch { }
 
-        return physical;
+        // Totals persist. They are read once from a sensor that does not always report, and
+        // zeroing them would make every percentage tile jump to nothing for a cycle.
+        if (data.TotalRamGb  > 0) TotalRamGb  = data.TotalRamGb;
+        if (data.TotalVramGb > 0) TotalVramGb = data.TotalVramGb;
 
-        static bool LooksVirtual(string text) =>
-            VirtualAdapterMarkers.Any(m => text.Contains(m, StringComparison.OrdinalIgnoreCase));
+        bool gpusChanged   = false;
+        bool stateChanged  = false;
+
+        if (snapshot.Ready)
+        {
+            _blanked    = false;
+            _gpuBlanked = false;
+
+            if (!IsHardwareReady || HardwareFault != null)
+            {
+                IsHardwareReady = true;
+                HardwareFault   = null;
+                _restarts       = 0;
+                stateChanged    = true;
+            }
+
+            if (snapshot.Gpus.Count > 0 && !SameGpus(snapshot.Gpus))
+            {
+                AvailableGpus = snapshot.Gpus;
+                gpusChanged   = true;
+            }
+
+            ActiveGpuName = snapshot.ActiveGpuName;
+        }
+        else if (snapshot.Fault is { Length: > 0 } fault && fault != HardwareFault)
+        {
+            IsHardwareReady = false;
+            HardwareFault   = fault;
+            stateChanged    = true;
+        }
+
+        Current = data;
+
+        Raise(() =>
+        {
+            SensorsUpdated?.Invoke(this, data);
+            if (gpusChanged)  GpuListChanged?.Invoke(this, EventArgs.Empty);
+            if (stateChanged) HardwareStateChanged?.Invoke(this, EventArgs.Empty);
+        });
     }
 
-    private static void ReadStorage(IHardware hw, SensorData data)
+    private bool SameGpus(IReadOnlyList<GpuInfo> incoming)
     {
-        float? activity = null;
-        foreach (var s in hw.Sensors)
+        if (incoming.Count != AvailableGpus.Count) return false;
+
+        for (int i = 0; i < incoming.Count; i++)
+            if (incoming[i].Id != AvailableGpus[i].Id || incoming[i].IsDiscrete != AvailableGpus[i].IsDiscrete)
+                return false;
+
+        return true;
+    }
+
+    /// <summary>
+    /// Raises events on the UI thread, without waiting for them.
+    ///
+    /// BeginInvoke rather than Invoke: this runs on the thread reading the pipe, and blocking
+    /// that thread on the UI stops readings arriving for as long as the UI is busy. Nothing
+    /// here needs to complete before the next line is read.
+    /// </summary>
+    private void Raise(Action action)
+    {
+        try
         {
-            if (s.Value is null || s.SensorType != SensorType.Load) continue;
-            if (s.Name.Contains("Used Space", StringComparison.OrdinalIgnoreCase)) continue;
-            if (s.Name.Contains("Total", StringComparison.OrdinalIgnoreCase))
-            {
-                activity = s.Value.Value;
-                break;
-            }
-            activity ??= s.Value.Value;
+            if (_dispatcher == null || _dispatcher.CheckAccess()) action();
+            else _dispatcher.BeginInvoke(action);
         }
-        if (activity.HasValue && activity > (data.DiskActivity ?? -1f))
-            data.DiskActivity = activity;
+        catch { }
+    }
+
+    private void Fail(string reason)
+    {
+        if (HardwareFault == reason) return;
+
+        IsHardwareReady = false;
+        HardwareFault   = reason;
+        Raise(() => HardwareStateChanged?.Invoke(this, EventArgs.Empty));
     }
 
     public void Dispose()
     {
-        _timer.Stop();
-        try { _computer.Close(); } catch { }
-    }
-}
+        _disposed = true;
 
-public class UpdateVisitor : IVisitor
-{
-    public void VisitComputer(IComputer computer) { computer.Traverse(this); }
-    public void VisitHardware(IHardware hardware) { hardware.Update(); foreach (var s in hardware.SubHardware) s.Accept(this); }
-    public void VisitSensor(ISensor sensor) { }
-    public void VisitParameter(IParameter parameter) { }
+        try { _watchdog.Dispose(); } catch { }
+
+        lock (_hostLock)
+        {
+            var host = _host;
+            _host = null;
+            if (host == null) return;
+
+            // Politely first. The host closes its own sensor library on the way out, which
+            // releases the driver handle — a killed one leaves that to Windows, and the
+            // installer then finds the driver in use.
+            try
+            {
+                host.StandardInput.Write(SensorCommand.Stop());
+                host.StandardInput.Flush();
+                host.StandardInput.Close();
+            }
+            catch { }
+
+            try
+            {
+                if (!host.WaitForExit(2000) && !host.HasExited) host.Kill(entireProcessTree: true);
+            }
+            catch { }
+
+            try { host.Dispose(); } catch { }
+        }
+    }
 }

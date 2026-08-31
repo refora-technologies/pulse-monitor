@@ -291,12 +291,24 @@ public static class LogService
         var pinned = Safe(() => SettingsService.Instance.Settings.SelectedGpuId);
         report.AppendLine($"GPU choice: {(string.IsNullOrEmpty(pinned) ? "automatic" : pinned)}");
 
+        // Asked directly rather than through the sensor layer, for the same reason as above.
+        // When a graphics card is switched off this is the line that shows it happened, and it
+        // is worth having even in a report where everything else about the hardware failed.
+        report.AppendLine($"Adapters  : {Safe(() => DisplayAdapters.Describe(DisplayAdapters.Signature()))}");
+
         try
         {
             var hardware = HardwareService.Instance;
 
             report.AppendLine($"Sensors   : {(hardware.IsHardwareReady ? "ready" : "not ready")}"
                             + (hardware.HardwareFault is { Length: > 0 } fault ? $" ({Redact(fault)})" : ""));
+
+            report.AppendLine($"Reading   : {Redact(hardware.ActiveGpuName is { Length: > 0 } active ? active : "no GPU selected")}");
+
+            // The sensor host is where a hardware fault now lands, so its state is the first
+            // thing worth knowing. A restart count above zero says a driver faulted, which is
+            // invisible from the readings themselves once it has recovered.
+            report.AppendLine($"Host      : {hardware.SensorHostStatus}");
 
             var gpus = hardware.AvailableGpus;
             report.AppendLine($"GPUs seen : {gpus.Count}");

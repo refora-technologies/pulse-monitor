@@ -100,9 +100,13 @@ public partial class App : WinApplication
             catch { }
         });
 
-        // Initialise singletons (starts hardware polling)
-        _ = HardwareService.Instance;
+        // Initialise singletons (starts hardware polling).
+        //
+        // Frame capture first, and on this thread deliberately. It owns a DispatcherTimer,
+        // which belongs to whichever thread builds it, and the readings that fill in the FPS
+        // tiles arrive on a background thread with no message loop of its own.
         _ = FpsService.Instance;
+        _ = HardwareService.Instance;
         _ = OverlayViewModel.Instance;
         _ = SettingsViewModel.Instance;
 
