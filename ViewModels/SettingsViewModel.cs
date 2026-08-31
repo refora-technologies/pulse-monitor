@@ -416,26 +416,51 @@ public class SettingsViewModel : BaseViewModel
     /// Entries shown in the GPU dropdown, including the leading "Automatic" option.
     public ObservableCollection<GpuChoice> GpuChoices { get; } = new();
 
-    public GpuChoice? SelectedGpuChoice
-    {
-        get
-        {
-            foreach (var c in GpuChoices)
-                if (c.Id == SelectedGpuId) return c;
+    /// <summary>
+    /// Which entry the dropdown shows as selected. Read only, on purpose.
+    ///
+    /// This is display, not choice. When the adapter someone picked is not currently there,
+    /// the dropdown has to show what is actually being read instead, and that must not be
+    /// written back into their settings — otherwise switching a card off would quietly
+    /// convert a deliberate choice of the discrete GPU into a permanent pin to the
+    /// integrated one, and the discrete card would never be picked up again when it
+    /// returned. A real choice arrives through <see cref="ChooseGpu"/>, which only the
+    /// user's own interaction with the dropdown calls.
+    /// </summary>
+    public GpuChoice? SelectedGpuChoice => ResolveSelected(
+        GpuChoices, SelectedGpuId ?? "", HardwareService.Instance.ActiveGpuName);
 
-            // Null, not "Automatic". Falling back to the first entry made the ComboBox
-            // report Automatic as the selection, and WPF then wrote that straight back
-            // through the setter — so a pinned GPU that had not been detected yet was
-            // quietly converted into a real choice of Automatic. Blank for a moment during
-            // startup is harmless; it fills in as soon as the adapter is found.
-            return null;
-        }
-        set
-        {
-            if (value == null) return;
-            SelectedGpuId = value.Id;
-            OnPropertyChanged();
-        }
+    /// <summary>
+    /// Records a GPU the user actually picked. Called from the dropdown's selection handler,
+    /// never from a binding, so nothing here happens as a side effect of merely displaying.
+    /// </summary>
+    public void ChooseGpu(GpuChoice? choice)
+    {
+        if (choice == null) return;
+
+        SelectedGpuId = choice.Id;
+        OnPropertyChanged(nameof(SelectedGpuChoice));
+        OnPropertyChanged(nameof(GpuSourceHint));
+    }
+
+    /// <summary>
+    /// Decides which entry to show as selected: the adapter the user picked when it is
+    /// present, otherwise whichever adapter is genuinely being read right now.
+    /// </summary>
+    public static GpuChoice? ResolveSelected(
+        IReadOnlyList<GpuChoice> choices, string pinned, string activeName)
+    {
+        pinned ??= "";
+
+        // The user's own choice always wins, when it is actually available.
+        foreach (var c in choices)
+            if (c.Id == pinned) return c;
+
+        // It is not, so show what the GPU tiles are really reading from.
+        foreach (var c in choices)
+            if (c.Label == activeName) return c;
+
+        return choices.Count > 0 ? choices[0] : null;
     }
 
     /// <summary>
@@ -460,21 +485,19 @@ public class SettingsViewModel : BaseViewModel
     private bool _hasSeenMultipleGpus;
 
     /// <summary>
-    /// Rebuilds the dropdown entries from the adapters detected so far.
+    /// Rebuilds the dropdown entries from the adapters present right now, and re-resolves
+    /// which of them is shown as selected.
     ///
-    /// When there is genuinely only one adapter to read there is nothing to choose between, so
-    /// "Automatic" is left out and the single entry simply names the GPU in use. That entry
-    /// carries the empty identifier, meaning it *is* the automatic choice wearing the name of
-    /// what it resolved to — so a card that comes back is picked up again without the user
-    /// having to touch anything, and nothing has been written to their settings behind their
-    /// back.
+    /// The user's saved choice is deliberately never touched here, whatever the list turns out
+    /// to contain. This runs at startup before any hardware has been enumerated, and again
+    /// whenever a card comes or goes; clearing a selection that is merely "not found yet" wiped
+    /// the choice on every launch. Showing something other than their pick is a display
+    /// decision only, made in <see cref="ResolveSelected"/>.
     /// </summary>
     public void RefreshGpuChoices()
     {
-        var pinned = SelectedGpuId ?? "";
-
         GpuChoices.Clear();
-        foreach (var choice in BuildGpuChoices(AvailableGpus, pinned, NameOfPinnedGpu(pinned)))
+        foreach (var choice in BuildGpuChoices(AvailableGpus))
             GpuChoices.Add(choice);
 
         // The pinned GPU is deliberately never cleared here.
@@ -492,76 +515,38 @@ public class SettingsViewModel : BaseViewModel
     }
 
     /// <summary>
-    /// Works out what the GPU dropdown should contain. Free of any UI, so the behaviour that
-    /// matters here can be checked directly: which entries appear, and — more importantly —
-    /// which identifier each one carries, since that is what does or does not get written into
-    /// the user's settings.
+    /// Works out what the GPU dropdown should contain. Free of any UI, so the behaviour can be
+    /// checked directly.
+    ///
+    /// Nothing but adapters that are actually present. An earlier version kept an entry for a
+    /// pinned card that had been switched off, marked unavailable, on the theory that it
+    /// explained itself. In practice the dropdown showed a raw device identifier for hardware
+    /// that was not there, while the GPU genuinely being read was not listed at all. What is on
+    /// the machine right now is the only honest list.
     /// </summary>
-    public static List<GpuChoice> BuildGpuChoices(
-        IReadOnlyList<GpuInfo> available, string pinned, string pinnedName)
+    public static List<GpuChoice> BuildGpuChoices(IReadOnlyList<GpuInfo> available)
     {
         var choices = new List<GpuChoice>();
-        pinned ??= "";
 
+        // Only when there is genuinely something to choose between. With one adapter left there
+        // is nothing for "automatic" to decide, and offering it beside a single GPU reads as two
+        // options that do the same thing.
         if (available.Count > 1)
-        {
             choices.Add(new GpuChoice { Id = "", Label = "Automatic", Detail = "Picks the discrete GPU" });
 
-            foreach (var gpu in available)
-            {
-                choices.Add(new GpuChoice
-                {
-                    Id     = gpu.Id,
-                    Label  = gpu.Name,
-                    Detail = gpu.IsDiscrete ? "Discrete" : "Integrated",
-                });
-            }
-
-            return choices;
-        }
-
-        if (available.Count == 1)
+        foreach (var gpu in available)
         {
-            var only = available[0];
-
             choices.Add(new GpuChoice
             {
-                // Its own identifier only when that is what the user actually pinned.
-                // Otherwise the empty one, so an automatic choice stays automatic and a card
-                // that comes back is picked up again without them touching anything.
-                Id     = pinned == only.Id ? only.Id : "",
-                Label  = only.Name,
-                Detail = only.IsDiscrete ? "Discrete" : "Integrated",
+                Id     = gpu.Id,
+                Label  = gpu.Name,
+                Detail = gpu.IsDiscrete ? "Discrete" : "Integrated",
             });
-
-            // A GPU the user pinned that is not here right now still needs an entry, or the
-            // dropdown would show nothing selected and give no hint why. Naming it as
-            // unavailable answers both questions at once, and leaves them able to switch.
-            if (pinned.Length > 0 && pinned != only.Id)
-            {
-                choices.Add(new GpuChoice
-                {
-                    Id     = pinned,
-                    Label  = string.IsNullOrEmpty(pinnedName) ? pinned : pinnedName,
-                    Detail = "Not available right now",
-                });
-            }
         }
 
         return choices;
     }
 
-    /// The last known name for an adapter that is no longer being reported. Falls back to the
-    /// identifier, which is ugly but still better than an empty row.
-    private string _lastPinnedGpuName = "";
-
-    private string NameOfPinnedGpu(string id)
-    {
-        foreach (var gpu in AvailableGpus)
-            if (gpu.Id == id) { _lastPinnedGpuName = gpu.Name; return gpu.Name; }
-
-        return _lastPinnedGpuName.Length > 0 ? _lastPinnedGpuName : id;
-    }
 
     /// <summary>
     /// The line under the picker. Says which adapter the GPU tiles are actually reading from
@@ -576,6 +561,15 @@ public class SettingsViewModel : BaseViewModel
 
             if (active.Length == 0)
                 return "Auto picks the GPU with dedicated video memory, which is the discrete one on a laptop.";
+
+            // Pinned to something that is not here. Worth saying out loud, because the
+            // dropdown is showing a different adapter than the one they chose and the reason
+            // is not otherwise visible.
+            var pinned = SelectedGpuId ?? "";
+            if (pinned.Length > 0 && !AvailableGpus.Any(g => g.Id == pinned))
+                return $"Currently reading {active}. The GPU you selected is not available right now, "
+                     + "so Pulse is using what is left. Your choice is kept and it goes back "
+                     + "as soon as that GPU returns.";
 
             if (AvailableGpus.Count <= 1)
                 return $"Currently reading {active}. It is the only graphics adapter available right now; "

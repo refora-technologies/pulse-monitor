@@ -326,6 +326,26 @@ public partial class MainWindow : Window
     private void OnGpuListChanged(object? sender, EventArgs e)
         => Dispatcher.BeginInvoke(PopulateGpuButtons);
 
+    /// True while the entries are being replaced, so the resulting selection changes are
+    /// recognised as ours rather than the user's.
+    private bool _rebuildingGpuList;
+
+    /// <summary>
+    /// Records a GPU the user picked from the dropdown.
+    ///
+    /// Selection is handled here rather than by a two way binding because the entry shown as
+    /// selected is not always the user's choice: when their GPU has been switched off, the
+    /// dropdown shows whichever adapter is actually being read. A binding would write that
+    /// back and quietly make it permanent.
+    /// </summary>
+    private void GpuCombo_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (_rebuildingGpuList || _vm == null) return;
+        if (GpuCombo?.SelectedItem is not Pulse.Models.GpuChoice choice) return;
+
+        _vm.ChooseGpu(choice);
+    }
+
     /// Applies any GPU list change that arrived while the dropdown was open.
     private void GpuCombo_DropDownClosed(object? sender, EventArgs e)
     {
@@ -532,7 +552,11 @@ public partial class MainWindow : Window
             return;
         }
 
-        _vm.RefreshGpuChoices();
+        // Rebuilding the list makes the ComboBox raise SelectionChanged as items come and go.
+        // None of that is the user choosing anything, so it must not reach their settings.
+        _rebuildingGpuList = true;
+        try   { _vm.RefreshGpuChoices(); }
+        finally { _rebuildingGpuList = false; }
 
         // Nothing to choose between on a machine that only ever had one GPU, so don't add
         // noise. On anything hybrid the section stays put once seen — LibreHardwareMonitor
