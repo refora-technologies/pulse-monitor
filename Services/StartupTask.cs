@@ -32,6 +32,10 @@ public static class StartupTask
 {
     public const string TaskName = "PulseMonitor";
 
+    /// How long schtasks gets before it is assumed to be stuck. Generous: it normally answers
+    /// in well under a second, and the only cost of waiting is a slower diagnostics export.
+    private const int TimeoutMs = 10_000;
+
     /// <summary>What the scheduled task currently looks like, as far as we care.</summary>
     public readonly record struct State(bool Exists, string CommandPath, bool SettingsCorrect)
     {
@@ -196,20 +200,35 @@ public static class StartupTask
             using var process = Process.Start(info);
             if (process is null) return null;
 
-            // Both pipes are drained together. Reading one to the end and only then starting
-            // on the other deadlocks if the child fills the second pipe's buffer in the
-            // meantime, and neither WaitForExit nor its timeout is ever reached because we
-            // are still blocked in the read.
-            var errorTask = process.StandardError.ReadToEndAsync();
-            string output = process.StandardOutput.ReadToEnd();
-            string error  = errorTask.GetAwaiter().GetResult();
+            // Both pipes are drained, and neither is waited on before the process is known to
+            // have finished. Reading one to the end deadlocks if the child fills the other
+            // pipe's buffer, so both are started asynchronously first. Waiting on those reads
+            // before WaitForExit is just as bad in the other direction: a read only returns
+            // once the child closes its pipe, so a schtasks that hangs blocks here forever and
+            // the timeout below is never evaluated. That is what this code did, which meant a
+            // hung Task Scheduler could freeze whatever called it, including the diagnostics
+            // export on the UI thread.
+            var outputTask = process.StandardOutput.ReadToEndAsync();
+            var errorTask  = process.StandardError.ReadToEndAsync();
 
-            if (!process.WaitForExit(10_000))
+            if (!process.WaitForExit(TimeoutMs))
             {
-                try { process.Kill(); } catch { }
+                try { process.Kill(entireProcessTree: true); } catch { }
                 LogService.Warn(nameof(StartupTask), $"schtasks timed out: {arguments}");
                 return null;
             }
+
+            // The pipes close when the process ends, so these are already complete. Bounded
+            // regardless, because a grandchild that inherited the handles would hold them open
+            // and put the wait we just escaped straight back.
+            if (!Task.WhenAll(outputTask, errorTask).Wait(2_000))
+            {
+                LogService.Warn(nameof(StartupTask), $"schtasks output could not be read: {arguments}");
+                return null;
+            }
+
+            string output = outputTask.Result;
+            string error  = errorTask.Result;
 
             if (process.ExitCode == 0) return output;
 
