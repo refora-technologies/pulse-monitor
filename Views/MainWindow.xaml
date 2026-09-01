@@ -894,6 +894,23 @@
                         </Grid>
                     </Border>
 
+                    <!-- SETTINGS CANNOT BE SAVED
+                         Hidden unless writing to disk has actually failed. Without it the only
+                         symptom is preferences quietly reverting at the next launch, which
+                         looks like Pulse forgetting things at random. -->
+                    <Border CornerRadius="12" Margin="0,0,0,18" Padding="16,14"
+                            BorderThickness="1" BorderBrush="#5A2E3A"
+                            Visibility="{Binding HasSaveWarning, Converter={StaticResource BoolToVis}}">
+                        <Border.Background><SolidColorBrush Color="#1E1220"/></Border.Background>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="&#xE7BA;" FontFamily="Segoe MDL2 Assets" FontSize="14"
+                                       Foreground="#FF5C6C" VerticalAlignment="Top" Margin="0,1,10,0"/>
+                            <TextBlock Text="{Binding SaveWarning}" FontSize="11"
+                                       FontWeight="Medium" Foreground="#E5B4BC"
+                                       TextWrapping="Wrap" MaxWidth="380"/>
+                        </StackPanel>
+                    </Border>
+
                     <!-- DOWNLOAD PROGRESS -->
                     <Border CornerRadius="12" Margin="0,0,0,18" Padding="16,14"
                             BorderThickness="1" BorderBrush="#1E1B36"

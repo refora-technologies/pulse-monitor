@@ -664,6 +664,18 @@ public class SettingsViewModel : BaseViewModel
     }
 
     /// The update currently offered, so the caller can show its release notes.
+    /// <summary>
+    /// Whether to warn that preferences are not being written to disk.
+    ///
+    /// Shown rather than only logged, because the symptom is otherwise invisible until the next
+    /// launch and looks like Pulse forgetting things at random.
+    /// </summary>
+    public bool HasSaveWarning => SettingsService.Instance.LastSaveFailed;
+
+    public string SaveWarning =>
+        "Your preferences can't be saved to disk, so changes will be lost when Pulse closes. "
+      + "Check that there is free space and that Pulse is allowed to write to your AppData folder.";
+
     public UpdateInfo? PendingUpdate => _pendingUpdate;
 
     private CancellationTokenSource? _downloadCancel;
@@ -793,6 +805,14 @@ public class SettingsViewModel : BaseViewModel
             };
             AllTiles.Add(item);
         }
+
+        // Only fires when saving starts failing or starts working again, so this costs
+        // nothing during normal use.
+        SettingsService.Instance.SaveStateChanged += (_, _) =>
+        {
+            OnPropertyChanged(nameof(HasSaveWarning));
+            OnPropertyChanged(nameof(SaveWarning));
+        };
 
         HardwareService.Instance.SensorsUpdated += (_, _) =>
         {

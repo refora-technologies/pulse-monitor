@@ -168,7 +168,13 @@ public class AppSettings
     /// cannot leave a truncated settings file — previously the only copy was overwritten in
     /// place, and losing it reset every preference silently.
     /// </summary>
-    public void Save()
+    /// <returns>
+    /// Whether the file was actually written. This used to return nothing, so a failure was
+    /// logged and then dropped: the change applied in memory, the panel showed it, and it was
+    /// gone at the next launch with no explanation. "Pulse keeps forgetting my settings" is not
+    /// something anyone could have diagnosed from the outside.
+    /// </returns>
+    public bool Save()
     {
         try
         {
@@ -184,10 +190,13 @@ public class AppSettings
                 File.Replace(temp, SettingsPath, BackupPath, ignoreMetadataErrors: true);
             else
                 File.Move(temp, SettingsPath);
+
+            return true;
         }
         catch (Exception ex)
         {
             Services.LogService.Error(nameof(AppSettings), "Could not save settings", ex);
+            return false;
         }
     }
 }
