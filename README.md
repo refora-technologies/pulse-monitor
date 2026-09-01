@@ -45,7 +45,7 @@
 
 ## Technical Stack
 
-- **Framework:** .NET 8.0 (WPF)
+- **Framework:** .NET 10.0 (WPF)
 - **Architecture:** MVVM Design Pattern (CommunityToolkit.Mvvm)
 - **Hardware Integration:** LibreHardwareMonitor
 - **Frame Rate Capture:** PresentMon
