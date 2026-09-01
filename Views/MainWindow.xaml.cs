@@ -328,6 +328,9 @@ public partial class MainWindow : Window
 
     /// True while the entries are being replaced, so the resulting selection changes are
     /// recognised as ours rather than the user's.
+    /// Guards against a second export starting while one is still gathering.
+    private bool _exportingDiagnostics;
+
     private bool _rebuildingGpuList;
 
     /// <summary>
@@ -621,9 +624,41 @@ public partial class MainWindow : Window
     /// Writes the log files to the desktop and reveals the result, so someone reporting a
     /// problem has something to attach rather than being asked to reproduce it blind.
     /// </summary>
-    private void BtnExportDiagnostics_Click(object sender, RoutedEventArgs e)
+    /// <remarks>
+    /// Off the UI thread, because gathering this is not as cheap as it looks: it shells out to
+    /// schtasks, asks DXGI about the graphics adapters, and reads every log file we still hold.
+    /// Run inline, a slow or stuck Task Scheduler froze the whole control panel, and it froze
+    /// the one button someone presses when something is already wrong.
+    /// </remarks>
+    private async void BtnExportDiagnostics_Click(object sender, RoutedEventArgs e)
     {
-        var path = LogService.Export();
+        if (_exportingDiagnostics) return;
+        _exportingDiagnostics = true;
+
+        var button = sender as WpfButton;
+        if (button != null) button.IsEnabled = false;
+
+        DiagnosticsLinkText.Text = "Saving…";
+        DiagnosticsHint.Text     = "Collecting logs and hardware details.";
+
+        string? path;
+        try
+        {
+            path = await Task.Run(LogService.Export);
+        }
+        catch (Exception ex)
+        {
+            // Export catches its own failures and returns null, so reaching here means
+            // something unexpected. Swallowed rather than left to the dispatcher, which would
+            // take Pulse down over a diagnostics file.
+            LogService.Error(nameof(MainWindow), "Exporting diagnostics failed", ex);
+            path = null;
+        }
+        finally
+        {
+            _exportingDiagnostics = false;
+            if (button != null) button.IsEnabled = true;
+        }
 
         if (path == null)
         {
