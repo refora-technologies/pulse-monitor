@@ -37,6 +37,18 @@ public class AppSettings
     public string OverlayMonitorId { get; set; } = "";
 
     /// <summary>
+    /// The bounds of the display the overlay was placed on, as "left,top,width,height".
+    ///
+    /// A second way to recognise that display, because the first one is not dependable.
+    /// OverlayMonitorId holds a Windows device name like \\.\DISPLAY1, and Windows renumbers
+    /// those when the set of graphics adapters changes: a reporter's log shows the same panel
+    /// going from DISPLAY1 to DISPLAY11 and back across a switch between integrated and
+    /// discrete graphics. Once the name stops matching, the overlay falls back to whichever
+    /// display it happens to be on, which on a multi-monitor machine means it moves.
+    /// </summary>
+    public string OverlayMonitorBounds { get; set; } = "";
+
+    /// <summary>
     /// Where the overlay sits within the space it has to move in, as a fraction from 0 to 1.
     /// -1 means no custom position has been set.
     ///

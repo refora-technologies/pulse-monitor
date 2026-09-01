@@ -297,31 +297,45 @@ public sealed class SensorReader : IDisposable
     /// processor. Decides the "Discrete"/"Integrated" label in the GPU picker, and which
     /// adapter is chosen when the user has not picked one.
     ///
-    /// Two cheap certainties first, then the memory test that was here before:
+    /// Four tests, in order of how much they can be trusted:
     ///
     ///   LibreHardwareMonitor marks some integrated adapters in the identifier itself. On this
     ///   machine the Intel UHD comes through as "/gpu-intel-integrated/...". When it says so,
-    ///   that settles it.
+    ///   that settles it. It only ever says so for Intel: the library has no equivalent for
+    ///   AMD, whose integrated parts are plain "/gpu-amd/" like any Radeon card.
     ///
     ///   No integrated part has ever shipped under NVIDIA, so that settles it too. Worth
     ///   stating outright because an idle laptop card reports no memory figures at all on some
-    ///   polls, and the memory test alone would then call an RTX card integrated.
+    ///   polls, and a memory test alone would then call an RTX card integrated.
     ///
-    ///   Otherwise, dedicated video memory, as before. This is the case that is still not
-    ///   airtight: an AMD APU reports "GPU Memory Total" for the slice of system RAM the BIOS
-    ///   reserved for it, which looks identical to a card's own memory, so a Ryzen laptop may
-    ///   still list its integrated graphics as discrete. Left alone deliberately — the obvious
-    ///   alternative is Windows' D3D counters, but the only dedicated one LibreHardwareMonitor
-    ///   exposes is "D3D Dedicated Memory Used", which reads zero on any idle card and would
-    ///   trade a label that is wrong on AMD APUs for one that is wrong on every sleeping GPU.
-    ///   There is no AMD hardware here to test a better rule against.
+    ///   Otherwise, how much dedicated video memory Windows says the adapter has. This is what
+    ///   separates an AMD APU from a Radeon card, which nothing above can do: the APU's figure
+    ///   is the small pool the BIOS reserved, while a card reports its actual memory. The
+    ///   vendor sensor cannot be used for this, because it reports that reserved slice as
+    ///   though it were a card's own memory, which is exactly how a Radeon 740M came to be
+    ///   labelled discrete.
+    ///
+    ///   The boundary is a judgement rather than a fact, and it is worth being honest about
+    ///   where it fails. Integrated graphics reserve tens to a few hundred megabytes: the Intel
+    ///   here reports 128 MB and the reporter's 740M around 460 MB. Discrete cards still in
+    ///   service carry gigabytes. A desktop APU configured with a large frame buffer in its
+    ///   BIOS would be read as discrete, and a very old card with under a gigabyte would be
+    ///   read as integrated. Both are rare, and both are better than the previous rule, which
+    ///   was wrong for every AMD APU.
+    ///
+    ///   The vendor sensor remains the last resort for an adapter Windows cannot describe.
     /// </summary>
-    private static bool IsDiscrete(IHardware gpu)
+    private const float IntegratedVramCeilingMb = 1024f;
+
+    private bool IsDiscrete(IHardware gpu)
     {
         if (gpu.Identifier.ToString().Contains("integrated", StringComparison.OrdinalIgnoreCase))
             return false;
 
         if (gpu.HardwareType == HardwareType.GpuNvidia) return true;
+
+        var windowsMb = DedicatedVideoMemoryMb(gpu.Name);
+        if (windowsMb > 0) return windowsMb >= IntegratedVramCeilingMb;
 
         return GetDedicatedVramMb(gpu) > 0;
     }
