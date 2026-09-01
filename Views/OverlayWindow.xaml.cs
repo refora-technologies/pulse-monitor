@@ -12,6 +12,8 @@ using Pulse.Services;
 using Pulse.ViewModels;
 
 using WpfCursors = System.Windows.Input.Cursors;
+using WpfContextMenu = System.Windows.Controls.ContextMenu;
+using WpfMenuItem = System.Windows.Controls.MenuItem;
 
 namespace Pulse.Views;
 
@@ -141,7 +143,7 @@ public partial class OverlayWindow : Window
 
     private LowLevelMouseProc? _menuMouseHookProc;
     private IntPtr             _menuMouseHook = IntPtr.Zero;
-    private ContextMenu?       _activeMenu;
+    private WpfContextMenu?    _activeMenu;
 
     private readonly OverlayViewModel _vm;
 
@@ -641,13 +643,13 @@ public partial class OverlayWindow : Window
         var app       = (App)System.Windows.Application.Current;
         var itemStyle = (Style)FindResource("OverlayMenuItem");
 
-        var menu = new ContextMenu { Style = (Style)FindResource("OverlayContextMenu") };
+        var menu = new WpfContextMenu { Style = (Style)FindResource("OverlayContextMenu") };
 
-        var controlPanelItem = new MenuItem { Header = "Open Control Panel", Style = itemStyle };
+        var controlPanelItem = new WpfMenuItem { Header = "Open Control Panel", Style = itemStyle };
         controlPanelItem.Click += (_, _) => app.ShowControlPanel();
         menu.Items.Add(controlPanelItem);
 
-        var hideOverlayItem = new MenuItem { Header = "Hide Overlay", Style = itemStyle };
+        var hideOverlayItem = new WpfMenuItem { Header = "Hide Overlay", Style = itemStyle };
         hideOverlayItem.Click += (_, _) => app.HideOverlay();
         menu.Items.Add(hideOverlayItem);
 
