@@ -24,11 +24,31 @@ public class SettingsService
 
     public event EventHandler? SettingsChanged;
 
-    public void Save()
+    /// <summary>
+    /// True when the last attempt to write settings to disk failed.
+    ///
+    /// Kept so the panel can say so. A failure here does not stop the change taking effect, it
+    /// only stops it surviving a restart, which is the most confusing shape a bug can have:
+    /// everything looks right until the next launch, and nothing explains why it did not stick.
+    /// </summary>
+    public bool LastSaveFailed { get; private set; }
+
+    public bool Save()
     {
-        Settings.Save();
+        bool saved = Settings.Save();
+
+        // Only raised on a change of state, so the panel is not re-notified on every write.
+        bool changed = LastSaveFailed == saved;
+        LastSaveFailed = !saved;
+
         SettingsChanged?.Invoke(this, EventArgs.Empty);
+        if (changed) SaveStateChanged?.Invoke(this, EventArgs.Empty);
+
+        return saved;
     }
+
+    /// Raised when saving starts failing, or starts working again.
+    public event EventHandler? SaveStateChanged;
 
     /// <summary>
     /// Returns whether the change actually took effect. The stored setting now reflects what
