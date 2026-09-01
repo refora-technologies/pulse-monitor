@@ -666,6 +666,22 @@ public class SettingsViewModel : BaseViewModel
     /// The update currently offered, so the caller can show its release notes.
     public UpdateInfo? PendingUpdate => _pendingUpdate;
 
+    private CancellationTokenSource? _downloadCancel;
+
+    /// <summary>
+    /// Stops a download in progress.
+    ///
+    /// There was previously no way out of one at all. The panel switched into its downloading
+    /// state and stayed there, and since the transfer had no overall timeout either, a
+    /// connection that quietly died left someone watching a frozen percentage with nothing to
+    /// press. Closing Pulse was the only escape.
+    /// </summary>
+    public void CancelDownload()
+    {
+        try   { _downloadCancel?.Cancel(); }
+        catch { }
+    }
+
     public async Task InstallUpdateAsync()
     {
         if (_pendingUpdate == null)
@@ -684,7 +700,23 @@ public class SettingsViewModel : BaseViewModel
             UpdateStatus = p >= 100 ? "Starting installer…" : $"Downloading… {p}%";
         });
 
-        var status = await UpdateService.DownloadAndRunAsync(_pendingUpdate, progress);
+        // Replaced rather than reused, so a cancelled download does not stop the next attempt.
+        _downloadCancel?.Dispose();
+        _downloadCancel = new CancellationTokenSource();
+
+        UpdateDownloadStatus status;
+        try
+        {
+            status = await UpdateService.DownloadAndRunAsync(_pendingUpdate, progress, _downloadCancel.Token);
+        }
+        catch (Exception ex)
+        {
+            // The download reports failure rather than throwing, so this is unexpected. Caught
+            // anyway: reaching the dispatcher from an async void click handler would end Pulse.
+            LogService.Error(nameof(SettingsViewModel), "Installing the update failed", ex);
+            status = UpdateDownloadStatus.DownloadFailed;
+        }
+
         switch (status)
         {
             case UpdateDownloadStatus.Success:
@@ -702,6 +734,17 @@ public class SettingsViewModel : BaseViewModel
             case UpdateDownloadStatus.LocationNotSecurable:
                 IsDownloading = false;
                 UpdateStatus = "Can't secure the download folder — install manually from the release page";
+                break;
+
+            case UpdateDownloadStatus.Stalled:
+                IsDownloading = false;
+                UpdateStatus = "The download stopped responding — check your connection and try again";
+                break;
+
+            case UpdateDownloadStatus.Cancelled:
+                IsDownloading = false;
+                DownloadProgress = 0;
+                UpdateStatus = $"{_pendingUpdate.DisplayVersion} is available";
                 break;
             default:
                 IsDownloading = false;
