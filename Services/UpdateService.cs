@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
 using System.Reflection;
@@ -33,6 +33,12 @@ public enum UpdateDownloadStatus
     /// The download location could not be secured against tampering, so we refused to run
     /// an installer from it. See CreateSecureDownloadDirectory.
     LocationNotSecurable,
+
+    /// The connection stopped delivering data for long enough that it is not coming back.
+    Stalled,
+
+    /// The user asked to stop.
+    Cancelled,
 }
 
 public class UpdateService
@@ -52,6 +58,18 @@ public class UpdateService
         return client;
     }
 
+    /// <summary>
+    /// How long the download may deliver nothing at all before it is given up on.
+    ///
+    /// Deliberately a stall timeout rather than a limit on the whole transfer. The installer is
+    /// seventy megabytes and some people are on very slow connections, so any total deadline
+    /// long enough to be fair is far too long to be useful. What is never legitimate is a
+    /// connection that has stopped sending anything, which is what a half open socket looks
+    /// like: without this, that left the progress bar frozen at some percentage with no timeout
+    /// and no way out but killing Pulse.
+    /// </summary>
+    private static readonly TimeSpan StallTimeout = TimeSpan.FromSeconds(60);
+
     private static HttpClient CreateDownloadClient()
     {
         var handler = new SocketsHttpHandler
@@ -61,6 +79,9 @@ public class UpdateService
             ConnectTimeout           = TimeSpan.FromSeconds(30),
             ResponseDrainTimeout     = Timeout.InfiniteTimeSpan,
         };
+
+        // No overall timeout, for the reason given above. The stall watchdog in the read loop
+        // is what bounds this instead, and cancellation is what lets the user out.
         var client = new HttpClient(handler) { Timeout = Timeout.InfiniteTimeSpan };
         client.DefaultRequestHeaders.Add("User-Agent", "PulseMonitor");
         return client;
@@ -167,10 +188,13 @@ public class UpdateService
     /// published alongside the release, then launches it. Refuses to launch anything that
     /// isn't verified — we have no code-signing certificate, so the published hash is the
     /// only trust anchor we have.
-    public static async Task<UpdateDownloadStatus> DownloadAndRunAsync(UpdateInfo info, IProgress<int>? progress = null)
+    public static async Task<UpdateDownloadStatus> DownloadAndRunAsync(
+        UpdateInfo info, IProgress<int>? progress = null, CancellationToken cancellation = default)
     {
         if (string.IsNullOrEmpty(info.InstallerUrl))
             return UpdateDownloadStatus.DownloadFailed;
+
+        if (cancellation.IsCancellationRequested) return UpdateDownloadStatus.Cancelled;
 
         // Fetched here rather than at check time — no point spending bandwidth on the
         // installer if we won't be able to verify it anyway, and this way the checksum
@@ -180,7 +204,7 @@ public class UpdateService
         {
             try
             {
-                var checksumContent = await ApiHttp.GetStringAsync(info.ChecksumUrl);
+                var checksumContent = await ApiHttp.GetStringAsync(info.ChecksumUrl, cancellation);
                 expectedSha256 = ParseSha256(checksumContent);
             }
             catch (Exception ex)
@@ -190,6 +214,12 @@ public class UpdateService
                 LogService.Error(nameof(UpdateService), "Could not fetch the update checksum", ex);
             }
         }
+
+        // Cancelling during the checksum fetch is cancelling, not a missing checksum. The catch
+        // above swallows every failure alike, so without this someone who pressed cancel here
+        // was told the update could not be verified, which sounds like something is wrong with
+        // the release rather than something they just did.
+        if (cancellation.IsCancellationRequested) return UpdateDownloadStatus.Cancelled;
 
         if (string.IsNullOrEmpty(expectedSha256))
             return UpdateDownloadStatus.VerificationUnavailable;
@@ -209,10 +239,16 @@ public class UpdateService
             return UpdateDownloadStatus.LocationNotSecurable;
         }
 
+        // Fires when nothing has arrived for StallTimeout, and is pushed back on every chunk
+        // that does. A slow connection therefore downloads for as long as it needs; only one
+        // that has stopped entirely is abandoned.
+        using var stall = new CancellationTokenSource(StallTimeout);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellation, stall.Token);
+
         try
         {
             // Download — streams explicitly closed before we hash/launch the exe
-            await using (var src = await DownloadHttp.GetStreamAsync(info.InstallerUrl))
+            await using (var src = await DownloadHttp.GetStreamAsync(info.InstallerUrl, linked.Token))
             await using (var dst = new FileStream(target, FileMode.Create, FileAccess.Write,
                                                   FileShare.None, 65536, useAsync: true))
             {
@@ -220,15 +256,37 @@ public class UpdateService
                 var buffer = new byte[65536];
                 long received = 0;
                 int read;
-                while ((read = await src.ReadAsync(buffer)) > 0)
+                while ((read = await src.ReadAsync(buffer, linked.Token)) > 0)
                 {
-                    await dst.WriteAsync(buffer.AsMemory(0, read));
+                    await dst.WriteAsync(buffer.AsMemory(0, read), linked.Token);
                     received += read;
+
+                    // Progress resets the watchdog. Done after the write so a disk that has
+                    // stopped accepting data counts as a stall too.
+                    stall.CancelAfter(StallTimeout);
+
                     if (total > 0)
                         progress?.Report(Math.Min(99, (int)(received * 100 / total)));
                 }
-                await dst.FlushAsync();
+                await dst.FlushAsync(CancellationToken.None);
             }
+        }
+        // Filtered on the token rather than the exception type, deliberately. Cancelling a read
+        // on an HTTP response stream does not reliably surface as OperationCanceledException:
+        // it can arrive as an IOException or an HttpRequestException wrapping one, depending on
+        // where the socket was when it was torn down. Matching on the type alone reported a
+        // cancelled download as a failed one.
+        catch (Exception) when (linked.IsCancellationRequested)
+        {
+            TryDelete(target);
+
+            // Which of the two cancelled matters to the user: one is their own doing, the
+            // other is a connection that died without saying so.
+            if (cancellation.IsCancellationRequested) return UpdateDownloadStatus.Cancelled;
+
+            LogService.Warn(nameof(UpdateService),
+                $"The update download stopped receiving data for {StallTimeout.TotalSeconds:F0}s and was abandoned.");
+            return UpdateDownloadStatus.Stalled;
         }
         catch (Exception ex)
         {
@@ -257,6 +315,14 @@ public class UpdateService
         }
 
         progress?.Report(100);
+
+        // Verified but not yet launched. Someone who pressed cancel while the hash was being
+        // computed should not have an installer open on them a moment later.
+        if (cancellation.IsCancellationRequested)
+        {
+            TryDelete(target);
+            return UpdateDownloadStatus.Cancelled;
+        }
 
         try
         {

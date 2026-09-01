@@ -617,6 +617,10 @@ public partial class MainWindow : Window
         if (dialog.Accepted) await _vm.InstallUpdateAsync();
     }
 
+    /// Stops a download in progress. The status line goes back to offering the update, so
+    /// cancelling is not the same as dismissing it.
+    private void BtnCancelDownload_Click(object sender, RoutedEventArgs e) => _vm?.CancelDownload();
+
     private void BtnDismissBanner_Click(object sender, RoutedEventArgs e)
         => _vm?.DismissBanner();
 
