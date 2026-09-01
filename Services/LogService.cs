@@ -294,7 +294,9 @@ public static class LogService
         // Asked directly rather than through the sensor layer, for the same reason as above.
         // When a graphics card is switched off this is the line that shows it happened, and it
         // is worth having even in a report where everything else about the hardware failed.
-        report.AppendLine($"Adapters  : {Safe(() => DisplayAdapters.Describe(DisplayAdapters.Signature()))}");
+        // With their memory, because that is what decides whether an adapter reads as discrete
+        // and it is the number a user can check against Task Manager themselves.
+        report.AppendLine($"Adapters  : {Safe(DescribeAdapters)}");
 
         try
         {
@@ -339,6 +341,17 @@ public static class LogService
         {
             report.AppendLine($"Startup   : could not be read ({ex.GetType().Name})");
         }
+    }
+
+
+    /// Each graphics adapter Windows knows about, with the dedicated video memory it reports.
+    private static string DescribeAdapters()
+    {
+        var adapters = DisplayAdapters.All();
+        if (adapters.Count == 0) return "unknown";
+
+        return string.Join(", ", adapters.Select(a =>
+            $"{a.Description} ({a.DedicatedVideoMemoryMb:F0} MB)"));
     }
 
     private static string Safe(Func<string> read)

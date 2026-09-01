@@ -840,6 +840,21 @@ public partial class OverlayWindow : Window
     /// back to wherever the window currently is, then the primary, so unplugging a display
     /// cannot strand the overlay off-screen.
     /// </summary>
+    /// <summary>
+    /// A display's geometry, used to recognise it when its device name has been renumbered.
+    ///
+    /// Not a perfect identity: two identical monitors arranged symmetrically could in principle
+    /// swap and still match. It is only ever consulted after the device name has already
+    /// failed, and landing on a screen of the right size and position is a great deal better
+    /// than the previous behaviour, which was to give up and use whichever display the window
+    /// happened to be on.
+    /// </summary>
+    private static string BoundsKey(System.Windows.Forms.Screen screen)
+    {
+        var b = screen.Bounds;
+        return $"{b.Left},{b.Top},{b.Width},{b.Height}";
+    }
+
     private static System.Windows.Forms.Screen ResolveTargetScreen(IntPtr hwnd)
     {
         var settings = SettingsService.Instance.Settings;
@@ -849,6 +864,14 @@ public partial class OverlayWindow : Window
         {
             foreach (var screen in screens)
                 if (string.Equals(screen.DeviceName, settings.OverlayMonitorId, StringComparison.OrdinalIgnoreCase))
+                    return screen;
+
+            // The name did not match, which does not mean the display is gone. Windows
+            // renumbers device names when the set of graphics adapters changes, so the same
+            // physical panel can come back as DISPLAY11 where it used to be DISPLAY1. Its
+            // geometry does not change with it, so that is what identifies it now.
+            foreach (var screen in screens)
+                if (string.Equals(BoundsKey(screen), settings.OverlayMonitorBounds, StringComparison.Ordinal))
                     return screen;
         }
         else
@@ -895,7 +918,8 @@ public partial class OverlayWindow : Window
 
         var settings = SettingsService.Instance.Settings;
         settings.OverlayPosition  = "Custom";
-        settings.OverlayMonitorId = screen.DeviceName;
+        settings.OverlayMonitorId     = screen.DeviceName;
+        settings.OverlayMonitorBounds = BoundsKey(screen);
         settings.OverlayAnchorFx  = roomX > 0 ? Math.Clamp((bounds.Left - work.Left) / (double)roomX, 0, 1) : 0;
         settings.OverlayAnchorFy  = roomY > 0 ? Math.Clamp((bounds.Top  - work.Top)  / (double)roomY, 0, 1) : 0;
 
