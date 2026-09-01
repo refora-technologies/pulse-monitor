@@ -60,24 +60,29 @@ internal static class DisplayAdapters
         return Marshal.GetDelegateForFunctionPointer<T>(Marshal.ReadIntPtr(table, slot * IntPtr.Size));
     }
 
+    /// <summary>One graphics adapter as Windows describes it.</summary>
+    public readonly record struct Adapter(long Luid, string Description, float DedicatedVideoMemoryMb);
+
     /// <summary>
-    /// A short string describing every adapter present, or null if DXGI could not be asked.
+    /// Every adapter Windows can see, or an empty list if DXGI could not be asked.
     ///
-    /// Compare two of these to know whether the hardware changed. Null is returned rather than
-    /// an empty string on failure, so "we could not look" is never mistaken for "every adapter
-    /// has gone" — which would otherwise re-enumerate the sensors on a loop.
+    /// The dedicated video memory here is the figure Task Manager shows as "Dedicated GPU
+    /// memory", because it comes from the same place. That matters: it is the number users
+    /// compare us against, and it is right on integrated graphics, where the sensor library
+    /// either reports nothing at all or reports the slice of system memory the BIOS set aside
+    /// as though it were a card's own memory.
     /// </summary>
-    public static string? Signature()
+    public static List<Adapter> All()
     {
+        var found = new List<Adapter>();
         IntPtr factory = IntPtr.Zero;
 
         try
         {
             if (CreateDXGIFactory1(ref FactoryId, out factory) != 0 || factory == IntPtr.Zero)
-                return null;
+                return found;
 
             var enumerate = Method<EnumAdapters1Fn>(factory, EnumAdapters1);
-            var signature = new StringBuilder();
 
             for (uint i = 0; ; i++)
             {
@@ -87,11 +92,10 @@ internal static class DisplayAdapters
                 {
                     if (Method<GetDesc1Fn>(adapter, GetDesc1)(adapter, out var desc) == 0)
                     {
-                        // The identifier alone would do. The description is carried too so a
-                        // log line about a change says which card, which is the first thing
-                        // anyone asks.
-                        signature.Append(desc.AdapterLuid.ToString("x")).Append(':')
-                                 .Append(desc.Description).Append('|');
+                        found.Add(new Adapter(
+                            desc.AdapterLuid,
+                            desc.Description ?? "",
+                            (float)(desc.DedicatedVideoMemory.ToUInt64() / (1024.0 * 1024.0))));
                     }
                 }
                 finally
@@ -99,14 +103,10 @@ internal static class DisplayAdapters
                     Method<ReleaseFn>(adapter, Release)(adapter);
                 }
             }
-
-            // No adapters at all means the call did not work as expected; every machine that
-            // can run Pulse has at least one. Treated as "could not look".
-            return signature.Length == 0 ? null : signature.ToString();
         }
         catch
         {
-            return null;
+            return new List<Adapter>();
         }
         finally
         {
@@ -115,6 +115,51 @@ internal static class DisplayAdapters
                 try { Method<ReleaseFn>(factory, Release)(factory); } catch { }
             }
         }
+
+        return found;
+    }
+
+    /// <summary>
+    /// Dedicated video memory for the adapter with this name, in MB, or 0 when it is not known.
+    ///
+    /// Matched by name because that is the only thing the sensor library and DXGI both report.
+    /// Zero means "no answer", never "no memory", so callers must not display it as a capacity.
+    /// </summary>
+    public static float DedicatedVideoMemoryMb(string adapterName)
+    {
+        if (string.IsNullOrWhiteSpace(adapterName)) return 0;
+
+        foreach (var adapter in All())
+            if (string.Equals(adapter.Description.Trim(), adapterName.Trim(),
+                              StringComparison.OrdinalIgnoreCase))
+                return adapter.DedicatedVideoMemoryMb;
+
+        return 0;
+    }
+
+    /// <summary>
+    /// A short string describing every adapter present, or null if DXGI could not be asked.
+    ///
+    /// Compare two of these to know whether the hardware changed. Null is returned rather than
+    /// an empty string on failure, so "we could not look" is never mistaken for "every adapter
+    /// has gone" — which would otherwise re-enumerate the sensors on a loop.
+    /// </summary>
+    public static string? Signature()
+    {
+        var adapters = All();
+        if (adapters.Count == 0) return null;
+
+        var signature = new StringBuilder();
+
+        foreach (var adapter in adapters)
+        {
+            // The identifier alone would do. The description is carried too so a log line
+            // about a change says which card, which is the first thing anyone asks.
+            signature.Append(adapter.Luid.ToString("x")).Append(':')
+                     .Append(adapter.Description).Append('|');
+        }
+
+        return signature.ToString();
     }
 
     /// <summary>

@@ -88,8 +88,18 @@ public class HardwareService : IDisposable
     public event EventHandler<SensorData>? SensorsUpdated;
     public double PollingIntervalSeconds { get; private set; } = 2;
 
-    public float TotalRamGb { get; private set; } = 16f;
-    public float TotalVramGb { get; private set; } = 6f;
+    /// <summary>
+    /// How much memory this machine actually has, or zero when that is not yet known.
+    ///
+    /// Zero means unknown and must never be drawn as a capacity. These used to start at 16 and
+    /// 6, which are not measurements of anything: they were a guess that looked like a reading.
+    /// On any machine with only integrated graphics nothing ever replaced the VRAM one, so the
+    /// tile confidently reported a 6 GB capacity that did not exist, sized its bar against it,
+    /// and coloured warnings from it. A user eventually asked where the 6 GB came from, and the
+    /// honest answer was that we made it up.
+    /// </summary>
+    public float TotalRamGb { get; private set; }
+    public float TotalVramGb { get; private set; }
 
     /// Every GPU detected on this machine, for the settings picker.
     public IReadOnlyList<GpuInfo> AvailableGpus { get; private set; } = Array.Empty<GpuInfo>();
@@ -638,8 +648,14 @@ public class HardwareService : IDisposable
         }
         catch { }
 
-        // Totals persist. They are read once from a sensor that does not always report, and
-        // zeroing them would make every percentage tile jump to nothing for a cycle.
+        // A capacity belongs to the adapter it was measured from, so a change of GPU clears it
+        // rather than carrying it across. Without this, switching a laptop to its integrated
+        // graphics left the discrete card's video memory on screen as the new one's capacity.
+        if (snapshot.Ready && !string.Equals(ActiveGpuName, snapshot.ActiveGpuName, StringComparison.Ordinal))
+            TotalVramGb = 0;
+
+        // Totals otherwise persist. They are read from a sensor that does not report on every
+        // poll, and zeroing them each time would make the capacity flicker away and back.
         if (data.TotalRamGb  > 0) TotalRamGb  = data.TotalRamGb;
         if (data.TotalVramGb > 0) TotalVramGb = data.TotalVramGb;
 
