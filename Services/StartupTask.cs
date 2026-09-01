@@ -97,7 +97,30 @@ public static class StartupTask
         }
     }
 
-    public static bool Remove() => Run($"/Delete /TN \"{TaskName}\" /F");
+    /// <summary>
+    /// Removes the task, and treats a task that was never there as removed.
+    ///
+    /// schtasks exits non-zero when asked to delete something that does not exist, which this
+    /// used to report as failure. The caller then wrote the opposite of what was asked, so
+    /// turning startup off while the task was already gone flipped the switch back on and left
+    /// it claiming Pulse starts with Windows when nothing would. There was no way to turn it
+    /// off from the panel at all.
+    ///
+    /// Absence is confirmed by looking rather than by reading schtasks' error text, which is
+    /// translated on a localised Windows and cannot be matched on.
+    /// </summary>
+    public static bool Remove()
+    {
+        // Asked first so the log is not filled with schtasks errors for a task nobody has.
+        if (!Query().Exists) return true;
+
+        if (Run($"/Delete /TN \"{TaskName}\" /F")) return true;
+
+        // Report success only if it is genuinely gone. A delete that failed because the task
+        // is still there is a real failure, and the caller needs to know: startup really is
+        // still on, whatever the user just asked for.
+        return !Query().Exists;
+    }
 
     private static string BuildXml(string exePath)
     {
