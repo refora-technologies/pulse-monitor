@@ -1,4 +1,4 @@
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
@@ -50,15 +50,145 @@ public partial class WhatsNewWindow : Window
     }
 
     /// <summary>
-    /// Renders the subset of Markdown that Pulse's own release notes use: "##" and "###"
-    /// headings, "-" bullets, and inline "**bold**". Anything else falls through as a
-    /// plain paragraph, so an unexpected note format degrades to readable text rather
-    /// than showing raw markup. Deliberately hand-rolled to avoid taking a dependency
-    /// on a Markdown library for one dialog.
+    /// One piece of a release note, once the Markdown has been read.
+    ///
+    /// Parsing is kept apart from rendering so the awkward part can be tested without standing
+    /// up a window. It needed testing: the previous reader silently printed anything it did not
+    /// recognise, so our own 1.2.0 notes showed users literal "---" and literal ``` fences in
+    /// the dialog that asks them to trust an update.
     /// </summary>
+    public enum NoteBlockKind { Blank, Heading, Subheading, Bullet, Paragraph, Separator, Code }
+
+    public readonly record struct NoteBlock(NoteBlockKind Kind, string Text);
+
+    /// A run of text within a line, and how it should be drawn.
+    public readonly record struct NoteSpan(string Text, bool Bold, bool Code);
+
+    /// <summary>
+    /// Reads the Markdown that GitHub release notes actually use: "##" and "###" headings,
+    /// "-" bullets, "---" rules, fenced code blocks, and inline "**bold**" and `code`.
+    ///
+    /// Anything still unrecognised is returned as a plain paragraph, which is the right
+    /// fallback for prose. The point of handling rules and fences explicitly is that they are
+    /// markup rather than prose, so printing them verbatim is never what was meant.
+    /// </summary>
+    public static List<NoteBlock> ParseNotes(string notes, string version)
+    {
+        var blocks = new List<NoteBlock>();
+        if (string.IsNullOrWhiteSpace(notes)) return blocks;
+
+        bool skippedTitle = false;
+        bool insideFence  = false;
+        var fenced = new List<string>();
+
+        foreach (var raw in notes.Replace("\r\n", "\n").Split('\n'))
+        {
+            var line = raw.TrimEnd();
+            var trimmed = line.Trim();
+
+            // Fence markers are never content. An unclosed fence is flushed at the end rather
+            // than swallowing the remainder of the notes.
+            if (trimmed.StartsWith("```", StringComparison.Ordinal))
+            {
+                if (insideFence)
+                {
+                    blocks.Add(new NoteBlock(NoteBlockKind.Code, string.Join("\n", fenced)));
+                    fenced.Clear();
+                }
+                insideFence = !insideFence;
+                continue;
+            }
+
+            if (insideFence)
+            {
+                fenced.Add(line);
+                continue;
+            }
+
+            if (trimmed.Length == 0)
+            {
+                blocks.Add(new NoteBlock(NoteBlockKind.Blank, ""));
+                continue;
+            }
+
+            // Checked before bullets: "* * *" is a rule and would otherwise read as a bullet.
+            if (IsRule(trimmed))
+            {
+                blocks.Add(new NoteBlock(NoteBlockKind.Separator, ""));
+                continue;
+            }
+
+            // Our own notes open with "## What's new in vX.Y.Z", which the dialog header
+            // already says. Drop that one line rather than showing it twice, but only when it
+            // really is that title so arbitrary notes are left intact.
+            if (!skippedTitle && line.StartsWith("## ")
+                && (line.Contains("what's new", StringComparison.OrdinalIgnoreCase)
+                    || line.Contains(version, StringComparison.OrdinalIgnoreCase)))
+            {
+                skippedTitle = true;
+                continue;
+            }
+
+            if (line.StartsWith("### "))
+                blocks.Add(new NoteBlock(NoteBlockKind.Subheading, line[4..].Trim()));
+            else if (line.StartsWith("## "))
+                blocks.Add(new NoteBlock(NoteBlockKind.Heading, line[3..].Trim()));
+            else if (line.StartsWith("- ") || line.StartsWith("* "))
+                blocks.Add(new NoteBlock(NoteBlockKind.Bullet, line[2..].Trim()));
+            else
+                blocks.Add(new NoteBlock(NoteBlockKind.Paragraph, line));
+        }
+
+        if (fenced.Count > 0)
+            blocks.Add(new NoteBlock(NoteBlockKind.Code, string.Join("\n", fenced)));
+
+        return blocks;
+    }
+
+    /// A horizontal rule: three or more of the same marker, nothing else but spaces.
+    private static bool IsRule(string trimmed)
+    {
+        foreach (var marker in new[] { '-', '*', '_' })
+        {
+            int count = 0;
+            bool onlyThis = true;
+
+            foreach (var c in trimmed)
+            {
+                if (c == marker) count++;
+                else if (c != ' ') { onlyThis = false; break; }
+            }
+
+            if (onlyThis && count >= 3) return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Splits a line into bold, code and plain runs. Unmatched markers are returned as plain
+    /// text, so a stray asterisk or backtick reads as itself rather than eating the line.
+    /// </summary>
+    public static List<NoteSpan> ParseInline(string text)
+    {
+        var spans = new List<NoteSpan>();
+        if (string.IsNullOrEmpty(text)) return spans;
+
+        foreach (Match m in Regex.Matches(text, @"\*\*(.+?)\*\*|`([^`]+)`|([^*`]+|[*`])"))
+        {
+            if (m.Groups[1].Success)      spans.Add(new NoteSpan(m.Groups[1].Value, true,  false));
+            else if (m.Groups[2].Success) spans.Add(new NoteSpan(m.Groups[2].Value, false, true));
+            else                          spans.Add(new NoteSpan(m.Value,           false, false));
+        }
+
+        return spans;
+    }
+
     private void RenderNotes(string notes, string version)
     {
-        if (string.IsNullOrWhiteSpace(notes))
+        var blocks = ParseNotes(notes, version);
+
+        if (blocks.Count == 0)
         {
             NotesPanel.Children.Add(new TextBlock
             {
@@ -70,84 +200,104 @@ public partial class WhatsNewWindow : Window
             return;
         }
 
-        bool skippedTitle = false;
-
-        foreach (var raw in notes.Replace("\r\n", "\n").Split('\n'))
+        foreach (var block in blocks)
         {
-            var line = raw.TrimEnd();
-
-            if (line.Length == 0)
+            switch (block.Kind)
             {
-                NotesPanel.Children.Add(new Border { Height = 6 });
-                continue;
-            }
+                case NoteBlockKind.Blank:
+                    NotesPanel.Children.Add(new Border { Height = 6 });
+                    break;
 
-            // Our own notes open with "## What's new in vX.Y.Z", which the dialog header
-            // already says. Drop that one line rather than showing it twice, but only
-            // when it really is that title so arbitrary notes are left intact.
-            if (!skippedTitle && line.StartsWith("## ")
-                && (line.Contains("what's new", StringComparison.OrdinalIgnoreCase)
-                    || line.Contains(version, StringComparison.OrdinalIgnoreCase)))
-            {
-                skippedTitle = true;
-                continue;
-            }
+                case NoteBlockKind.Separator:
+                    NotesPanel.Children.Add(new Border
+                    {
+                        Height     = 1,
+                        Background = new SolidColorBrush(WpfColor.FromRgb(0x2A, 0x25, 0x48)),
+                        Margin     = new Thickness(0, 8, 0, 10),
+                    });
+                    break;
 
-            if (line.StartsWith("### "))
-            {
-                NotesPanel.Children.Add(new TextBlock
+                case NoteBlockKind.Subheading:
+                    NotesPanel.Children.Add(new TextBlock
+                    {
+                        Text       = block.Text.ToUpperInvariant(),
+                        FontSize   = 10,
+                        FontWeight = FontWeights.Bold,
+                        Foreground = new SolidColorBrush(WpfColor.FromRgb(0xA7, 0x8B, 0xFA)),
+                        Margin     = new Thickness(0, 12, 0, 6),
+                    });
+                    break;
+
+                case NoteBlockKind.Heading:
+                    NotesPanel.Children.Add(new TextBlock
+                    {
+                        Text         = block.Text,
+                        FontSize     = 14,
+                        FontWeight   = FontWeights.Bold,
+                        Foreground   = new SolidColorBrush(WpfColor.FromRgb(0xED, 0xE9, 0xFC)),
+                        Margin       = new Thickness(0, 8, 0, 4),
+                        TextWrapping = TextWrapping.Wrap,
+                    });
+                    break;
+
+                case NoteBlockKind.Code:
+                    // Consolas rather than a bundled face: it ships with every Windows we
+                    // support, and a checksum is unreadable in a proportional font.
+                    NotesPanel.Children.Add(new Border
+                    {
+                        Background   = new SolidColorBrush(WpfColor.FromRgb(0x14, 0x12, 0x28)),
+                        BorderBrush  = new SolidColorBrush(WpfColor.FromRgb(0x2A, 0x25, 0x48)),
+                        BorderThickness = new Thickness(1),
+                        CornerRadius = new CornerRadius(6),
+                        Padding      = new Thickness(10, 8, 10, 8),
+                        Margin       = new Thickness(0, 2, 0, 8),
+                        Child = new TextBlock
+                        {
+                            Text         = block.Text,
+                            FontFamily   = new System.Windows.Media.FontFamily("Consolas"),
+                            FontSize     = 10.5,
+                            Foreground   = new SolidColorBrush(WpfColor.FromRgb(0xA6, 0xA2, 0xC6)),
+                            TextWrapping = TextWrapping.Wrap,
+                        },
+                    });
+                    break;
+
+                case NoteBlockKind.Bullet:
                 {
-                    Text       = line[4..].Trim().ToUpperInvariant(),
-                    FontSize   = 10,
-                    FontWeight = FontWeights.Bold,
-                    Foreground = new SolidColorBrush(WpfColor.FromRgb(0xA7, 0x8B, 0xFA)),
-                    Margin     = new Thickness(0, 12, 0, 6),
-                });
-            }
-            else if (line.StartsWith("## "))
-            {
-                NotesPanel.Children.Add(new TextBlock
+                    var row = new Grid { Margin = new Thickness(0, 0, 0, 7) };
+                    row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                    row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+                    var dot = new TextBlock
+                    {
+                        Text       = "•",
+                        FontSize   = 12,
+                        Foreground = new SolidColorBrush(WpfColor.FromRgb(0xA9, 0xA4, 0xCE)),
+                        Margin     = new Thickness(2, 0, 9, 0),
+                    };
+                    Grid.SetColumn(dot, 0);
+                    row.Children.Add(dot);
+
+                    var body = BuildInline(block.Text);
+                    Grid.SetColumn(body, 1);
+                    row.Children.Add(body);
+
+                    NotesPanel.Children.Add(row);
+                    break;
+                }
+
+                default:
                 {
-                    Text       = line[3..].Trim(),
-                    FontSize   = 14,
-                    FontWeight = FontWeights.Bold,
-                    Foreground = new SolidColorBrush(WpfColor.FromRgb(0xED, 0xE9, 0xFC)),
-                    Margin     = new Thickness(0, 8, 0, 4),
-                    TextWrapping = TextWrapping.Wrap,
-                });
-            }
-            else if (line.StartsWith("- ") || line.StartsWith("* "))
-            {
-                var row = new Grid { Margin = new Thickness(0, 0, 0, 7) };
-                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-
-                var dot = new TextBlock
-                {
-                    Text       = "•",
-                    FontSize   = 12,
-                    Foreground = new SolidColorBrush(WpfColor.FromRgb(0xA9, 0xA4, 0xCE)),
-                    Margin     = new Thickness(2, 0, 9, 0),
-                };
-                Grid.SetColumn(dot, 0);
-                row.Children.Add(dot);
-
-                var body = BuildInline(line[2..].Trim());
-                Grid.SetColumn(body, 1);
-                row.Children.Add(body);
-
-                NotesPanel.Children.Add(row);
-            }
-            else
-            {
-                var para = BuildInline(line);
-                para.Margin = new Thickness(0, 0, 0, 6);
-                NotesPanel.Children.Add(para);
+                    var para = BuildInline(block.Text);
+                    para.Margin = new Thickness(0, 0, 0, 6);
+                    NotesPanel.Children.Add(para);
+                    break;
+                }
             }
         }
     }
 
-    /// Builds a wrapped TextBlock, turning **bold** spans into bold runs.
+    /// Builds a wrapped TextBlock from the runs ParseInline found.
     private static TextBlock BuildInline(string text)
     {
         var block = new TextBlock
@@ -159,19 +309,27 @@ public partial class WhatsNewWindow : Window
             LineHeight   = 17,
         };
 
-        foreach (Match m in Regex.Matches(text, @"\*\*(.+?)\*\*|([^*]+|\*)"))
+        foreach (var span in ParseInline(text))
         {
-            if (m.Groups[1].Success)
+            if (span.Bold)
             {
-                block.Inlines.Add(new Run(m.Groups[1].Value)
+                block.Inlines.Add(new Run(span.Text)
                 {
                     FontWeight = FontWeights.Bold,
                     Foreground = new SolidColorBrush(WpfColor.FromRgb(0xE5, 0xE2, 0xF4)),
                 });
             }
+            else if (span.Code)
+            {
+                block.Inlines.Add(new Run(span.Text)
+                {
+                    FontFamily = new System.Windows.Media.FontFamily("Consolas"),
+                    Foreground = new SolidColorBrush(WpfColor.FromRgb(0xC4, 0xB5, 0xFD)),
+                });
+            }
             else
             {
-                block.Inlines.Add(new Run(m.Value));
+                block.Inlines.Add(new Run(span.Text));
             }
         }
 
