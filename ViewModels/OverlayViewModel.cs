@@ -58,7 +58,12 @@ public class TileViewModel : BaseViewModel
             if (Definition.HasKnownMax && SettingsService.Instance.Settings.ShowMaxValues)
             {
                 var max = KnownMax;
-                if (max > 0) return $"{formatted} / {max:F0}";
+
+                // One decimal below a gigabyte. Integrated graphics can hold a few hundred
+                // megabytes of dedicated memory, and rounding that to whole gigabytes printed
+                // a capacity of "0".
+                if (max >= 1) return $"{formatted} / {max:F0}";
+                if (max >  0) return $"{formatted} / {max:F1}";
             }
 
             return formatted;
@@ -105,8 +110,12 @@ public class TileViewModel : BaseViewModel
             if (!Definition.HasKnownMax) return (Definition.WarnThreshold, Definition.DangerThreshold);
 
             double capacity = KnownMax;
-            if (capacity <= 0 || Definition.BarMax <= 0)
-                return (Definition.WarnThreshold, Definition.DangerThreshold);
+
+            // No capacity means no opinion. The catalogue thresholds are proportions of an
+            // assumed 16 GB and 6 GB, so applying them to hardware whose size we do not know
+            // is colouring by guesswork: a machine reporting no VRAM capacity would have shown
+            // a warning at 4.5 GB of some total nobody had measured.
+            if (capacity <= 0 || Definition.BarMax <= 0) return (0, 0);
 
             double scale = capacity / Definition.BarMax;
             return ((float)(Definition.WarnThreshold * scale), (float)(Definition.DangerThreshold * scale));
@@ -149,9 +158,13 @@ public class TileViewModel : BaseViewModel
         get
         {
             if (!_value.HasValue || !Definition.HasBar) return 0;
+
+            // A capacity tile with no known capacity draws no bar. Falling back to the
+            // catalogue figure filled the bar against an invented total, so a machine whose
+            // video memory we could not measure still showed a confident half-full gauge.
             double max = Definition.HasKnownMax ? KnownMax : Definition.BarMax;
-            if (max <= 0) max = Definition.BarMax;
             if (max <= 0) return 0;
+
             return Math.Clamp((double)_value.Value / max, 0, 1);
         }
     }

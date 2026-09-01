@@ -1,4 +1,4 @@
-using LibreHardwareMonitor.Hardware;
+﻿using LibreHardwareMonitor.Hardware;
 
 namespace Pulse.Services;
 
@@ -135,6 +135,9 @@ public sealed class SensorReader : IDisposable
         // The picker list is rebuilt from here on. Adapters that are genuinely gone should
         // stop being offered, which is the other half of what a rescan is for.
         _seenGpus.Clear();
+
+        // Capacities belong to the adapters that were there a moment ago.
+        _dedicatedVram.Clear();
 
         Open();
     }
@@ -432,7 +435,7 @@ public sealed class SensorReader : IDisposable
             data.CpuUsage = usageSum / usageCount;
     }
 
-    private static void ReadGpu(IHardware hw, SensorData data)
+    private void ReadGpu(IHardware hw, SensorData data)
     {
         // GPU Usage comes from the D3D 3D engine counter in preference to the vendor's own
         // "GPU Core" load.
@@ -479,9 +482,13 @@ public sealed class SensorReader : IDisposable
                                             && IsDedicatedMemorySensor(s.Name, "Used"):
                     data.GpuVram = MathF.Round(s.Value.Value / 1024f, 2);
                     break;
+                // Kept only as a fallback for an adapter Windows cannot tell us about; the
+                // preferred source is applied after this loop. Not rounded to whole gigabytes
+                // any more either, because a rounded capacity turns anything under 512 MB into
+                // a total of zero.
                 case SensorType.SmallData when data.TotalVramGb == 0
                                             && IsDedicatedMemorySensor(s.Name, "Total"):
-                    data.TotalVramGb = MathF.Round(s.Value.Value / 1024f, 0);
+                    data.TotalVramGb = s.Value.Value / 1024f;
                     break;
                 case SensorType.Load when s.Name.Contains("Core", StringComparison.OrdinalIgnoreCase) && coreLoad is null:
                     coreLoad = s.Value;
@@ -490,6 +497,38 @@ public sealed class SensorReader : IDisposable
         }
 
         data.GpuUsage = d3dEngineLoad ?? coreLoad;
+
+        // Capacity comes from Windows in preference to the vendor sensor.
+        //
+        // It is the same figure Task Manager shows as "Dedicated GPU memory", which is what
+        // people compare us against, and it is right in the two places the sensor is not.
+        // Integrated graphics publish no dedicated total at all, so there was nothing to read
+        // and the tile fell back to a capacity Pulse had invented. An AMD APU publishes the
+        // slice of system memory the BIOS reserved as though it were a card's own memory, so
+        // one user saw a 740M reported with 4 GB of video memory it does not have.
+        //
+        // Zero means Windows had no answer, not that there is no memory, so it is left alone
+        // rather than overwriting a sensor reading that might be real.
+        var dedicatedMb = DedicatedVideoMemoryMb(hw.Name);
+        if (dedicatedMb > 0) data.TotalVramGb = dedicatedMb / 1024f;
+    }
+
+    /// Cached per adapter name. Asking DXGI costs about a millisecond, which is not much until
+    /// it happens on every poll. Cleared by Rescan, which is the only time the answer changes.
+    private readonly Dictionary<string, float> _dedicatedVram = new(StringComparer.OrdinalIgnoreCase);
+
+    private float DedicatedVideoMemoryMb(string adapterName)
+    {
+        if (string.IsNullOrWhiteSpace(adapterName)) return 0;
+
+        if (_dedicatedVram.TryGetValue(adapterName, out var cached)) return cached;
+
+        float mb;
+        try   { mb = DisplayAdapters.DedicatedVideoMemoryMb(adapterName); }
+        catch { mb = 0; }
+
+        _dedicatedVram[adapterName] = mb;
+        return mb;
     }
 
     /// <summary>
