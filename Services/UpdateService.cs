@@ -123,8 +123,19 @@ public class UpdateService
             long    installerSize = 0;
             if (root["assets"] is JArray assets)
             {
-                var asset = assets.FirstOrDefault(a =>
-                    (a.Value<string>("name") ?? "").EndsWith(".exe", StringComparison.OrdinalIgnoreCase));
+                // Our installer by name, before falling back to whatever executable comes
+                // first. A release carrying a second .exe — a portable build, a helper tool —
+                // would otherwise be picked by whichever GitHub happened to list first, and
+                // Pulse would download it and try to run it as an installer. The checksum
+                // check would refuse it, so this is the difference between a confusing failed
+                // update and a working one, rather than between safe and unsafe.
+                static bool IsExe(JToken a) =>
+                    (a.Value<string>("name") ?? "").EndsWith(".exe", StringComparison.OrdinalIgnoreCase);
+
+                var asset = assets.FirstOrDefault(a => IsExe(a)
+                                && (a.Value<string>("name") ?? "")
+                                    .StartsWith("PulseSetup", StringComparison.OrdinalIgnoreCase))
+                         ?? assets.FirstOrDefault(IsExe);
                 installerUrl  = asset?.Value<string>("browser_download_url");
                 installerName = asset?.Value<string>("name");
                 installerSize = asset?.Value<long>("size") ?? 0L;
@@ -426,12 +437,25 @@ public class UpdateService
     {
         try
         {
+            // The URL comes from the GitHub API rather than from us, and UseShellExecute hands
+            // whatever it is given to Windows to open however Windows sees fit. That is fine
+            // for a web address and not fine for anything else: a scheme naming a local
+            // program, or a path to one, would be launched just as willingly. GitHub is not
+            // expected to serve either, but "the server we trust would never" is not a reason
+            // to pass an unchecked string to ShellExecute, and checking it costs one line.
+            var target = info?.ReleaseUrl is { Length: > 0 } u && IsWebAddress(u) ? u : ReleasesPage;
+
             Process.Start(new ProcessStartInfo
             {
-                FileName        = info?.ReleaseUrl is { Length: > 0 } u ? u : ReleasesPage,
+                FileName        = target,
                 UseShellExecute = true,
             });
         }
         catch { }
     }
+
+    /// Whether a string is an ordinary http or https address, and nothing more interesting.
+    private static bool IsWebAddress(string url) =>
+        Uri.TryCreate(url, UriKind.Absolute, out var uri)
+        && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
 }

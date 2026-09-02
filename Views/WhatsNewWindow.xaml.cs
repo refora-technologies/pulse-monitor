@@ -142,8 +142,24 @@ public partial class WhatsNewWindow : Window
         if (fenced.Count > 0)
             blocks.Add(new NoteBlock(NoteBlockKind.Code, string.Join("\n", fenced)));
 
+        // Bounded, because each block becomes its own element in the panel and the text this
+        // is built from arrives over the network. Our own notes run to a few dozen lines, so
+        // this only ever bites on something that has gone wrong: a release body pasted with a
+        // whole changelog in it, or a reply that is not what we asked for. Truncating says so
+        // rather than quietly dropping the rest, and the release page is one click away.
+        if (blocks.Count > MaxNoteBlocks)
+        {
+            blocks.RemoveRange(MaxNoteBlocks, blocks.Count - MaxNoteBlocks);
+            blocks.Add(new NoteBlock(NoteBlockKind.Blank, ""));
+            blocks.Add(new NoteBlock(NoteBlockKind.Paragraph,
+                "These notes were shortened to fit. Open the release page to read all of them."));
+        }
+
         return blocks;
     }
+
+    /// How many blocks are worth drawing. Generous next to any real release note.
+    private const int MaxNoteBlocks = 400;
 
     /// A horizontal rule: three or more of the same marker, nothing else but spaces.
     private static bool IsRule(string trimmed)
