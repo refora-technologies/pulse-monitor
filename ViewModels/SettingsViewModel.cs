@@ -99,10 +99,7 @@ public class SettingsViewModel : BaseViewModel
     {
         if (_saveTimer == null)
         {
-            _saveTimer = new System.Windows.Threading.DispatcherTimer
-            {
-                Interval = TimeSpan.FromMilliseconds(400),
-            };
+            _saveTimer = NewDebounceTimer();
             _saveTimer.Tick += (_, _) =>
             {
                 _saveTimer!.Stop();
@@ -112,6 +109,34 @@ public class SettingsViewModel : BaseViewModel
 
         _saveTimer.Stop();
         _saveTimer.Start();
+    }
+
+    /// <summary>
+    /// A debounce timer bound to the interface thread, whoever happens to build it.
+    /// </summary>
+    /// <remarks>
+    /// A DispatcherTimer belongs to the thread that constructs it, and both of the timers
+    /// here are built on first use rather than up front. Every path that reaches them today
+    /// runs on the interface thread, so this is currently safe by luck rather than by design:
+    /// one call from a background thread would attach the timer to a dispatcher with no
+    /// message loop, and the tick would simply never arrive. The setting would apply for the
+    /// session and be gone at the next launch, with nothing logged, because the save was
+    /// waiting on a timer that could not fire.
+    ///
+    /// FpsService had the same hazard and answered it by making the caller responsible for
+    /// where the object is first built. Naming the dispatcher is the better answer where the
+    /// constructor allows it: it cannot be got wrong from a distance.
+    /// </remarks>
+    private static System.Windows.Threading.DispatcherTimer NewDebounceTimer()
+    {
+        var dispatcher = System.Windows.Application.Current?.Dispatcher
+                      ?? System.Windows.Threading.Dispatcher.CurrentDispatcher;
+
+        return new System.Windows.Threading.DispatcherTimer(
+            System.Windows.Threading.DispatcherPriority.Normal, dispatcher)
+        {
+            Interval = TimeSpan.FromMilliseconds(400),
+        };
     }
 
     /// <summary>
@@ -343,10 +368,7 @@ public class SettingsViewModel : BaseViewModel
     {
         if (_positionSaveTimer == null)
         {
-            _positionSaveTimer = new System.Windows.Threading.DispatcherTimer
-            {
-                Interval = TimeSpan.FromMilliseconds(400),
-            };
+            _positionSaveTimer = NewDebounceTimer();
             _positionSaveTimer.Tick += (_, _) =>
             {
                 _positionSaveTimer!.Stop();

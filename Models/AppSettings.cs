@@ -130,6 +130,13 @@ public class AppSettings
     /// </summary>
     private void Sanitise()
     {
+        // Ids that match no tile are deliberately kept rather than dropped.
+        //
+        // They are already harmless: the overlay looks each one up and skips what it cannot
+        // find. Removing them here would look tidier and would quietly destroy something —
+        // a file written by a newer Pulse, opened once by an older one, would come back with
+        // the newer build's tiles gone for good. Blank entries are removed because those are
+        // never anyone's selection.
         ActiveTileIds    = ActiveTileIds?.Where(id => !string.IsNullOrWhiteSpace(id)).Distinct().ToList() ?? new List<string>();
         TileOrder        = TileOrder?.Where(id => !string.IsNullOrWhiteSpace(id)).Distinct().ToList()     ?? new List<string>();
         SelectedGpuId  ??= "";
