@@ -70,6 +70,51 @@ public class AppSettings
     public bool IsCompactMode { get; set; } = false;
     public bool IsDragEnabled { get; set; } = false;
     public int SelectedMonitorIndex { get; set; } = 0;
+
+    /// <summary>
+    /// Whether Pulse registers its keyboard shortcuts with Windows.
+    /// </summary>
+    /// <remarks>
+    /// Off out of the box, and the defaults below are still filled in. That combination is
+    /// deliberate: the suggested combinations are visible so the feature is discoverable, and
+    /// nothing is taken from the system until someone asks for it. A global shortcut is not a
+    /// preference like a colour — it stops that combination reaching every other application on
+    /// the machine — so it is not ours to switch on for someone who never went looking.
+    ///
+    /// Tools that live inside a game launcher do ship defaults, and monitoring tools that run
+    /// all day do not. Pulse is the second kind.
+    /// </remarks>
+    public bool ShortcutsEnabled { get; set; } = false;
+
+    /// <summary>
+    /// The combinations, written the way they are shown: "Alt+Shift+X".
+    /// </summary>
+    /// Text rather than a packed number so that someone opening settings.json can read what
+    /// their shortcuts are, and repair one by hand if it comes to that. An empty string means
+    /// the row is deliberately unassigned, which is different from the key being missing.
+    public string ShortcutToggleOverlay { get; set; } = "Alt+Shift+X";
+    public string ShortcutToggleControlPanel { get; set; } = "Alt+Shift+V";
+    public string ShortcutToggleCompactMode { get; set; } = "Alt+Shift+C";
+
+    /// The parsed combination for an action. Anything unreadable comes back as unset.
+    public Shortcut ShortcutFor(ShortcutAction action) => Shortcut.Parse(action switch
+    {
+        ShortcutAction.ToggleOverlay      => ShortcutToggleOverlay,
+        ShortcutAction.ToggleControlPanel => ShortcutToggleControlPanel,
+        ShortcutAction.ToggleCompactMode  => ShortcutToggleCompactMode,
+        _ => "",
+    });
+
+    public void SetShortcut(ShortcutAction action, Shortcut shortcut)
+    {
+        var text = shortcut.ToString();
+        switch (action)
+        {
+            case ShortcutAction.ToggleOverlay:      ShortcutToggleOverlay      = text; break;
+            case ShortcutAction.ToggleControlPanel: ShortcutToggleControlPanel = text; break;
+            case ShortcutAction.ToggleCompactMode:  ShortcutToggleCompactMode  = text; break;
+        }
+    }
     public bool ShowMaxValues { get; set; } = false;
     public double OverlayScale { get; set; } = 1.0;
 
@@ -160,6 +205,29 @@ public class AppSettings
         PollingIntervalSeconds = Clamp(PollingIntervalSeconds, 0.5, 60.0, 2.0);
 
         if (SelectedMonitorIndex < 0) SelectedMonitorIndex = 0;
+
+        // A shortcut that cannot be read, or that names a combination Pulse would have refused
+        // if it had been typed in, becomes unset rather than being repaired into something
+        // nobody chose. Rewritten from the parsed value so the stored text is normalised too:
+        // "shift + alt + x" saved by hand comes back as "Alt+Shift+X".
+        foreach (var action in new[] { ShortcutAction.ToggleOverlay,
+                                       ShortcutAction.ToggleControlPanel,
+                                       ShortcutAction.ToggleCompactMode })
+        {
+            SetShortcut(action, ShortcutFor(action));
+        }
+
+        // Two rows holding the same combination cannot both work: whichever registers second
+        // is refused by Windows. The later row loses it, matching what the panel does when the
+        // same thing is assigned twice.
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var action in new[] { ShortcutAction.ToggleOverlay,
+                                       ShortcutAction.ToggleControlPanel,
+                                       ShortcutAction.ToggleCompactMode })
+        {
+            var text = ShortcutFor(action).ToString();
+            if (text.Length > 0 && !seen.Add(text)) SetShortcut(action, Shortcut.None);
+        }
 
         if (OverlayPosition is not ("TopLeft" or "TopRight" or "BottomLeft" or "BottomRight" or "Custom"))
             OverlayPosition = "TopRight";

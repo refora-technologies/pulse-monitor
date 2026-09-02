@@ -6,6 +6,8 @@ using Pulse.Services;
 using WpfColor = System.Windows.Media.Color;
 using WpfBrush = System.Windows.Media.SolidColorBrush;
 
+using Shortcut = Pulse.Models.Shortcut;
+
 namespace Pulse.ViewModels;
 
 public class TileSelectionItem : BaseViewModel
@@ -227,6 +229,106 @@ public class SettingsViewModel : BaseViewModel
                 SettingsService.Instance.Save();
             }
         }
+    }
+
+    // ── Keyboard shortcuts ──────────────────────────────────────────────────────────
+
+    public ObservableCollection<ShortcutRowViewModel> ShortcutRows { get; } = new();
+
+    private bool _shortcutsEnabled;
+
+    /// <summary>
+    /// Whether the combinations are registered with Windows.
+    /// </summary>
+    /// Off until asked for. The rows are filled in either way, so the suggestions are visible
+    /// without Pulse having taken anything from anyone.
+    public bool ShortcutsEnabled
+    {
+        get => _shortcutsEnabled;
+        set
+        {
+            if (!Set(ref _shortcutsEnabled, value)) return;
+
+            SettingsService.Instance.Settings.ShortcutsEnabled = value;
+            SettingsService.Instance.Save();
+            ApplyShortcuts();
+        }
+    }
+
+    /// <summary>
+    /// Assigns a combination to a row, or explains why it cannot be.
+    /// </summary>
+    /// <returns>Null when it was accepted, otherwise the reason to show.</returns>
+    /// <remarks>
+    /// Refusing here rather than at registration time is the whole difference between a
+    /// shortcut feature that can be trusted and one that cannot. A combination that Windows
+    /// will not hand over, or that another row already holds, is knowable the moment it is
+    /// pressed; accepting it and failing later teaches people the feature is unreliable.
+    /// </remarks>
+    public string? AssignShortcut(ShortcutAction action, Shortcut shortcut)
+    {
+        var rejection = shortcut.Rejection();
+        if (rejection != null) return rejection;
+
+        // Two rows cannot hold the same combination: Windows refuses the second registration,
+        // so one of them would simply stop working with no obvious cause.
+        if (shortcut.IsSet)
+        {
+            foreach (var other in ShortcutRows)
+            {
+                if (other.Action == action || other.Binding != shortcut) continue;
+                return $"{shortcut} is already set to “{other.Label.ToLowerInvariant()}”.";
+            }
+        }
+
+        SettingsService.Instance.Settings.SetShortcut(action, shortcut);
+        SettingsService.Instance.Save();
+
+        foreach (var row in ShortcutRows)
+            if (row.Action == action) row.Binding = shortcut;
+
+        ApplyShortcuts();
+        return null;
+    }
+
+    public void ClearShortcut(ShortcutAction action) => AssignShortcut(action, Shortcut.None);
+
+    /// Puts the three suggested combinations back, including on rows that were cleared.
+    public void ResetShortcuts()
+    {
+        foreach (var action in HotkeyService.AllActions)
+        {
+            var fallback = Shortcut.Default(action);
+            SettingsService.Instance.Settings.SetShortcut(action, fallback);
+
+            foreach (var row in ShortcutRows)
+                if (row.Action == action) row.Binding = fallback;
+        }
+
+        SettingsService.Instance.Save();
+        ApplyShortcuts();
+    }
+
+    /// Re-registers everything and copies any failures onto the rows that caused them.
+    public void ApplyShortcuts()
+    {
+        HotkeyService.Instance.Apply();
+        RefreshShortcutProblems();
+    }
+
+    public void RefreshShortcutProblems()
+    {
+        var failures = HotkeyService.Instance.Failures;
+
+        foreach (var row in ShortcutRows)
+            row.Problem = failures.TryGetValue(row.Action, out var reason) ? reason : "";
+    }
+
+    private void BuildShortcutRows()
+    {
+        ShortcutRows.Clear();
+        foreach (var action in HotkeyService.AllActions)
+            ShortcutRows.Add(new ShortcutRowViewModel(action));
     }
 
     private bool _startWithWindows;
@@ -836,6 +938,14 @@ public class SettingsViewModel : BaseViewModel
         _showStatusBar         = settings.ShowStatusBar;
         _selectedMonitorIndex  = settings.SelectedMonitorIndex;
         _showMaxValues         = settings.ShowMaxValues;
+        _shortcutsEnabled      = settings.ShortcutsEnabled;
+
+        BuildShortcutRows();
+
+        // A combination can be claimed by another program between one launch and the next, so
+        // the reason is refreshed whenever registration is attempted, not only when the user
+        // changes something.
+        HotkeyService.Instance.FailuresChanged += (_, _) => RefreshShortcutProblems();
 
         HardwareService.Instance.SetInterval(_pollingInterval);
 

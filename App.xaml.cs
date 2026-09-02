@@ -120,6 +120,12 @@ public partial class App : WinApplication
         _ = OverlayViewModel.Instance;
         _ = SettingsViewModel.Instance;
 
+        // After the view models, because a shortcut arriving before they exist would build one
+        // from the message pump. Registered here rather than lazily so a combination claimed by
+        // another program is reported at startup, not the first time the key is pressed.
+        HotkeyService.Instance.Pressed += (_, action) => RunShortcut(action);
+        HotkeyService.Instance.Apply();
+
         SetupTrayIcon();
 
         ShowOverlay();
@@ -326,6 +332,63 @@ public partial class App : WinApplication
     }
 
     /// <summary>
+    /// Carries out a keyboard shortcut.
+    /// </summary>
+    /// <remarks>
+    /// Driven straight from the hotkey message on purpose. Windows grants foreground rights to
+    /// the process it delivers a hotkey to, and only for that moment — so activating the panel
+    /// from here brings it genuinely to the front, where the same call made a moment later
+    /// would only flash it in the taskbar.
+    /// </remarks>
+    private void RunShortcut(Models.ShortcutAction action)
+    {
+        switch (action)
+        {
+            case Models.ShortcutAction.ToggleOverlay:
+                ToggleOverlay();
+                break;
+
+            case Models.ShortcutAction.ToggleControlPanel:
+                ToggleControlPanel();
+                break;
+
+            case Models.ShortcutAction.ToggleCompactMode:
+                // Deliberately does not show the overlay. A key labelled "switch compact mode"
+                // that also unhides things is doing two jobs, and the second one is the one
+                // nobody asked for. Switching it while hidden simply means it is already in
+                // the chosen mode next time it appears.
+                SettingsViewModel.Instance.IsCompactMode = !SettingsViewModel.Instance.IsCompactMode;
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Opens the panel, brings it forward, or hides it.
+    /// </summary>
+    /// <remarks>
+    /// Three states rather than two. A plain show/hide feels broken when the panel is open but
+    /// buried behind a game: the key appears to do nothing, because it is hiding a window the
+    /// user cannot see. Buried means bring it forward; in front means put it away.
+    /// </remarks>
+    private void ToggleControlPanel()
+    {
+        if (_mainWindow is not { IsLoaded: true } || !_mainWindow.IsVisible)
+        {
+            ShowControlPanel();
+            return;
+        }
+
+        if (_mainWindow.IsActive)
+        {
+            if (SettingsViewModel.Instance.MinimizeToTray) _mainWindow.Hide();
+            else _mainWindow.WindowState = WindowState.Minimized;
+            return;
+        }
+
+        ShowControlPanel();
+    }
+
+    /// <summary>
     /// True once Pulse is genuinely quitting, so windows know to close rather than hide.
     /// Without it, honouring "minimize to tray" in OnClosing would cancel the close that
     /// Shutdown itself performs, and Exit would do nothing.
@@ -341,6 +404,11 @@ public partial class App : WinApplication
         _trayIcon?.Dispose();
         HardwareService.Instance.Dispose();
         FpsService.Instance.Dispose();
+
+        // Released before the process ends, not left to it. Windows holds a registered
+        // combination for as long as the handle lives, so an orderly exit that skipped this
+        // would keep the keys taken from every other application a moment longer than needed.
+        HotkeyService.Instance.Dispose();
         Dispatcher.Invoke(() => Shutdown());
     }
 
@@ -423,6 +491,7 @@ public partial class App : WinApplication
         {
             try { HardwareService.Instance.Dispose(); } catch { }
             try { FpsService.Instance.Dispose(); } catch { }
+            try { HotkeyService.Instance.Dispose(); } catch { }
         }
 
         try { _showUiSignal?.Dispose(); _showUiSignal = null; } catch { }
