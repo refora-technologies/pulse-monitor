@@ -71,7 +71,9 @@ public class FpsService : IDisposable
     private const int LowMaxSamples = 20_000;
     private const int LowMinSamples = 200;
 
-    private const int MaxRestarts = 5;
+    /// A capture that survives this long is considered healthy and clears the restart count,
+    /// so occasional interruptions over a long session never accumulate into a long backoff.
+    private static readonly TimeSpan CaptureSettled = TimeSpan.FromSeconds(60);
 
     private readonly object _lock = new();
 
@@ -192,23 +194,40 @@ public class FpsService : IDisposable
     }
 
     /// <summary>
-    /// PresentMon can exit on its own — another tool taking over the ETW session, a driver
+    /// PresentMon can exit on its own: another tool taking over the ETW session, a driver
     /// reset, or being killed. Previously _process stayed non-null so nothing ever restarted
     /// it, and FPS simply never came back until the tile was toggled off and on again.
     /// </summary>
     private void OnCaptureExited(object? sender, EventArgs e)
     {
+        // Only the capture this handler belongs to. The restart is delayed, and without this
+        // an exit that arrived while a newer capture was already running would tear down the
+        // newer one: the delayed work disposed whatever _process happened to hold by then,
+        // which is not necessarily the process that exited. Toggling the tile off and on
+        // quickly was enough to leave two captures running, stopping each other.
+        if (sender is not Process exited || !ReferenceEquals(exited, _process)) return;
         if (_stopping || !_captureWanted) return;
-        if (_restartCount >= MaxRestarts) return;   // it is not coming back; stop trying
 
+        // A capture that ran for a good while was working, so whatever ended it is a fresh
+        // problem rather than a continuing one. Without this the backoff only ever grows.
+        var lived = TimeSpan.FromMilliseconds(Environment.TickCount64 - _captureStartedAt);
+        if (lived >= CaptureSettled) _restartCount = 0;
+
+        int generation = ++_captureGeneration;
         _restartCount++;
+
+        int code = -1;
+        try { code = exited.ExitCode; } catch { }
+
+        LogService.Warn(nameof(FpsService),
+            $"Frame capture stopped (exit code {code}); restart {_restartCount} in {BackoffFor(_restartCount).TotalSeconds:F0}s.");
 
         _ = Task.Run(async () =>
         {
-            // Backs off so a consistently failing PresentMon cannot spin.
-            await Task.Delay(1000 * _restartCount);
+            await Task.Delay(BackoffFor(_restartCount));
 
-            if (_stopping || !_captureWanted) return;
+            // Anything started since supersedes this restart.
+            if (_stopping || !_captureWanted || generation != _captureGeneration) return;
 
             try { _process?.Dispose(); } catch { }
             _process = null;
@@ -221,9 +240,28 @@ public class FpsService : IDisposable
         });
     }
 
+    /// <summary>
+    /// How long to wait before trying again, capped.
+    ///
+    /// Never gives up. It used to stop after five attempts and never resume, so five unrelated
+    /// interruptions across a long session left the FPS tiles permanently blank until Pulse was
+    /// restarted, with nothing on screen to say why. A capture that has been healthy for a
+    /// while resets the count, so an occasional hiccup does not accumulate into a long wait.
+    /// </summary>
+    private static TimeSpan BackoffFor(int attempt) =>
+        TimeSpan.FromSeconds(Math.Min(attempt, 15));
+
+    private int  _captureGeneration;
+    private long _captureStartedAt;
+
     private void StartCapture()
     {
-        if (!File.Exists(PresentMonPath)) return;
+        if (!File.Exists(PresentMonPath))
+        {
+            LogService.Warn(nameof(FpsService),
+                $"Frame capture is unavailable: {PresentMonPath} is missing.");
+            return;
+        }
 
         try
         {
@@ -240,8 +278,16 @@ public class FpsService : IDisposable
                     // relying on whichever happens to be the default would mean a future
                     // PresentMon silently renaming the columns we look for — and FPS just
                     // quietly stopping.
-                    Arguments              = "--output_stdout --no_console_stats --stop_existing_session --v1_metrics",
+                    // --session_name is what makes --stop_existing_session safe. PresentMon
+                    // stops "a trace session with the same name", and with no name given that
+                    // is the default one, which any other PresentMon based tool is also using.
+                    // So starting frame capture silently killed a capture belonging to
+                    // CapFrameX, OCAT, or someone's own PresentMon run. Named after our own
+                    // process, the flag now only ever clears a session we abandoned ourselves.
+                    Arguments              = "--output_stdout --no_console_stats --v1_metrics "
+                                           + $"--session_name Pulse_{Environment.ProcessId} --stop_existing_session",
                     RedirectStandardOutput = true,
+                    RedirectStandardError  = true,
                     UseShellExecute        = false,
                     CreateNoWindow         = true,
                 }
@@ -256,7 +302,19 @@ public class FpsService : IDisposable
             if (!ChildProcessJob.Adopt(_process))
                 LogService.Warn(nameof(FpsService), "Frame capture could not be tied to Pulse's lifetime.");
 
+            _captureStartedAt = Environment.TickCount64;
+
+            // Read as well as redirected. PresentMon explains itself here when it refuses to
+            // start, and none of that was reaching the log, so "FPS shows nothing" was
+            // indistinguishable from a game that simply is not presenting.
+            _process.ErrorDataReceived += (_, e) =>
+            {
+                if (!string.IsNullOrWhiteSpace(e.Data))
+                    LogService.Warn(nameof(FpsService), $"PresentMon: {e.Data.Trim()}");
+            };
+
             _process.BeginOutputReadLine();
+            _process.BeginErrorReadLine();
         }
         catch (Exception ex)
         {
@@ -266,7 +324,31 @@ public class FpsService : IDisposable
             // from a game that simply is not presenting.
             LogService.Error(nameof(FpsService), "Could not start frame capture", ex);
             _process = null;
+            ScheduleRetry();
         }
+    }
+
+    /// <summary>
+    /// Tries again after a launch that never produced a process.
+    ///
+    /// Exited only fires for something that actually started, so a failed Process.Start left
+    /// nothing to trigger a retry and frame capture stayed dead for the rest of the session.
+    /// That is the case where PresentMon is momentarily locked, which happens right after an
+    /// upgrade has replaced it.
+    /// </summary>
+    private void ScheduleRetry()
+    {
+        if (_stopping || !_captureWanted) return;
+
+        int generation = ++_captureGeneration;
+        _restartCount++;
+
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(BackoffFor(_restartCount));
+            if (_stopping || !_captureWanted || generation != _captureGeneration) return;
+            StartCapture();
+        });
     }
 
     private void OnLine(object sender, DataReceivedEventArgs e)
@@ -314,8 +396,14 @@ public class FpsService : IDisposable
         // be blank or absurd for a large share of users.
         if (!uint.TryParse(fields[_headerProcessIdIndex], NumberStyles.Integer,
                            CultureInfo.InvariantCulture, out var pid) || pid != _foregroundPid) return;
+        // Finite, positive, and within reach of reality. "ms <= 0" alone is not enough:
+        // double.TryParse accepts "NaN" and "Infinity", and every comparison against NaN is
+        // false, so a single such row passed the guard, poisoned the average and put a
+        // nonsense frame rate on screen. The upper bound catches a frame time no game
+        // produces, ten seconds, which would otherwise drag the average down for a minute.
         if (!double.TryParse(fields[_headerFrameTimeIndex], NumberStyles.Float,
-                             CultureInfo.InvariantCulture, out var ms) || ms <= 0) return;
+                             CultureInfo.InvariantCulture, out var ms)
+            || !double.IsFinite(ms) || ms <= 0 || ms > 10_000) return;
 
         var swapChain = _headerSwapChainIndex >= 0 && fields.Length > _headerSwapChainIndex
             ? fields[_headerSwapChainIndex]
@@ -462,12 +550,75 @@ public class FpsService : IDisposable
         OnePercentLowFps = averageMs > 0 ? (float)(1000.0 / averageMs) : null;
     }
 
+    /// <summary>
+    /// Processes whose presents are not a frame rate anyone wants to see.
+    ///
+    /// Windows composites its own shell continuously, so with the desktop focused Pulse was
+    /// reporting explorer's compositing as a frame rate and showing a confident 4 to 14 fps
+    /// when nothing was running at all. Pulse itself is excluded for the same reason: the
+    /// overlay presents, so clicking the control panel measured us measuring ourselves.
+    ///
+    /// Deliberately not a rule like "below fifteen fps means the desktop", which would have
+    /// hidden genuinely struggling games, and deliberately not a fullscreen requirement,
+    /// because borderless and windowed games are perfectly normal.
+    /// </summary>
+    private static readonly HashSet<string> IgnoredProcessNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "explorer",
+        "ShellExperienceHost",
+        "StartMenuExperienceHost",
+        "SearchHost",
+        "ShellHost",
+        "TextInputHost",
+        "LockApp",
+        "SystemSettings",
+        "ApplicationFrameHost",
+        "dwm",
+    };
+
+    private static bool IsWorthMeasuring(uint pid)
+    {
+        if (pid == 0) return false;
+        if (pid == (uint)Environment.ProcessId) return false;
+
+        try
+        {
+            using var process = Process.GetProcessById((int)pid);
+            return !IgnoredProcessNames.Contains(process.ProcessName);
+        }
+        catch
+        {
+            // Gone already, or not ours to inspect. Measuring something we cannot identify is
+            // worse than measuring nothing.
+            return false;
+        }
+    }
+
     private void RefreshForegroundTarget()
     {
         var hwnd = GetForegroundWindow();
         if (hwnd == IntPtr.Zero) return;
         GetWindowThreadProcessId(hwnd, out uint pid);
-        if (pid == 0 || pid == _foregroundPid) return;
+
+        // Nothing worth measuring is focused, so stop measuring rather than reporting whatever
+        // the shell happens to be doing.
+        if (!IsWorthMeasuring(pid))
+        {
+            if (_foregroundPid == 0) return;
+
+            _foregroundPid = 0;
+            lock (_lock)
+            {
+                _bySwapChain.Clear();
+                _lowSamples.Clear();
+                _dominantChain   = "";
+                CurrentFps       = null;
+                OnePercentLowFps = null;
+            }
+            return;
+        }
+
+        if (pid == _foregroundPid) return;
 
         _foregroundPid = pid;
         lock (_lock)

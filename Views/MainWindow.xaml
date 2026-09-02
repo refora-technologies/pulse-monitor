@@ -1028,7 +1028,7 @@
                                                       IsChecked="{Binding IsSelected, Mode=TwoWay}"
                                                       AutomationProperties.Name="{Binding Definition.Label, Mode=OneWay}"
                                                       AutomationProperties.HelpText="Space toggles this tile. Alt with an arrow key moves it."
-                                                      ToolTip="Alt + arrow keys move this tile">
+                                                      ToolTip="{Binding Definition.Description, Mode=OneWay, TargetNullValue='Alt + arrow keys move this tile'}">
                                                 <TextBlock FontSize="11.5" Margin="0,0,14,0">
                                                     <Run Text="{Binding Definition.Label, Mode=OneWay}"
                                                          Foreground="#DBD7F2" FontWeight="Medium"/>

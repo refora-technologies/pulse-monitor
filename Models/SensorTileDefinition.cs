@@ -1,4 +1,4 @@
-namespace Pulse.Models;
+﻿namespace Pulse.Models;
 
 public class SensorTileDefinition
 {
@@ -10,6 +10,18 @@ public class SensorTileDefinition
     public float BarMax { get; set; } = 100f;
     public float WarnThreshold { get; set; }
     public float DangerThreshold { get; set; }
+
+    /// <summary>
+    /// What this reading actually is, shown as a tooltip in the settings list.
+    ///
+    /// Added for the frame rate tiles, where the name alone is not enough. "1% Low" is used by
+    /// different tools for two different statistics, and ours reads lower than MSI Afterburner
+    /// on the same scene because it averages the worst frames rather than reporting the one on
+    /// the boundary. Users reasonably concluded one of us was broken.
+    /// </summary>
+    /// Null rather than empty for the tiles that do not need one, so the settings list can
+    /// fall back to its keyboard hint through TargetNullValue.
+    public string? Description { get; set; }
 
     /// True only for tiles where Pulse knows a real hardware capacity (total RAM/VRAM),
     /// as opposed to warn/danger thresholds, which are just our own guessed defaults and
@@ -48,8 +60,19 @@ public class SensorTileDefinition
         new() { Id = "gpu_vram",     Label = "VRAM Used",     Unit = "GB",   Category = SensorCategory.GPU,     HasBar = true,  BarMax = 6,   WarnThreshold = 4.5f, DangerThreshold = 5.5f, HasKnownMax = true },
         new() { Id = "ram_used",     Label = "RAM Used",      Unit = "GB",   Category = SensorCategory.Memory,  HasBar = true,  BarMax = 16,  WarnThreshold = 12,   DangerThreshold = 14.5f, HasKnownMax = true },
 
-        new() { Id = "fps",          Label = "FPS",           Unit = "fps",  Category = SensorCategory.System,  HasBar = false, WarnThreshold = 0,   DangerThreshold = 0   },
-        new() { Id = "fps_1low",     Label = "1% Low FPS",    Unit = "fps",  Category = SensorCategory.System,  HasBar = false, WarnThreshold = 0,   DangerThreshold = 0   },
+        new() { Id = "fps",          Label = "FPS",           Unit = "fps",  Category = SensorCategory.System,  HasBar = false, WarnThreshold = 0,   DangerThreshold = 0,
+                Description = "Frames your graphics card produced in the last second, for whichever app is in focus." },
+
+        // "Avg" is in the name on purpose. Two different statistics are called "1% low": the
+        // average of the slowest frames, which is NVIDIA's, and the value at the 1% boundary,
+        // which is RTSS and MSI Afterburner's. Ours always reads lower on the same scene
+        // because a single deep stutter pulls an average down and does not move a boundary.
+        // Without saying which one this is, the difference looks like a bug in Pulse.
+        new() { Id = "fps_1low",     Label = "1% Low Avg",    Unit = "fps",  Category = SensorCategory.System,  HasBar = false, WarnThreshold = 0,   DangerThreshold = 0,
+                Description = "The average of your slowest 1% of frames over the last minute. "
+                            + "Lower than the 1% low shown by MSI Afterburner and RTSS, which report the "
+                            + "frame on the boundary instead of averaging the worst ones. This one reacts "
+                            + "to a single deep stutter; theirs does not." },
 
         new() { Id = "net_upload",   Label = "Net Upload",    Unit = "MB/s", Category = SensorCategory.Network, HasBar = false, WarnThreshold = 0,   DangerThreshold = 0   },
         new() { Id = "net_download", Label = "Net Download",  Unit = "MB/s", Category = SensorCategory.Network, HasBar = false, WarnThreshold = 0,   DangerThreshold = 0   },
