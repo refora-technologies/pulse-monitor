@@ -84,8 +84,10 @@ public partial class App : WinApplication
         // finish before the overlay appears.
         Task.Run(() =>
         {
-            try { UpdateService.CleanupStaleDownloads(); } catch { }
-            try { CleanupStaleExtractDirectories();     } catch { }
+            // Housekeeping only. Both remove leftovers from previous runs, so failing leaves
+            // a stale folder on disk and changes nothing about this one.
+            try { UpdateService.CleanupStaleDownloads(); } catch { }   // leftovers only
+            try { CleanupStaleExtractDirectories();     } catch { }   // leftovers only
 
             try
             {
@@ -97,7 +99,15 @@ public partial class App : WinApplication
                 if (SettingsService.Instance.ReconcileStartupTask())
                     Dispatcher.Invoke(SettingsService.Instance.Save);
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // Pulse runs perfectly well without this, but the toggle in the panel may now
+                // disagree with what Windows will actually do at logon, and that is exactly
+                // the sort of thing someone reports as "startup does not work" with nothing
+                // in the log to go on.
+                Services.LogService.Error(nameof(App),
+                    "Could not reconcile the startup task; the setting may not match reality", ex);
+            }
         });
 
         // Initialise singletons (starts hardware polling).
@@ -208,7 +218,13 @@ public partial class App : WinApplication
                     System.Windows.Forms.ToolTipIcon.Info);
             }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            // Silently not checking for updates is worse than not checking: nobody would ever
+            // find out. Deliberately not shown to the user, since a failed background check on
+            // startup is not something to interrupt anyone about.
+            Services.LogService.Error(nameof(App), "The startup update check failed", ex);
+        }
     }
 
     public void ShowOverlay()
@@ -319,6 +335,8 @@ public partial class App : WinApplication
     private void ExitApp()
     {
         IsExiting = true;
+        // A last chance to write a setting adjusted seconds ago. Exit must not be blocked by
+        // it failing, and the panel already reports a save that cannot be written.
         try { ViewModels.SettingsViewModel.Instance.FlushPendingSave(); } catch { }
         _trayIcon?.Dispose();
         HardwareService.Instance.Dispose();

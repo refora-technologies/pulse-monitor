@@ -886,7 +886,14 @@ public partial class OverlayWindow : Window
         {
             if (hwnd != IntPtr.Zero) return System.Windows.Forms.Screen.FromHandle(hwnd);
         }
-        catch { }
+        catch (Exception ex)
+        {
+            // Falls through to the primary display, which is a working overlay in the wrong
+            // place. That is precisely the complaint that is impossible to explain afterwards
+            // without knowing this happened.
+            Services.LogService.Error(nameof(OverlayWindow),
+                "Could not identify the display the overlay is on; falling back to the primary", ex);
+        }
 
         return System.Windows.Forms.Screen.PrimaryScreen ?? screens[0];
     }

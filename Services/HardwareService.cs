@@ -206,7 +206,13 @@ public class HardwareService : IDisposable
         _dispatcher = System.Windows.Application.Current?.Dispatcher;
 
         try { PollingIntervalSeconds = SettingsService.Instance.Settings.PollingIntervalSeconds; }
-        catch { }
+        catch (Exception ex)
+        {
+            // Falls back to the default interval, which is a working Pulse rather than none.
+            // Worth a line though: the user chose a rate and is not getting it.
+            LogService.Error(nameof(HardwareService),
+                "Could not read the polling interval from settings; using the default", ex);
+        }
 
         StartHost();
 
@@ -407,11 +413,44 @@ public class HardwareService : IDisposable
     /// of the host, which is exactly the thing pool threads must not do.
     private static void Pump(string name, Action work)
     {
-        new Thread(() => { try { work(); } catch { } })
+        new Thread(() =>
+        {
+            try { work(); }
+            catch (Exception ex)
+            {
+                // A pump thread ending early is not fatal — the watchdog notices the readings
+                // stopping and replaces the host — but it was previously invisible, so the
+                // symptom was "sensors stopped" with nothing anywhere saying why.
+                LogOnce($"the {name} thread", ex);
+            }
+        })
         {
             IsBackground = true,
             Name         = name,
         }.Start();
+    }
+
+    /// <summary>
+    /// Records a failure the first time each kind of it happens, and then stays quiet.
+    /// </summary>
+    /// <remarks>
+    /// For the failures that repeat on a timer. The watchdog runs every two seconds and the
+    /// reading pump runs per snapshot, so logging every occurrence of a persistent fault would
+    /// write hundreds of identical lines an hour and push the evidence of whatever started it
+    /// out of the file. Keyed by where it happened and what was thrown, so a second, different
+    /// fault in the same place is still reported.
+    /// </remarks>
+    private static readonly HashSet<string> Reported = new();
+
+    private static void LogOnce(string what, Exception ex)
+    {
+        lock (Reported)
+        {
+            if (!Reported.Add($"{what}|{ex.GetType().FullName}")) return;
+        }
+
+        LogService.Error(nameof(HardwareService),
+            $"Unexpected failure in {what}; this is reported once per kind of fault", ex);
     }
 
     /// <summary>
@@ -460,7 +499,13 @@ public class HardwareService : IDisposable
                 }
             }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            // This loop is the only route the sensor host has for explaining itself. Losing it
+            // silently meant every later problem in the host became unexplainable, which is
+            // the opposite of what this channel exists for.
+            LogOnce("the sensor host's diagnostic reader", ex);
+        }
     }
 
     /// <summary>
@@ -568,7 +613,14 @@ public class HardwareService : IDisposable
                 ReplaceHost($"no readings for {silent.TotalSeconds:F0}s");
             }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            // The watchdog is what notices a dead or wedged sensor host and replaces it. If it
+            // throws, supervision has stopped and nothing else is watching; the readings would
+            // simply never come back, with no crash and no log entry to explain it. Reported
+            // once per kind of fault because this runs every two seconds.
+            LogOnce("the sensor host watchdog", ex);
+        }
     }
 
     /// <summary>
@@ -646,7 +698,11 @@ public class HardwareService : IDisposable
                 data.Fps1Low = FpsService.Instance.OnePercentLowFps;
             }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            // Runs per snapshot, so reported once per kind.
+            LogOnce("copying the frame rate into a reading", ex);
+        }
 
         // A capacity belongs to the adapter it was measured from, so a change of GPU clears it
         // rather than carrying it across. Without this, switching a laptop to its integrated
@@ -725,7 +781,14 @@ public class HardwareService : IDisposable
             if (_dispatcher == null || _dispatcher.CheckAccess()) action();
             else _dispatcher.BeginInvoke(action);
         }
-        catch { }
+        catch (Exception ex)
+        {
+            // Not only our own failures: when this is already on the interface thread the
+            // subscriber runs inline, so a fault in a view model handler surfaces here. That
+            // used to disappear entirely. Reported once per kind, because this runs for every
+            // snapshot and a subscriber that throws will throw on all of them.
+            LogOnce("a sensor update handler", ex);
+        }
     }
 
     private void Fail(string reason)
@@ -758,13 +821,21 @@ public class HardwareService : IDisposable
                 host.StandardInput.Flush();
                 host.StandardInput.Close();
             }
-            catch { }
+            catch
+            {
+                // Asking the host to stop politely. It may already be gone, which is the
+                // outcome being asked for; the kill below covers the case where it is not.
+            }
 
             try
             {
                 if (!host.WaitForExit(2000) && !host.HasExited) host.Kill(entireProcessTree: true);
             }
-            catch { }
+            catch
+            {
+                // Already exited, or exited between the two checks. Either way it is gone, and
+                // the job object guarantees it cannot outlive Pulse regardless.
+            }
 
             try { host.Dispose(); } catch { }
         }

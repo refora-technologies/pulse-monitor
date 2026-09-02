@@ -48,7 +48,7 @@ public sealed class SensorReader : IDisposable
 
     private void Log(string level, string message)
     {
-        try { _log?.Invoke(level, message); } catch { }
+        try { _log?.Invoke(level, message); } catch { }   // the logger itself; nowhere to say so
     }
 
     public void SetSubsystems(SensorSubsystems subsystems)
@@ -654,7 +654,15 @@ public sealed class SensorReader : IDisposable
                 physical.Add(nic.Name);
             }
         }
-        catch { }
+        catch
+        {
+            // Deliberately silent, and safe. An empty set is not an empty result here: the
+            // caller treats "nothing survived the filter" as "count every adapter", so a
+            // failure to enumerate degrades to including the virtual ones rather than to
+            // reporting a machine with no network at all. Nothing to report and nothing to
+            // report it through — this is static, and in the sensor host, whose only channel
+            // out is the instance logger.
+        }
 
         return physical;
 
