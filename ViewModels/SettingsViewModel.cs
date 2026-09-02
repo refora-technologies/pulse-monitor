@@ -316,11 +316,27 @@ public class SettingsViewModel : BaseViewModel
     private System.Windows.Threading.DispatcherTimer? _positionSaveTimer;
 
     /// <summary>
-    /// True while a position slider is still being moved, i.e. changes are arriving and the
-    /// resting place has not been written yet. The overlay uses this to hold off re-anchoring
-    /// itself, which would otherwise tug the slider out from under the user's thumb.
+    /// True while a position slider's thumb is held, whether or not it is currently moving.
+    ///
+    /// Set from the panel's drag events. Not a property anything binds to; it exists because
+    /// holding a thumb still is indistinguishable from having let go, as far as a debounce
+    /// timer can tell.
     /// </summary>
-    public bool IsAdjustingPosition => _positionSaveTimer is { IsEnabled: true };
+    public bool IsDraggingPositionSlider { get; set; }
+
+    /// <summary>
+    /// True while the user is placing the overlay with the position sliders. The overlay uses
+    /// this to hold off re-anchoring itself, which would otherwise tug the slider out from
+    /// under the user's thumb.
+    ///
+    /// Two sources, because neither covers the other. The timer means a change arrived
+    /// recently, which is what catches the arrow keys and clicks on the track, where there is
+    /// no drag at all. The flag means a thumb is being held, which the timer cannot see: it
+    /// lapses 400ms after the last movement, so pausing mid-drag to look at where the overlay
+    /// had got to was enough to release the guard and let it re-anchor.
+    /// </summary>
+    public bool IsAdjustingPosition =>
+        IsDraggingPositionSlider || _positionSaveTimer is { IsEnabled: true };
 
     /// Stores the position once a slider stops moving, rather than on every tick.
     private void SchedulePositionSave()
@@ -724,7 +740,9 @@ public class SettingsViewModel : BaseViewModel
         catch (Exception ex)
         {
             // The download reports failure rather than throwing, so this is unexpected. Caught
-            // anyway: reaching the dispatcher from an async void click handler would end Pulse.
+            // anyway, so that it fails as an update rather than as an application fault: the
+            // dispatcher would survive it now, but the user would be left looking at a panel
+            // still saying "Downloading" with nothing to explain the stop.
             LogService.Error(nameof(SettingsViewModel), "Installing the update failed", ex);
             status = UpdateDownloadStatus.DownloadFailed;
         }

@@ -64,6 +64,51 @@ public static class StartupTask
     }
 
     /// <summary>
+    /// Whether a task's recorded command is this build, tolerating what the console codepage
+    /// does to the text on the way out.
+    /// </summary>
+    /// <remarks>
+    /// A plain substring test is not enough. The task XML comes back through a redirected pipe
+    /// decoded in the console codepage, for the reason set out on RunCapture, and any character
+    /// that codepage cannot represent arrives as a question mark. So a Pulse installed to a path
+    /// containing non-Latin characters never matched itself: the caller concluded the task
+    /// pointed at some other build and rewrote it, on every single launch, forever.
+    ///
+    /// The current path is therefore put through the same loss before comparing. Two different
+    /// paths that differ only in characters the codepage destroys would now be treated as the
+    /// same, which is worth it: the cost of that is one stale task, and the cost of the
+    /// alternative is rewriting a scheduled task at every logon.
+    /// </remarks>
+    public static bool CommandIsThisBuild(string commandPath, string exePath)
+    {
+        if (string.IsNullOrEmpty(commandPath) || string.IsNullOrEmpty(exePath)) return false;
+        if (commandPath.IndexOf(exePath, StringComparison.OrdinalIgnoreCase) >= 0) return true;
+
+        var lossy = ThroughConsoleCodepage(exePath);
+
+        // Nothing was lost, so the first test was already conclusive.
+        if (string.Equals(lossy, exePath, StringComparison.Ordinal)) return false;
+
+        return commandPath.IndexOf(lossy, StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
+    /// The same mangling a redirected schtasks reply goes through, applied deliberately.
+    private static string ThroughConsoleCodepage(string text)
+    {
+        try
+        {
+            var encoding = Console.OutputEncoding;
+            return encoding.GetString(encoding.GetBytes(text));
+        }
+        catch
+        {
+            // No console attached, or a codepage that refuses the round trip. Falling back to
+            // the original means the caller behaves exactly as it did before this existed.
+            return text;
+        }
+    }
+
+    /// <summary>
     /// Creates or repairs the task so it points at <paramref name="exePath"/> and carries
     /// settings that let Pulse actually run.
     ///
