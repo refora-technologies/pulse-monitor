@@ -59,8 +59,13 @@ public class FpsService : IDisposable
     /// are not the same thing. Output arrives in bursts, so a batch of frames read together
     /// were all recorded as having happened at once, which stretched or compressed both
     /// windows depending on how the reader happened to be scheduled.
+    ///
+    /// DisplayMs is the gap since the previous frame the monitor actually showed, which is a
+    /// different measurement from Ms rather than a refinement of it. It is zero for a frame
+    /// that was never displayed, which is normal and frequent: with the frame rate above the
+    /// refresh rate most produced frames are replaced before they reach the panel.
     /// </summary>
-    private readonly record struct FrameSample(double Ms, long At);
+    private readonly record struct FrameSample(double Ms, long At, double DisplayMs);
 
     /// Averaging window, and how long without frames before the reading is considered dead.
     private const int FrameWindowMs = 1000;
@@ -138,10 +143,12 @@ public class FpsService : IDisposable
     private Process? _process;
     private int  _headerProcessIdIndex = -1;
     private int  _headerFrameTimeIndex = -1;
+    private int  _headerDisplayIndex   = -1;
     private int  _headerSwapChainIndex = -1;
     private uint _foregroundPid;
     private bool _captureWanted;
     private bool _lowWanted;
+    private bool _displayedWanted;
     private bool _stopping;
     private int  _restartCount;
 
@@ -162,6 +169,31 @@ public class FpsService : IDisposable
     /// hide it. Null until there are enough samples to mean anything.
     /// </summary>
     public float? OnePercentLowFps { get; private set; }
+
+    /// <summary>
+    /// The other 1% low: the frame on the boundary rather than the average of everything past
+    /// it, which is what RTSS, MSI Afterburner and CapFrameX report.
+    ///
+    /// Offered because people compare overlays side by side, and two tools disagreeing looks
+    /// like one of them is broken when in fact they are measuring different things. This one
+    /// always reads at least as high as <see cref="OnePercentLowFps"/> on the same frames, by
+    /// construction: the boundary is the fastest of the frames the average is taken over.
+    ///
+    /// Computed from the same sorted window, so it costs essentially nothing.
+    /// </summary>
+    public float? OnePercentLowP1Fps { get; private set; }
+
+    /// <summary>
+    /// Frames that actually reached the monitor, as opposed to frames the graphics card
+    /// produced.
+    ///
+    /// Capped by the refresh rate: on a 60Hz panel this cannot exceed 60 however fast the game
+    /// is really running, and with V-Sync on it should sit at the refresh rate almost exactly.
+    /// That ceiling is the reason it is a separate reading and not the main one — see the note
+    /// in the header parser. Useful for seeing how much of what the card produces is being
+    /// thrown away, and for confirming V-Sync or a frame cap is doing what it claims.
+    /// </summary>
+    public float? DisplayedFps { get; private set; }
 
     private FpsService()
     {
@@ -194,22 +226,32 @@ public class FpsService : IDisposable
     /// </summary>
     private void ApplyCaptureState()
     {
-        var active  = SettingsService.Instance.Settings.ActiveTileIds;
-        bool lowOn  = active.Contains("fps_1low");
-        bool wanted = active.Contains("fps") || lowOn;
+        var active = SettingsService.Instance.Settings.ActiveTileIds;
 
-        // The 1% low keeps up to a minute of frames; nobody pays for that unless the tile
+        // Both 1% lows are drawn from the same window of frames, so either one being on is
+        // reason enough to keep it, and keeping it once serves both.
+        bool lowOn       = active.Contains("fps_1low") || active.Contains("fps_1low_p1");
+        bool displayedOn = active.Contains("fps_displayed");
+        bool wanted      = active.Contains("fps") || lowOn || displayedOn;
+
+        // The 1% low keeps up to a minute of frames; nobody pays for that unless a tile
         // showing it is actually on.
         if (_lowWanted && !lowOn)
         {
             lock (_lock)
             {
                 _lowSamples.Clear();
-                OnePercentLowFps = null;
+                OnePercentLowFps   = null;
+                OnePercentLowP1Fps = null;
             }
         }
-        _lowWanted     = lowOn;
-        _captureWanted = wanted;
+
+        if (_displayedWanted && !displayedOn)
+            lock (_lock) DisplayedFps = null;
+
+        _lowWanted       = lowOn;
+        _displayedWanted = displayedOn;
+        _captureWanted   = wanted;
 
         if (wanted && _process is null)
         {
@@ -245,12 +287,14 @@ public class FpsService : IDisposable
         // Header indices belong to the stream we just ended.
         _headerProcessIdIndex = -1;
         _headerFrameTimeIndex = -1;
+        _headerDisplayIndex   = -1;
         _headerSwapChainIndex = -1;
 
         lock (_lock)
         {
             _bySwapChain.Clear();
-            CurrentFps = null;
+            CurrentFps   = null;
+            DisplayedFps = null;
         }
     }
 
@@ -295,6 +339,7 @@ public class FpsService : IDisposable
 
             _headerProcessIdIndex = -1;
             _headerFrameTimeIndex = -1;
+            _headerDisplayIndex   = -1;
             _headerSwapChainIndex = -1;
 
             StartCapture();
@@ -450,6 +495,16 @@ public class FpsService : IDisposable
             // rate while NVIDIA's overlay sat well above it on the same scene.
             _headerFrameTimeIndex = presents >= 0 ? presents : displayChange;
 
+            // Kept as well, rather than only as a stand-in for the above, because "what
+            // reached the monitor" is a reading in its own right and now has its own tile.
+            // If the two indices are the same there is only one measurement available, and
+            // showing it twice under two names would be a lie about what we know.
+            _headerDisplayIndex = displayChange != _headerFrameTimeIndex ? displayChange : -1;
+
+            if (_displayedWanted && _headerDisplayIndex < 0)
+                LogService.Warn(nameof(FpsService),
+                    "PresentMon did not report a MsBetweenDisplayChange column; displayed frame rate is unavailable.");
+
             if (_headerTimeIndex < 0)
                 LogService.Warn(nameof(FpsService),
                     "PresentMon did not report a TimeInSeconds column; frame windows will use arrival time.");
@@ -480,6 +535,20 @@ public class FpsService : IDisposable
             ? fields[_headerSwapChainIndex]
             : "";
 
+        // Deliberately not a reason to reject the row. A frame that never reached the monitor
+        // reports zero here, and above the refresh rate most frames are exactly that, so
+        // treating it like the bad frame time above would throw away the majority of a fast
+        // game's frames and take the main frame rate down with them. Zero simply means this
+        // frame does not contribute to the displayed rate.
+        double displayMs = 0;
+        if (_headerDisplayIndex >= 0 && fields.Length > _headerDisplayIndex
+            && double.TryParse(fields[_headerDisplayIndex], NumberStyles.Float,
+                               CultureInfo.InvariantCulture, out var shown)
+            && double.IsFinite(shown) && shown > 0 && shown <= 10_000)
+        {
+            displayMs = shown;
+        }
+
         // When the frame happened, from PresentMon, falling back to now if it did not say.
         long at;
         if (_headerTimeIndex >= 0 && fields.Length > _headerTimeIndex
@@ -502,7 +571,7 @@ public class FpsService : IDisposable
                 _bySwapChain[swapChain] = samples;
             }
 
-            var sample = new FrameSample(ms, at);
+            var sample = new FrameSample(ms, at, displayMs);
             samples.Enqueue(sample);
 
             // Nothing is recalculated here any more. Recompute averaged the whole window on
@@ -587,15 +656,38 @@ public class FpsService : IDisposable
 
         if (chain is not { Count: >= 2 })
         {
-            CurrentFps = null;
+            CurrentFps   = null;
+            DisplayedFps = null;
             return;
         }
 
         double total = 0;
-        foreach (var sample in chain) total += sample.Ms;
+
+        // Displayed frames are a subset of produced ones, counted separately in the same pass.
+        // Averaging only the frames that were shown gives the mean gap between them, which is
+        // the rate the monitor saw; including the zeros would report the rate of production
+        // again under a different name.
+        double shownTotal = 0;
+        int    shownCount = 0;
+
+        foreach (var sample in chain)
+        {
+            total += sample.Ms;
+
+            if (sample.DisplayMs > 0)
+            {
+                shownTotal += sample.DisplayMs;
+                shownCount++;
+            }
+        }
 
         double mean = total / chain.Count;
         CurrentFps = mean > 0 ? (float)(1000.0 / mean) : null;
+
+        // Two shown frames minimum, for the same reason as above: one interval is not a rate.
+        DisplayedFps = _displayedWanted && shownCount >= 2
+            ? (float)(1000.0 / (shownTotal / shownCount))
+            : null;
     }
 
     /// <summary>
@@ -667,7 +759,8 @@ public class FpsService : IDisposable
 
         // The long history belonged to something else.
         _lowSamples.Clear();
-        OnePercentLowFps = null;
+        OnePercentLowFps   = null;
+        OnePercentLowP1Fps = null;
     }
 
     /// <summary>
@@ -693,7 +786,9 @@ public class FpsService : IDisposable
                 _chainCandidate     = "";
                 _chainCandidateWins = 0;
                 CurrentFps          = null;
+                DisplayedFps        = null;
                 OnePercentLowFps    = null;
+                OnePercentLowP1Fps  = null;
                 return;
             }
 
@@ -713,7 +808,8 @@ public class FpsService : IDisposable
     {
         if (!_lowWanted)
         {
-            OnePercentLowFps = null;
+            OnePercentLowFps   = null;
+            OnePercentLowP1Fps = null;
             return;
         }
 
@@ -727,7 +823,9 @@ public class FpsService : IDisposable
 
         if (_lowSamples.Count < LowMinSamples || span < LowMinSpanMs)
         {
-            OnePercentLowFps = null;   // "--" rather than a figure built from too little data
+            // "--" rather than a figure built from too little data.
+            OnePercentLowFps   = null;
+            OnePercentLowP1Fps = null;
             return;
         }
 
@@ -754,6 +852,18 @@ public class FpsService : IDisposable
 
             double averageMs = total / worst;
             OnePercentLowFps = averageMs > 0 ? (float)(1000.0 / averageMs) : null;
+
+            // The other convention, from the same sorted window: the frame time at the 99th
+            // percentile rather than the mean of everything beyond it. Nearest rank, which is
+            // what RTSS and CapFrameX use, so the two numbers can actually be compared.
+            //
+            // This index is never past the start of the block averaged above, so the boundary
+            // frame time is always the fastest of the frames that average is taken over. That
+            // is why P1 can only ever read the same or higher, never lower — a property of the
+            // definitions rather than of any particular capture.
+            int boundary = Math.Clamp((int)Math.Ceiling(0.99 * count) - 1, 0, count - 1);
+            double boundaryMs = times[boundary];
+            OnePercentLowP1Fps = boundaryMs > 0 ? (float)(1000.0 / boundaryMs) : null;
         }
         finally
         {
@@ -823,8 +933,10 @@ public class FpsService : IDisposable
                 _bySwapChain.Clear();
                 _lowSamples.Clear();
                 _dominantChain   = "";
-                CurrentFps       = null;
-                OnePercentLowFps = null;
+                CurrentFps         = null;
+                DisplayedFps       = null;
+                OnePercentLowFps   = null;
+                OnePercentLowP1Fps = null;
             }
             return;
         }
@@ -840,8 +952,10 @@ public class FpsService : IDisposable
             _bySwapChain.Clear();
             _lowSamples.Clear();
             _dominantChain   = "";
-            CurrentFps       = null;
-            OnePercentLowFps = null;
+            CurrentFps         = null;
+            DisplayedFps       = null;
+            OnePercentLowFps   = null;
+            OnePercentLowP1Fps = null;
         }
     }
 

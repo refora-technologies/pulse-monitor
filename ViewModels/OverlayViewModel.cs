@@ -340,7 +340,7 @@ public class OverlayViewModel : BaseViewModel
     }
 
     /// <summary>
-    /// Updates only the two frame rate tiles, leaving every other reading alone.
+    /// Updates only the frame rate tiles, leaving every other reading alone.
     ///
     /// Separate from the sensor path because the two are measured independently: a sensor
     /// snapshot must not overwrite a fresher frame rate, and a frame rate update must not
@@ -352,8 +352,14 @@ public class OverlayViewModel : BaseViewModel
 
         foreach (var tile in ActiveTiles)
         {
-            if (tile.Definition.Id == "fps")           tile.Value = fps.CurrentFps;
-            else if (tile.Definition.Id == "fps_1low") tile.Value = fps.OnePercentLowFps;
+            tile.Value = tile.Definition.Id switch
+            {
+                "fps"           => fps.CurrentFps,
+                "fps_1low"      => fps.OnePercentLowFps,
+                "fps_1low_p1"   => fps.OnePercentLowP1Fps,
+                "fps_displayed" => fps.DisplayedFps,
+                _               => tile.Value,   // not a frame rate; leave the sensor value alone
+            };
         }
     }
 
@@ -364,7 +370,8 @@ public class OverlayViewModel : BaseViewModel
             // Frame rates are not part of this reading. They arrive on their own timer, which
             // is faster than the sensor interval, so taking them from the snapshot would keep
             // replacing a fresh value with an older one and make the tile stutter.
-            if (tile.Definition.Id is "fps" or "fps_1low") continue;
+            if (tile.Definition.Id is "fps" or "fps_1low" or "fps_1low_p1" or "fps_displayed")
+                continue;
 
             tile.Value = data.GetById(tile.Definition.Id);
         }

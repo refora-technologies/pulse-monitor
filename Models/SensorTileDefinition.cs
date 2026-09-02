@@ -38,7 +38,8 @@ public class SensorTileDefinition
     ///   Clock | Power
     ///   ...            CPU block, then the GPU block mirroring it
     ///   VRAM  | RAM         the two memory readings, side by side
-    ///   FPS   | 1% Low      frame rate and its worst case belong together
+    ///   FPS   | 1% Low Avg  frame rate and its worst case belong together
+    ///   P1    | Displayed   the two alternative frame rate readings, both off by default
     ///   Up    | Down        network pairs naturally
     ///   Disk  | CPU+GPU     what is left, and the summary total
     ///
@@ -73,6 +74,23 @@ public class SensorTileDefinition
                             + "Lower than the 1% low shown by MSI Afterburner and RTSS, which report the "
                             + "frame on the boundary instead of averaging the worst ones. This one reacts "
                             + "to a single deep stutter; theirs does not." },
+
+        // Both 1% lows are offered rather than one being declared correct, because they answer
+        // different questions and people compare overlays side by side. Off by default: a fresh
+        // install should not show two tiles whose names differ by three characters.
+        new() { Id = "fps_1low_p1",  Label = "1% Low P1",     Unit = "fps",  Category = SensorCategory.System,  HasBar = false, WarnThreshold = 0,   DangerThreshold = 0,
+                Description = "The same minute of frames measured the way MSI Afterburner, RTSS and "
+                            + "CapFrameX measure it: the frame time at the 99th percentile, rather than "
+                            + "the average of everything past it. Reads the same or higher than 1% Low Avg, "
+                            + "never lower. Turn this on to compare Pulse against those tools." },
+
+        // Also off by default. Most people want the rate their card is producing, which is what
+        // FPS already shows; this one is for seeing how much of that the monitor never receives.
+        new() { Id = "fps_displayed",Label = "Displayed FPS", Unit = "fps",  Category = SensorCategory.System,  HasBar = false, WarnThreshold = 0,   DangerThreshold = 0,
+                Description = "Frames that actually reached your monitor, which your refresh rate caps. "
+                            + "A 60Hz screen cannot show more than 60 however fast the game runs, so this "
+                            + "sitting well below FPS is normal and means frames are being replaced before "
+                            + "they are shown. With V-Sync on it should sit at your refresh rate." },
 
         new() { Id = "net_upload",   Label = "Net Upload",    Unit = "MB/s", Category = SensorCategory.Network, HasBar = false, WarnThreshold = 0,   DangerThreshold = 0   },
         new() { Id = "net_download", Label = "Net Download",  Unit = "MB/s", Category = SensorCategory.Network, HasBar = false, WarnThreshold = 0,   DangerThreshold = 0   },
