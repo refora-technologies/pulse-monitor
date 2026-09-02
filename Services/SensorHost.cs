@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Text;
 
 namespace Pulse.Services;
@@ -50,7 +50,11 @@ public static class SensorHost
                 stderr.WriteLine(level + "|" + message.Replace('\r', ' ').Replace('\n', ' '));
                 stderr.Flush();
             }
-            catch { }
+            catch
+            {
+                // This is the reporting channel. If it is broken there is nowhere to report
+                // that it is broken, and trying would recurse.
+            }
         }
 
         using var reader = new SensorReader(Log);
@@ -64,7 +68,11 @@ public static class SensorHost
             stdout.WriteLine(ReadyBanner);
             stdout.Flush();
         }
-        catch { }
+        catch
+        {
+            // The banner is a courtesy; Pulse treats the first real reading as readiness too.
+            // A broken stdout is about to end this process anyway, when the read loop fails.
+        }
 
         reader.Open();
 
@@ -252,7 +260,7 @@ public static class SensorHost
     {
         // Throws when there is no console and no redirection, which is what happens if someone
         // runs the host by hand. Harmless: nothing is reading it either.
-        try { Console.OutputEncoding = new UTF8Encoding(false); } catch { }
-        try { Console.InputEncoding  = new UTF8Encoding(false); } catch { }
+        try { Console.OutputEncoding = new UTF8Encoding(false); } catch { }   // see above
+        try { Console.InputEncoding  = new UTF8Encoding(false); } catch { }   // see above
     }
 }

@@ -729,7 +729,12 @@ public class SettingsViewModel : BaseViewModel
     public void CancelDownload()
     {
         try   { _downloadCancel?.Cancel(); }
-        catch { }
+        catch
+        {
+            // Cancelling a source that has already been disposed, which is what a download
+            // that finished a moment ago leaves behind. The user asked for it to stop and it
+            // has stopped; there is nothing to report.
+        }
     }
 
     public async Task InstallUpdateAsync()

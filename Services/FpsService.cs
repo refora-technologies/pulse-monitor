@@ -321,8 +321,10 @@ public class FpsService : IDisposable
         int generation = ++_captureGeneration;
         _restartCount++;
 
+        // The exit code is for the log line below and nothing else. A process disposed from
+        // another thread refuses to give it up, which is not worth a second log entry about.
         int code = -1;
-        try { code = exited.ExitCode; } catch { }
+        try { code = exited.ExitCode; } catch { }   // for the log line below, nothing else
 
         LogService.Warn(nameof(FpsService),
             $"Frame capture stopped (exit code {code}); restart {_restartCount} in {BackoffFor(_restartCount).TotalSeconds:F0}s.");

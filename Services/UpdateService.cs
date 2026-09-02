@@ -403,7 +403,12 @@ public class UpdateService
             ownerInfo.SetOwner(admins);
             dir.SetAccessControl(ownerInfo);
         }
-        catch { }
+        catch
+        {
+            // Deliberate, and explained at length above: the access list that actually keeps
+            // other users out is already applied, and this is the further hardening that some
+            // processes are not permitted to do. Failing costs nothing that was relied on.
+        }
 
         return path;
     }
@@ -425,7 +430,11 @@ public class UpdateService
             // Older builds downloaded straight into the temp root.
             TryDelete(Path.Combine(Path.GetTempPath(), "PulseSetup.exe"));
         }
-        catch { }
+        catch
+        {
+            // Removing leftovers from previous runs. A folder that cannot be enumerated or
+            // deleted stays on disk until next time, which is the whole consequence.
+        }
     }
 
     private static void TryDelete(string path)

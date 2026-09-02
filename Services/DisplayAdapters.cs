@@ -1,4 +1,4 @@
-using System.Runtime.InteropServices;
+﻿using System.Runtime.InteropServices;
 using System.Text;
 
 namespace Pulse.Services;
@@ -112,6 +112,8 @@ internal static class DisplayAdapters
         {
             if (factory != IntPtr.Zero)
             {
+                // Releasing the COM factory. Nothing useful follows a failure here, and this
+                // is already the cleanup path for whatever went wrong above.
                 try { Method<ReleaseFn>(factory, Release)(factory); } catch { }
             }
         }

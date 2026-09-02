@@ -126,6 +126,11 @@ public class SettingsService
                 @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", true);
             key?.DeleteValue("PulseMonitor", false);
         }
-        catch { }
+        catch
+        {
+            // Tidying up after a version that started Pulse from the registry instead of a
+            // scheduled task. Failing means one stale registry value survives, which does
+            // nothing on its own, so there is no outcome here worth a log line.
+        }
     }
 }

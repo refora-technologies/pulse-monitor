@@ -132,7 +132,14 @@ public static class LogService
 
             File.Move(LogPath, ArchivePath(1), overwrite: true);
         }
-        catch { }
+        catch
+        {
+            // Deliberately silent, and it has to be. This runs from inside Write, holding the
+            // same lock, and the file is still over the size limit — so logging the failure
+            // would call Write, which would call this again, which would fail again. The
+            // consequence of staying quiet is a log file that grows past its limit, which is
+            // visible on disk and harmless next to that recursion.
+        }
     }
 
     // ── Sessions ────────────────────────────────────────────────────────────────────
@@ -167,7 +174,12 @@ public static class LogService
             Info(nameof(LogService), $"Session started. Pulse {version} on Windows {Environment.OSVersion.Version}.");
             RecordActivity("starting up");
         }
-        catch { }
+        catch
+        {
+            // Nowhere to report a logging failure except the log. The cost is that this run
+            // will look like a crash next time, since the marker was never written, which is
+            // the safe direction to be wrong in.
+        }
 
         return previousCrashed;
     }
@@ -183,7 +195,12 @@ public static class LogService
                 if (File.Exists(SessionStatePath)) File.Delete(SessionStatePath);
             }
         }
-        catch { }
+        catch
+        {
+            // Same as above, and this runs during shutdown where there may be no time to write
+            // anything anyway. A marker left behind reports a crash that did not happen, which
+            // is the direction to err in for a crash detector.
+        }
     }
 
     /// <summary>
@@ -211,7 +228,12 @@ public static class LogService
                 File.WriteAllText(SessionStatePath, text);
             }
         }
-        catch { }
+        catch
+        {
+            // Records what Pulse was doing, for the next run to report if this one dies. A
+            // failure costs the detail, not the detection, and it cannot be logged for the
+            // same reason as the rest of this file.
+        }
     }
 
     private static readonly DateTime SessionStart = DateTime.Now;
@@ -278,7 +300,17 @@ public static class LogService
             report.AppendLine($"--- {label} ---");
             report.AppendLine(File.ReadAllText(path));
         }
-        catch { }
+        catch (Exception ex)
+        {
+            // Into the report rather than the log. This runs to build the file someone attaches
+            // to a bug report, so a section that is quietly absent is worse than useless: the
+            // reader assumes there was nothing to say. Saying the file could not be read is
+            // itself a useful piece of evidence, and it is a locked or unreadable file that
+            // usually explains the rest.
+            report.AppendLine($"--- {label} ---");
+            report.AppendLine($"(could not be read: {ex.GetType().Name}: {Redact(ex.Message)})");
+            report.AppendLine();
+        }
     }
 
     /// What Pulse currently thinks the hardware is. Wrapped tightly: a diagnostics export

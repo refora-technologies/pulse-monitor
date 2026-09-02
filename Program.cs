@@ -1,4 +1,4 @@
-using Pulse.Services;
+﻿using Pulse.Services;
 
 namespace Pulse;
 
@@ -31,7 +31,7 @@ public static class Program
                 // Standard error is the host's channel to Pulse, and Pulse writes what arrives
                 // there into the log. Nothing else here can report anything.
                 try { Console.Error.WriteLine($"error|The sensor host failed: {ex.GetType().Name}: {ex.Message}"); }
-                catch { }
+                catch { }   // the reporting channel itself; there is no second one to try
                 return 1;
             }
         }
