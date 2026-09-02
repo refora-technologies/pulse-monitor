@@ -1,4 +1,5 @@
-﻿using System.Diagnostics;
+﻿using System.Buffers;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -50,8 +51,15 @@ public class FpsService : IDisposable
     private static readonly string PresentMonPath = Path.Combine(
         AppContext.BaseDirectory, "Resources", "PresentMon", "PresentMon-2.5.1-x64.exe");
 
-    /// A frame time and when we saw it, so the window can be measured in time rather than
-    /// in frames — a fixed frame count covers a different span at 30fps than at 240fps.
+    /// <summary>
+    /// A frame time and when the frame happened, so a window can be measured in time rather
+    /// than in frames: a fixed frame count covers a different span at 30fps than at 240fps.
+    ///
+    /// At is PresentMon's own timestamp for the frame, not the moment we read the line. Those
+    /// are not the same thing. Output arrives in bursts, so a batch of frames read together
+    /// were all recorded as having happened at once, which stretched or compressed both
+    /// windows depending on how the reader happened to be scheduled.
+    /// </summary>
     private readonly record struct FrameSample(double Ms, long At);
 
     /// Averaging window, and how long without frames before the reading is considered dead.
@@ -68,8 +76,25 @@ public class FpsService : IDisposable
     /// to mean anything.
     /// </summary>
     private const int LowWindowMs   = 60_000;
-    private const int LowMaxSamples = 20_000;
+
+    /// <summary>
+    /// A safety limit, not a window. It used to be 20,000, which is only sixty seconds' worth
+    /// up to about 333fps: above that the cap silently became the real window, so a "60 second"
+    /// 1% low was measuring 33 seconds at 600fps and 20 at 1000, with nothing saying so. Sized
+    /// now for sixty seconds at 2000fps, so time decides the window at any frame rate a real
+    /// machine produces and this only ever catches a stream that has gone wrong.
+    /// </summary>
+    private const int LowMaxSamples = 120_000;
+
+    /// <summary>
+    /// Before the 1% low means anything it needs both enough frames and enough time.
+    ///
+    /// A frame count alone is not a duration: 200 frames is nearly seven seconds at 30fps and
+    /// under a second at 240, so the reading appeared almost immediately on a fast machine and
+    /// described a moment rather than a minute.
+    /// </summary>
     private const int LowMinSamples = 200;
+    private const int LowMinSpanMs  = 3_000;
 
     /// A capture that survives this long is considered healthy and clears the restart count,
     /// so occasional interruptions over a long session never accumulate into a long backoff.
@@ -86,6 +111,28 @@ public class FpsService : IDisposable
     private readonly Queue<FrameSample> _lowSamples = new();
     private string _dominantChain = "";
 
+    /// <summary>
+    /// A chain has to stay ahead before it takes over, because switching throws away the
+    /// minute of history behind the 1% low.
+    ///
+    /// The busiest chain was previously whichever had one more frame than the others at that
+    /// instant, so in a game presenting on comparable chains the winner changed constantly and
+    /// each change wiped the history. The 1% low could sit at "--" indefinitely while a
+    /// perfectly steady game was running.
+    /// </summary>
+    private const int   ChainSwitchMargin = 4;   // consecutive wins needed
+    private const float ChainSwitchLead   = 1.25f;
+
+    private string _chainCandidate = "";
+    private int    _chainCandidateWins;
+
+    /// When the last frame reached us, as opposed to when it happened. Used only to notice
+    /// that frames have stopped arriving, which is a property of the reader rather than the
+    /// capture, so it is the one thing that still belongs on the local clock.
+    private long _lastFrameArrival;
+
+    private int _headerTimeIndex = -1;
+
     private readonly DispatcherTimer _targetTimer;
 
     private Process? _process;
@@ -97,6 +144,14 @@ public class FpsService : IDisposable
     private bool _lowWanted;
     private bool _stopping;
     private int  _restartCount;
+
+    /// <summary>
+    /// Raised a few times a second once frame capture is running, whether or not the numbers
+    /// changed. Subscribers read CurrentFps and OnePercentLowFps.
+    ///
+    /// Raised on the UI thread, since the timer behind it is a DispatcherTimer.
+    /// </summary>
+    public event EventHandler? Updated;
 
     public float? CurrentFps { get; private set; }
 
@@ -112,11 +167,17 @@ public class FpsService : IDisposable
     {
         // Runs independently of the hardware polling interval so a focus change (e.g.
         // alt-tabbing into or out of a game) is picked up quickly and consistently.
-        _targetTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
+        // Also what publishes the readings, which is why it is faster than it needs to be for
+        // the focus check alone. Frame rates used to reach the overlay only when a sensor
+        // snapshot arrived, so choosing a five second polling rate for temperatures also made
+        // the frame rate update every five seconds. They are unrelated measurements and one
+        // should not set the pace of the other.
+        _targetTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
         _targetTimer.Tick += (_, _) =>
         {
             RefreshForegroundTarget();
             ExpireIfStale();      // frames stopping is silent; nothing else would notice
+            Updated?.Invoke(this, EventArgs.Empty);
         };
 
         ApplyCaptureState();
@@ -372,6 +433,11 @@ public class FpsService : IDisposable
                     presents = i;
                 else if (fields[i].Equals("MsBetweenDisplayChange", StringComparison.OrdinalIgnoreCase))
                     displayChange = i;
+                // "The time of the Present() call, in seconds, relative to when PresentMon
+                // started recording." Optional: if a future schema drops or renames it we fall
+                // back to the arrival time, which is what this used to do for every frame.
+                else if (fields[i].Equals("TimeInSeconds", StringComparison.OrdinalIgnoreCase))
+                    _headerTimeIndex = i;
             }
 
             // Presents, not display changes.
@@ -383,6 +449,11 @@ public class FpsService : IDisposable
             // FPS. Preferring display changes gave Pulse an invisible ceiling at the refresh
             // rate while NVIDIA's overlay sat well above it on the same scene.
             _headerFrameTimeIndex = presents >= 0 ? presents : displayChange;
+
+            if (_headerTimeIndex < 0)
+                LogService.Warn(nameof(FpsService),
+                    "PresentMon did not report a TimeInSeconds column; frame windows will use arrival time.");
+
             return;
         }
 
@@ -409,6 +480,20 @@ public class FpsService : IDisposable
             ? fields[_headerSwapChainIndex]
             : "";
 
+        // When the frame happened, from PresentMon, falling back to now if it did not say.
+        long at;
+        if (_headerTimeIndex >= 0 && fields.Length > _headerTimeIndex
+            && double.TryParse(fields[_headerTimeIndex], NumberStyles.Float,
+                               CultureInfo.InvariantCulture, out var seconds)
+            && double.IsFinite(seconds))
+        {
+            at = (long)(seconds * 1000.0);
+        }
+        else
+        {
+            at = Environment.TickCount64;
+        }
+
         lock (_lock)
         {
             if (!_bySwapChain.TryGetValue(swapChain, out var samples))
@@ -417,9 +502,13 @@ public class FpsService : IDisposable
                 _bySwapChain[swapChain] = samples;
             }
 
-            var sample = new FrameSample(ms, Environment.TickCount64);
+            var sample = new FrameSample(ms, at);
             samples.Enqueue(sample);
-            Recompute();
+
+            // Nothing is recalculated here any more. Recompute averaged the whole window on
+            // every single frame, which at high frame rates is quadratic work for a number
+            // nobody can read that fast. The timer does it instead, a few times a second.
+            _lastFrameArrival = Environment.TickCount64;
 
             // Only the chain actually being played feeds the 1% low, so a menu or video
             // layer presenting slowly alongside the game cannot masquerade as stutter.
@@ -436,16 +525,34 @@ public class FpsService : IDisposable
         }
     }
 
+    /// The newest frame time seen on any chain, which is "now" as far as the windows are
+    /// concerned. Caller holds <see cref="_lock"/>.
+    private long NewestFrameTime()
+    {
+        long newest = long.MinValue;
+
+        foreach (var samples in _bySwapChain.Values)
+            if (samples.Count > 0 && samples.Last().At > newest)
+                newest = samples.Last().At;
+
+        return newest == long.MinValue ? Environment.TickCount64 : newest;
+    }
+
     /// <summary>
     /// Recalculates FPS from the busiest swap chain inside the time window. Caller holds
     /// <see cref="_lock"/>.
     /// </summary>
+    /// <summary>
+    /// Recalculates the current frame rate from the busiest swap chain. Caller holds
+    /// <see cref="_lock"/>.
+    /// </summary>
     private void Recompute()
     {
-        long now = Environment.TickCount64;
+        long now = NewestFrameTime();
 
         Queue<FrameSample>? busiest = null;
         string busiestKey = "";
+        int busiestCount = 0;
         List<string>? empty = null;
 
         foreach (var (key, samples) in _bySwapChain)
@@ -459,28 +566,108 @@ public class FpsService : IDisposable
                 continue;
             }
 
-            if (samples.Count > (busiest?.Count ?? 0))
+            if (samples.Count > busiestCount)
             {
-                busiest    = samples;
-                busiestKey = key;
+                busiest      = samples;
+                busiestKey   = key;
+                busiestCount = samples.Count;
             }
-        }
-
-        // Switching chains means the long history belongs to something else now.
-        if (busiestKey != _dominantChain)
-        {
-            _dominantChain = busiestKey;
-            _lowSamples.Clear();
-            OnePercentLowFps = null;
         }
 
         // Chains come and go as menus, videos and overlays open and close.
         if (empty != null) foreach (var key in empty) _bySwapChain.Remove(key);
 
-        // Two samples minimum: a single frame time is noise, not a frame rate.
-        CurrentFps = busiest is { Count: >= 2 }
-            ? (float)(1000.0 / busiest.Average(s => s.Ms))
-            : null;
+        UpdateDominantChain(busiestKey, busiestCount);
+
+        // Averaged from a running total rather than by walking the queue, and only from the
+        // chain we settled on. Two samples minimum: a single frame time is noise, not a rate.
+        var chain = _dominantChain.Length > 0 && _bySwapChain.TryGetValue(_dominantChain, out var current)
+            ? current
+            : busiest;
+
+        if (chain is not { Count: >= 2 })
+        {
+            CurrentFps = null;
+            return;
+        }
+
+        double total = 0;
+        foreach (var sample in chain) total += sample.Ms;
+
+        double mean = total / chain.Count;
+        CurrentFps = mean > 0 ? (float)(1000.0 / mean) : null;
+    }
+
+    /// <summary>
+    /// Decides which swap chain is the one being played, and resists changing its mind.
+    ///
+    /// A switch throws away the minute of history behind the 1% low, so it has to be worth it.
+    /// The previous rule was simply whichever chain had the most frames at that instant, and a
+    /// game presenting on comparable chains flipped between them constantly, wiping the history
+    /// each time and leaving the 1% low permanently blank while nothing was actually wrong.
+    ///
+    /// A challenger now has to be clearly ahead, and stay ahead, before it takes over. Caller
+    /// holds <see cref="_lock"/>.
+    /// </summary>
+    private void UpdateDominantChain(string busiestKey, int busiestCount)
+    {
+        if (busiestKey.Length == 0)
+        {
+            // Nothing is presenting at all. Not a switch, so the history is left alone: it
+            // ages out on its own if frames really have stopped.
+            return;
+        }
+
+        if (_dominantChain.Length == 0)
+        {
+            _dominantChain      = busiestKey;
+            _chainCandidate     = "";
+            _chainCandidateWins = 0;
+            return;
+        }
+
+        if (busiestKey == _dominantChain)
+        {
+            _chainCandidate     = "";
+            _chainCandidateWins = 0;
+            return;
+        }
+
+        // The incumbent may have disappeared entirely, in which case there is nothing to
+        // defend and no reason to wait.
+        if (!_bySwapChain.TryGetValue(_dominantChain, out var incumbent) || incumbent.Count == 0)
+        {
+            SwitchChain(busiestKey);
+            return;
+        }
+
+        // Ahead, but not by enough to be a different chain rather than a busy moment.
+        if (busiestCount < incumbent.Count * ChainSwitchLead)
+        {
+            _chainCandidate     = "";
+            _chainCandidateWins = 0;
+            return;
+        }
+
+        if (busiestKey != _chainCandidate)
+        {
+            _chainCandidate     = busiestKey;
+            _chainCandidateWins = 1;
+            return;
+        }
+
+        if (++_chainCandidateWins >= ChainSwitchMargin) SwitchChain(busiestKey);
+    }
+
+    private void SwitchChain(string key)
+    {
+        _dominantChain      = key;
+        _chainCandidate     = "";
+        _chainCandidateWins = 0;
+
+        // The long history belonged to something else.
+        _lowSamples.Clear();
+        OnePercentLowFps = null;
     }
 
     /// <summary>
@@ -492,23 +679,26 @@ public class FpsService : IDisposable
     {
         lock (_lock)
         {
-            long now = Environment.TickCount64;
-
-            bool anyRecent = _bySwapChain.Values
-                .Any(q => q.Count > 0 && now - q.Last().At <= StaleAfterMs);
+            // Judged on when frames last reached us, not on their own timestamps. Frames
+            // stopping is a property of the capture, and their timestamps are relative to
+            // when PresentMon started, so the two clocks are not comparable.
+            bool anyRecent = _lastFrameArrival != 0
+                          && Environment.TickCount64 - _lastFrameArrival <= StaleAfterMs;
 
             if (!anyRecent)
             {
                 _bySwapChain.Clear();
                 _lowSamples.Clear();
-                _dominantChain   = "";
-                CurrentFps       = null;
-                OnePercentLowFps = null;
+                _dominantChain      = "";
+                _chainCandidate     = "";
+                _chainCandidateWins = 0;
+                CurrentFps          = null;
+                OnePercentLowFps    = null;
                 return;
             }
 
             Recompute();
-            RecomputeOnePercentLow(now);
+            RecomputeOnePercentLow(NewestFrameTime());
         }
     }
 
@@ -530,24 +720,45 @@ public class FpsService : IDisposable
         while (_lowSamples.Count > 0 && now - _lowSamples.Peek().At > LowWindowMs)
             _lowSamples.Dequeue();
 
-        if (_lowSamples.Count < LowMinSamples)
+        // Enough frames and enough time. A count alone is not a duration: two hundred frames
+        // is nearly seven seconds at 30fps and under one at 240, so this used to appear almost
+        // at once on a fast machine while describing a moment rather than a minute.
+        long span = _lowSamples.Count > 0 ? now - _lowSamples.Peek().At : 0;
+
+        if (_lowSamples.Count < LowMinSamples || span < LowMinSpanMs)
         {
             OnePercentLowFps = null;   // "--" rather than a figure built from too little data
             return;
         }
 
-        var times = new double[_lowSamples.Count];
-        int next = 0;
-        foreach (var sample in _lowSamples) times[next++] = sample.Ms;
-        Array.Sort(times);
+        int count = _lowSamples.Count;
 
-        // Slowest frames are the longest ones, so take from the top of the sorted array.
-        int worst = Math.Max(1, times.Length / 100);
-        double total = 0;
-        for (int i = times.Length - worst; i < times.Length; i++) total += times[i];
+        // Rented rather than allocated. Sixty seconds of frames is large enough to land on the
+        // large object heap, and this runs several times a second for as long as a game is
+        // open, so allocating it each time is a steady stream of collectable garbage for a
+        // number that has not changed much.
+        var times = ArrayPool<double>.Shared.Rent(count);
 
-        double averageMs = total / worst;
-        OnePercentLowFps = averageMs > 0 ? (float)(1000.0 / averageMs) : null;
+        try
+        {
+            int next = 0;
+            foreach (var sample in _lowSamples) times[next++] = sample.Ms;
+            Array.Sort(times, 0, count);
+
+            // Rounded up, not down. Integer division took 0.8% at 250 frames and 0.67% at 299,
+            // so the "1%" low was quietly a different proportion at every window size.
+            int worst = Math.Max(1, (int)Math.Ceiling(count / 100.0));
+
+            double total = 0;
+            for (int i = count - worst; i < count; i++) total += times[i];
+
+            double averageMs = total / worst;
+            OnePercentLowFps = averageMs > 0 ? (float)(1000.0 / averageMs) : null;
+        }
+        finally
+        {
+            ArrayPool<double>.Shared.Return(times);
+        }
     }
 
     /// <summary>
