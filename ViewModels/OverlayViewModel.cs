@@ -312,6 +312,11 @@ public class OverlayViewModel : BaseViewModel
         RebuildBorderBrushes();
         LoadActiveTiles();
         HardwareService.Instance.SensorsUpdated += OnSensorsUpdated;
+
+        // Frame rate arrives on its own schedule rather than with the sensor readings. It is
+        // measured by a different thing entirely, and tying it to the sensor interval meant a
+        // five second polling rate also froze the frame rate for five seconds at a time.
+        FpsService.Instance.Updated += (_, _) => RefreshFrameRateTiles();
         SettingsService.Instance.SettingsChanged += (_, _) =>
         {
             foreach (var tile in ActiveTiles) tile.RefreshDisplayFormatting();
@@ -328,12 +333,42 @@ public class OverlayViewModel : BaseViewModel
             if (def != null) ActiveTiles.Add(new TileViewModel(def));
         }
         OverlayOpacity = settings.OverlayOpacity;
+
+        // A newly added frame rate tile would otherwise show nothing until the next timer
+        // tick, and the sensor path no longer fills these in.
+        RefreshFrameRateTiles();
+    }
+
+    /// <summary>
+    /// Updates only the two frame rate tiles, leaving every other reading alone.
+    ///
+    /// Separate from the sensor path because the two are measured independently: a sensor
+    /// snapshot must not overwrite a fresher frame rate, and a frame rate update must not
+    /// disturb a temperature.
+    /// </summary>
+    private void RefreshFrameRateTiles()
+    {
+        var fps = FpsService.Instance;
+
+        foreach (var tile in ActiveTiles)
+        {
+            if (tile.Definition.Id == "fps")           tile.Value = fps.CurrentFps;
+            else if (tile.Definition.Id == "fps_1low") tile.Value = fps.OnePercentLowFps;
+        }
     }
 
     private void OnSensorsUpdated(object? sender, SensorData data)
     {
         foreach (var tile in ActiveTiles)
+        {
+            // Frame rates are not part of this reading. They arrive on their own timer, which
+            // is faster than the sensor interval, so taking them from the snapshot would keep
+            // replacing a fresh value with an older one and make the tile stutter.
+            if (tile.Definition.Id is "fps" or "fps_1low") continue;
+
             tile.Value = data.GetById(tile.Definition.Id);
+        }
+
         UpdateStatus(data);
     }
 
