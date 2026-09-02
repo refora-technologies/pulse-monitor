@@ -95,7 +95,11 @@ public class SettingsService
             // so whichever build last had the toggle on owned startup permanently. Or it may
             // carry the schtasks defaults that stop it running on battery and kill Pulse
             // after three days, which is every task Pulse created before 1.1.1.
-            bool wrongPath = task.CommandPath.IndexOf(current, StringComparison.OrdinalIgnoreCase) < 0;
+            // Compared through StartupTask, which knows what the console codepage does to the
+            // reply. A straight substring test here meant an install path containing non-Latin
+            // characters could never match itself, so the task was "wrong" and got rewritten at
+            // every launch for the life of the installation.
+            bool wrongPath = !StartupTask.CommandIsThisBuild(task.CommandPath, current);
 
             if (wrongPath || !task.SettingsCorrect)
             {

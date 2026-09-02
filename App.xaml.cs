@@ -327,12 +327,11 @@ public partial class App : WinApplication
     }
 
     /// <summary>
-    /// Records unhandled failures instead of losing them.
+    /// Records unhandled failures instead of losing them, and survives the ones it can.
     ///
-    /// None of this keeps Pulse alive; an unhandled exception ends the process either way.
-    /// It only means the reason is written down first. Note that it cannot catch everything:
-    /// a fault inside a driver corrupts the process state, and the runtime terminates without
-    /// running managed handlers at all. Those are what the session marker is for.
+    /// Note that this cannot catch everything: a fault inside a driver corrupts the process
+    /// state, and the runtime terminates without running managed handlers at all. Those are
+    /// what the session marker and the sensor host are for.
     /// </summary>
     private void InstallCrashReporting()
     {
@@ -344,7 +343,16 @@ public partial class App : WinApplication
         };
 
         DispatcherUnhandledException += (_, args) =>
+        {
             Services.LogService.Error("Crash", "Unhandled exception on the UI thread", args.Exception);
+
+            // Kept alive. This used to log and then let the process end, which for a tray
+            // application means the overlay and the tray icon both vanish with no window ever
+            // having been open to explain why. A failed button press or a binding that threw
+            // while rendering is not a reason to take the whole thing down, and the readings
+            // are produced in another process entirely, so they are unaffected either way.
+            args.Handled = ShouldKeepRunningAfter();
+        };
 
         // Faults on background tasks nobody awaited. Silent until now, and they are exactly
         // the kind that make an app "just stop working" with no explanation.
@@ -353,6 +361,36 @@ public partial class App : WinApplication
             Services.LogService.Error("Crash", "Unobserved background task failure", args.Exception);
             args.SetObserved();
         };
+    }
+
+    /// Recent UI thread faults, for deciding whether carrying on is still sensible.
+    private readonly Queue<long> _uiFaults = new();
+
+    private const int  UiFaultLimit    = 5;
+    private const long UiFaultWindowMs = 10_000;
+
+    /// <summary>
+    /// Whether to swallow a UI thread exception and carry on.
+    ///
+    /// Surviving one fault is right; surviving an endless stream of them is not. A fault that
+    /// repeats every time the dispatcher runs — a broken template, a binding that throws on
+    /// every layout pass — would otherwise spin forever, writing the log entry each time,
+    /// with a window on screen that cannot draw and no way to tell anything is wrong. Past a
+    /// handful in ten seconds it is better to let Pulse close, having said why in the log.
+    /// </summary>
+    private bool ShouldKeepRunningAfter()
+    {
+        long now = Environment.TickCount64;
+
+        _uiFaults.Enqueue(now);
+        while (_uiFaults.Count > 0 && now - _uiFaults.Peek() > UiFaultWindowMs) _uiFaults.Dequeue();
+
+        if (_uiFaults.Count <= UiFaultLimit) return true;
+
+        Services.LogService.Warn("Crash",
+            $"{_uiFaults.Count} interface failures within {UiFaultWindowMs / 1000} seconds; "
+            + "Pulse is closing rather than carrying on in a broken state.");
+        return false;
     }
 
     protected override void OnExit(ExitEventArgs e)

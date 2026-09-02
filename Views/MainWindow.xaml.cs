@@ -56,8 +56,19 @@ public partial class MainWindow : Window
 
             // The panel is hidden and re-shown rather than recreated, so Loaded fires only
             // once. Without this the position sliders would keep whatever they read the first
-            // time, however far the overlay had been dragged since.
-            IsVisibleChanged += (_, args) => { if (args.NewValue is true) _vm?.NotifyPositionChanged(); };
+            // time, however far the overlay had been dragged since, and the display buttons
+            // would still list monitors that were unplugged while the panel was away.
+            IsVisibleChanged += (_, args) =>
+            {
+                if (args.NewValue is not true) return;
+                _vm?.NotifyPositionChanged();
+                PopulateMonitorButtons();
+            };
+
+            // Displays can also change while the panel is open, which is the case someone is
+            // most likely to be looking at: plugging a monitor in and going straight to Pulse
+            // to move the overlay onto it.
+            Microsoft.Win32.SystemEvents.DisplaySettingsChanged += OnDisplaySettingsChanged;
 
             // The GPU list isn't known until the first sensor poll completes, so rebuild
             // the picker when it arrives (and if an eGPU is plugged in later).
@@ -275,6 +286,14 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// Rebuilds the display buttons when Windows reports a change.
+    /// </summary>
+    /// Marshalled onto the UI thread: SystemEvents raises this from its own hidden window,
+    /// which is not necessarily ours, and this touches bound children.
+    private void OnDisplaySettingsChanged(object? sender, EventArgs e)
+        => Dispatcher.BeginInvoke(PopulateMonitorButtons);
+
     private void PopulateMonitorButtons()
     {
         if (_vm == null || MonitorPanel == null || MonitorSelectionRow == null) return;
@@ -314,6 +333,29 @@ public partial class MainWindow : Window
     // really been typed in, committing on focus loss, filtering pasted text, clearing a stuck
     // mouse grab. A slider cannot hold a value that disagrees with the overlay, so all of it
     // went away along with the bugs it kept producing.
+
+    /// <summary>
+    /// Reports that a position slider's thumb is being held, and released.
+    /// </summary>
+    /// <remarks>
+    /// Whether the user is still placing the overlay used to be inferred from the save
+    /// debounce: a change had arrived within the last 400ms, so a drag must be in progress.
+    /// That is true while the thumb keeps moving and wrong the moment it stops. Pausing
+    /// mid-drag to look at the result let the timer lapse, and the overlay was then free to
+    /// re-anchor itself out from under a thumb that was still held down.
+    ///
+    /// The debounce is still what covers the arrow keys and clicks on the track, where there
+    /// is no drag to report. This only adds the part it could never know.
+    /// </remarks>
+    private void PositionSlider_DragStarted(object sender, RoutedEventArgs e)
+    {
+        if (_vm != null) _vm.IsDraggingPositionSlider = true;
+    }
+
+    private void PositionSlider_DragCompleted(object sender, RoutedEventArgs e)
+    {
+        if (_vm != null) _vm.IsDraggingPositionSlider = false;
+    }
 
     /// Puts the opacity and background sliders back to the values Pulse ships with, so a
     /// transparent panel can be tried out without having to remember what it was before.
@@ -588,18 +630,35 @@ public partial class MainWindow : Window
         HighlightActivePosition();
     }
 
+    // Both of these are async void, so an exception escaping one goes straight to the
+    // dispatcher rather than to any caller. Pulse now survives that, but a button that fails
+    // should still fail as a button rather than as an application-wide fault, and the log
+    // entry says which button it was.
     private async void BtnCheckUpdates_Click(object sender, RoutedEventArgs e)
     {
         if (_vm == null || _vm.IsCheckingUpdate || _vm.IsDownloading) return;
 
-        // Once a check has already found an update, this button switches to actually
-        // starting that download instead of redundantly re-checking GitHub again.
-        if (_vm.IsUpdateAvailable) await ConfirmThenInstallAsync();
-        else await _vm.CheckForUpdatesAsync(true);
+        try
+        {
+            // Once a check has already found an update, this button switches to actually
+            // starting that download instead of redundantly re-checking GitHub again.
+            if (_vm.IsUpdateAvailable) await ConfirmThenInstallAsync();
+            else await _vm.CheckForUpdatesAsync(true);
+        }
+        catch (Exception ex)
+        {
+            LogService.Error(nameof(MainWindow), "Checking for updates failed", ex);
+        }
     }
 
     private async void BtnUpdateNow_Click(object sender, RoutedEventArgs e)
-        => await ConfirmThenInstallAsync();
+    {
+        try { await ConfirmThenInstallAsync(); }
+        catch (Exception ex)
+        {
+            LogService.Error(nameof(MainWindow), "Starting the update failed", ex);
+        }
+    }
 
     /// Shows the release notes first so the user knows what they are getting, and only
     /// downloads if they confirm.
@@ -719,6 +778,11 @@ public partial class MainWindow : Window
         // control panel is reopened, so leaving this attached would pin every closed
         // instance in memory for the lifetime of the app.
         Pulse.Services.HardwareService.Instance.GpuListChanged -= OnGpuListChanged;
+
+        // SystemEvents is static and lives as long as the process, so this one leaks harder
+        // than the singleton above: every panel ever opened would stay alive, and each would
+        // still try to rebuild buttons on a window that has been closed.
+        Microsoft.Win32.SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;
 
         base.OnClosed(e);
     }
