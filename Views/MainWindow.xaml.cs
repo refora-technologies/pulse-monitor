@@ -14,6 +14,9 @@ using WpfDragEventArgs = System.Windows.DragEventArgs;
 using WpfDataObject = System.Windows.DataObject;
 using WpfDragDropEffects = System.Windows.DragDropEffects;
 using WpfBorder = System.Windows.Controls.Border;
+using WpfKeyEventArgs = System.Windows.Input.KeyEventArgs;
+using Shortcut = Pulse.Models.Shortcut;
+using ShortcutAction = Pulse.Models.ShortcutAction;
 
 namespace Pulse.Views;
 
@@ -356,6 +359,100 @@ public partial class MainWindow : Window
     {
         if (_vm != null) _vm.IsDraggingPositionSlider = false;
     }
+
+    // ── Keyboard shortcuts ──────────────────────────────────────────────────────────
+    //
+    // "Press a key combination" sounds trivial and is where this kind of control usually goes
+    // wrong. The awkward parts, all of which are handled below: Alt makes WPF report the key as
+    // System with the real one somewhere else; our own shortcuts are registered globally and
+    // fire before the panel sees the keystroke; and a combination has to be refused at the
+    // moment it is pressed rather than accepted and then quietly failing to register.
+
+    private ShortcutRowViewModel? _capturing;
+
+    private void ShortcutChip_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not WpfButton { Tag: ShortcutAction action }) return;
+
+        var row = _vm?.ShortcutRows.FirstOrDefault(r => r.Action == action);
+        if (row == null) return;
+
+        BeginCapture(row);
+        Keyboard.Focus((WpfButton)sender);
+    }
+
+    private void BeginCapture(ShortcutRowViewModel row)
+    {
+        if (_capturing == row) return;
+        EndCapture();
+
+        _capturing = row;
+        row.IsCapturing = true;
+        row.Problem = "";
+
+        // Ours are global, so Windows delivers them to Pulse before the focused control sees
+        // the keys at all. Left registered, pressing the combination a row already holds would
+        // carry out the action instead of being recorded: asking to change the overlay
+        // shortcut would hide the overlay.
+        HotkeyService.Instance.Suspend();
+    }
+
+    private void EndCapture()
+    {
+        if (_capturing == null) return;
+
+        _capturing.IsCapturing = false;
+        _capturing = null;
+
+        HotkeyService.Instance.Resume();
+        _vm?.RefreshShortcutProblems();
+    }
+
+    private void ShortcutChip_LostFocus(object sender, RoutedEventArgs e) => EndCapture();
+
+    private void ShortcutChip_PreviewKeyDown(object sender, WpfKeyEventArgs e)
+    {
+        if (_capturing == null) return;
+        e.Handled = true;
+
+        // Alt is held for every one of our suggested combinations, and WPF reports Alt+letter
+        // as Key.System with the real key in SystemKey. Reading Key alone here would record
+        // every Alt combination as the same thing.
+        var key = e.Key == Key.System ? e.SystemKey : e.Key;
+
+        if (key == Key.Escape)
+        {
+            EndCapture();
+            return;
+        }
+
+        // Modifiers arrive as key presses of their own on the way to the combination. Waiting
+        // rather than rejecting: the user is part-way through pressing something valid.
+        if (key is Key.LeftCtrl or Key.RightCtrl or Key.LeftAlt or Key.RightAlt
+                or Key.LeftShift or Key.RightShift or Key.LWin or Key.RWin)
+            return;
+
+        var candidate = new Shortcut(Keyboard.Modifiers, key);
+        var row = _capturing;
+
+        var problem = _vm?.AssignShortcut(row.Action, candidate);
+
+        // Refused, so the previous binding is untouched and the reason is shown against the
+        // row. Capture ends either way: leaving it open after a refusal makes it unclear
+        // whether anything was recorded.
+        EndCapture();
+        if (problem != null) row.Problem = problem;
+    }
+
+    private void ShortcutClear_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not WpfButton { Tag: ShortcutAction action }) return;
+
+        // Each row is cleared on its own; the others keep working.
+        _vm?.ClearShortcut(action);
+    }
+
+    private void ShortcutReset_Click(object sender, RoutedEventArgs e) => _vm?.ResetShortcuts();
 
     /// Puts the opacity and background sliders back to the values Pulse ships with, so a
     /// transparent panel can be tried out without having to remember what it was before.
