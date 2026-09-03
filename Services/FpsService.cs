@@ -163,25 +163,24 @@ public class FpsService : IDisposable
     public float? CurrentFps { get; private set; }
 
     /// <summary>
-    /// The average frame rate of the slowest 1% of recent frames — NVIDIA's definition, and
-    /// deliberately not the 1st percentile. Averaging the worst frames keeps a single deep
-    /// stutter visible, where a percentile would report only the value at the boundary and
-    /// hide it. Null until there are enough samples to mean anything.
+    /// The 1% low: the frame rate at the 99th percentile of recent frame times.
     /// </summary>
+    /// <remarks>
+    /// The percentile method, which is what RTSS, MSI Afterburner and CapFrameX report and what
+    /// people mean when they compare 1% lows. Frame times are sorted and the one on the
+    /// boundary is converted to a rate; the 1st percentile of frame *rates* is the same thing
+    /// as the 99th percentile of frame *times*, which is why the arithmetic stays in
+    /// milliseconds throughout and converts exactly once, at the end.
+    ///
+    /// Pulse used to offer a second reading alongside this, the average of everything past the
+    /// boundary, on the grounds that a single deep stutter moves an average and does not move a
+    /// boundary. That was true but not worth a second tile: two rows whose names differed by
+    /// three characters, and no way for anyone to tell which one to believe. One number, the
+    /// one the rest of the world computes.
+    ///
+    /// Null until there are enough samples for a percentile to mean anything.
+    /// </remarks>
     public float? OnePercentLowFps { get; private set; }
-
-    /// <summary>
-    /// The other 1% low: the frame on the boundary rather than the average of everything past
-    /// it, which is what RTSS, MSI Afterburner and CapFrameX report.
-    ///
-    /// Offered because people compare overlays side by side, and two tools disagreeing looks
-    /// like one of them is broken when in fact they are measuring different things. This one
-    /// always reads at least as high as <see cref="OnePercentLowFps"/> on the same frames, by
-    /// construction: the boundary is the fastest of the frames the average is taken over.
-    ///
-    /// Computed from the same sorted window, so it costs essentially nothing.
-    /// </summary>
-    public float? OnePercentLowP1Fps { get; private set; }
 
     /// <summary>
     /// Frames that actually reached the monitor, as opposed to frames the graphics card
@@ -228,21 +227,18 @@ public class FpsService : IDisposable
     {
         var active = SettingsService.Instance.Settings.ActiveTileIds;
 
-        // Both 1% lows are drawn from the same window of frames, so either one being on is
-        // reason enough to keep it, and keeping it once serves both.
-        bool lowOn       = active.Contains("fps_1low") || active.Contains("fps_1low_p1");
+        bool lowOn       = active.Contains("fps_1low");
         bool displayedOn = active.Contains("fps_displayed");
         bool wanted      = active.Contains("fps") || lowOn || displayedOn;
 
-        // The 1% low keeps up to a minute of frames; nobody pays for that unless a tile
+        // The 1% low keeps up to a minute of frames; nobody pays for that unless the tile
         // showing it is actually on.
         if (_lowWanted && !lowOn)
         {
             lock (_lock)
             {
                 _lowSamples.Clear();
-                OnePercentLowFps   = null;
-                OnePercentLowP1Fps = null;
+                OnePercentLowFps = null;
             }
         }
 
@@ -761,8 +757,7 @@ public class FpsService : IDisposable
 
         // The long history belonged to something else.
         _lowSamples.Clear();
-        OnePercentLowFps   = null;
-        OnePercentLowP1Fps = null;
+        OnePercentLowFps = null;
     }
 
     /// <summary>
@@ -790,7 +785,6 @@ public class FpsService : IDisposable
                 CurrentFps          = null;
                 DisplayedFps        = null;
                 OnePercentLowFps    = null;
-                OnePercentLowP1Fps  = null;
                 return;
             }
 
@@ -810,8 +804,7 @@ public class FpsService : IDisposable
     {
         if (!_lowWanted)
         {
-            OnePercentLowFps   = null;
-            OnePercentLowP1Fps = null;
+            OnePercentLowFps = null;
             return;
         }
 
@@ -826,8 +819,7 @@ public class FpsService : IDisposable
         if (_lowSamples.Count < LowMinSamples || span < LowMinSpanMs)
         {
             // "--" rather than a figure built from too little data.
-            OnePercentLowFps   = null;
-            OnePercentLowP1Fps = null;
+            OnePercentLowFps = null;
             return;
         }
 
@@ -841,31 +833,23 @@ public class FpsService : IDisposable
 
         try
         {
+            // Sorted shortest frame time to longest, so the stutters are at the end. Frame
+            // times, never per-frame rates: computing a rate for each frame and then taking the
+            // lowest 1% of those is a different and wrong calculation, and it is the mistake
+            // this metric is most often implemented with.
             int next = 0;
             foreach (var sample in _lowSamples) times[next++] = sample.Ms;
             Array.Sort(times, 0, count);
 
-            // Rounded up, not down. Integer division took 0.8% at 250 frames and 0.67% at 299,
-            // so the "1%" low was quietly a different proportion at every window size.
-            int worst = Math.Max(1, (int)Math.Ceiling(count / 100.0));
-
-            double total = 0;
-            for (int i = count - worst; i < count; i++) total += times[i];
-
-            double averageMs = total / worst;
-            OnePercentLowFps = averageMs > 0 ? (float)(1000.0 / averageMs) : null;
-
-            // The other convention, from the same sorted window: the frame time at the 99th
-            // percentile rather than the mean of everything beyond it. Nearest rank, which is
-            // what RTSS and CapFrameX use, so the two numbers can actually be compared.
-            //
-            // This index is never past the start of the block averaged above, so the boundary
-            // frame time is always the fastest of the frames that average is taken over. That
-            // is why P1 can only ever read the same or higher, never lower — a property of the
-            // definitions rather than of any particular capture.
+            // Nearest rank: the 99th percentile is the value at rank ceil(0.99 * n), which is
+            // one lower as a zero-based index. Truncating 0.99 * n instead, as some
+            // implementations do, picks the next sample along; the two agree except when the
+            // frame count is an exact multiple of a hundred, and then by a single sample.
             int boundary = Math.Clamp((int)Math.Ceiling(0.99 * count) - 1, 0, count - 1);
             double boundaryMs = times[boundary];
-            OnePercentLowP1Fps = boundaryMs > 0 ? (float)(1000.0 / boundaryMs) : null;
+
+            // Converted to a rate exactly once, here at the end.
+            OnePercentLowFps = boundaryMs > 0 ? (float)(1000.0 / boundaryMs) : null;
         }
         finally
         {
@@ -937,8 +921,7 @@ public class FpsService : IDisposable
                 _dominantChain   = "";
                 CurrentFps         = null;
                 DisplayedFps       = null;
-                OnePercentLowFps   = null;
-                OnePercentLowP1Fps = null;
+                OnePercentLowFps = null;
             }
             return;
         }
@@ -956,8 +939,7 @@ public class FpsService : IDisposable
             _dominantChain   = "";
             CurrentFps         = null;
             DisplayedFps       = null;
-            OnePercentLowFps   = null;
-            OnePercentLowP1Fps = null;
+            OnePercentLowFps = null;
         }
     }
 
