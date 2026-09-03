@@ -15,9 +15,9 @@ public class SensorTileDefinition
     /// What this reading actually is, shown as a tooltip in the settings list.
     ///
     /// Added for the frame rate tiles, where the name alone is not enough. "1% Low" is used by
-    /// different tools for two different statistics, and ours reads lower than MSI Afterburner
-    /// on the same scene because it averages the worst frames rather than reporting the one on
-    /// the boundary. Users reasonably concluded one of us was broken.
+    /// different tools for two different statistics, and two overlays disagreeing looks like one
+    /// of them is broken when they are measuring different things. Saying which one this is, and
+    /// over what window, is what stops that.
     /// </summary>
     /// Null rather than empty for the tiles that do not need one, so the settings list can
     /// fall back to its keyboard hint through TargetNullValue.
@@ -38,10 +38,9 @@ public class SensorTileDefinition
     ///   Clock | Power
     ///   ...            CPU block, then the GPU block mirroring it
     ///   VRAM  | RAM         the two memory readings, side by side
-    ///   FPS   | 1% Low Avg  frame rate and its worst case belong together
-    ///   P1    | Displayed   the two alternative frame rate readings, both off by default
-    ///   Up    | Down        network pairs naturally
-    ///   Disk  | CPU+GPU     what is left, and the summary total
+    ///   FPS   | 1% Low      frame rate and its worst case belong together
+    ///   Disp  | Up          displayed frame rate, then the network pair begins
+    ///   Down  | Disk        the rest, and the summary total last
     ///
     /// Users can drag tiles into any order they prefer; this is only the starting point.
     /// </summary>
@@ -82,25 +81,18 @@ public class SensorTileDefinition
         new() { Id = "fps",          Label = "FPS",           Unit = "fps",  Category = SensorCategory.System,  HasBar = false, WarnThreshold = 0,   DangerThreshold = 0,
                 Description = "Frames your graphics card produced in the last second, for whichever app is in focus." },
 
-        // "Avg" is in the name on purpose. Two different statistics are called "1% low": the
-        // average of the slowest frames, which is NVIDIA's, and the value at the 1% boundary,
-        // which is RTSS and MSI Afterburner's. Ours always reads lower on the same scene
-        // because a single deep stutter pulls an average down and does not move a boundary.
-        // Without saying which one this is, the difference looks like a bug in Pulse.
-        new() { Id = "fps_1low",     Label = "1% Low Avg",    Unit = "fps",  Category = SensorCategory.System,  HasBar = false, WarnThreshold = 0,   DangerThreshold = 0,
-                Description = "The average of your slowest 1% of frames over the last minute. "
-                            + "Lower than the 1% low shown by MSI Afterburner and RTSS, which report the "
-                            + "frame on the boundary instead of averaging the worst ones. This one reacts "
-                            + "to a single deep stutter; theirs does not." },
-
-        // Both 1% lows are offered rather than one being declared correct, because they answer
-        // different questions and people compare overlays side by side. Off by default: a fresh
-        // install should not show two tiles whose names differ by three characters.
-        new() { Id = "fps_1low_p1",  Label = "1% Low P1",     Unit = "fps",  Category = SensorCategory.System,  HasBar = false, WarnThreshold = 0,   DangerThreshold = 0,
-                Description = "The same minute of frames measured the way MSI Afterburner, RTSS and "
-                            + "CapFrameX measure it: the frame time at the 99th percentile, rather than "
-                            + "the average of everything past it. Reads the same or higher than 1% Low Avg, "
-                            + "never lower. Turn this on to compare Pulse against those tools." },
+        // One 1% low, computed the way the rest of the world computes it: the frame time at the
+        // 99th percentile. Pulse briefly offered a second tile alongside this, the average of
+        // everything past the boundary, which is NVIDIA's convention. Both were correct and
+        // having both was not: two rows whose names differed by three characters, and nothing
+        // to tell anyone which to believe. The id is unchanged from when this was the average,
+        // so nobody loses a tile they had already turned on.
+        new() { Id = "fps_1low",     Label = "1% Low",        Unit = "fps",  Category = SensorCategory.System,  HasBar = false, WarnThreshold = 0,   DangerThreshold = 0,
+                Description = "How fast your slowest frames are, measured over the last minute: the "
+                            + "frame time at the 99th percentile, converted to a rate. This is the same "
+                            + "method MSI Afterburner, RTSS and CapFrameX use. A number well below your "
+                            + "FPS means stutter, even when the average looks healthy. Other overlays may "
+                            + "differ because they measure over a different length of time." },
 
         // Also off by default. Most people want the rate their card is producing, which is what
         // FPS already shows; this one is for seeing how much of that the monitor never receives.
