@@ -155,6 +155,8 @@ public sealed class SensorReader : IDisposable
 
         if (!IsReady) return snapshot;
 
+        _cpuGraphicsTemp = null;
+
         try
         {
             var gpus = new List<IHardware>();
@@ -186,6 +188,18 @@ public sealed class SensorReader : IDisposable
             {
                 snapshot.ActiveGpuName = chosen.Name;
                 ReadGpu(chosen, data);
+
+                // Integrated graphics report their temperature through the processor, because
+                // they are part of it. Applied only when the chosen device reported none of
+                // its own, which is what distinguishes the two cases without having to decide
+                // whether a device is "integrated" — a question its memory size cannot answer,
+                // since an AMD APU can carve out two gigabytes and still be on the CPU die.
+                //
+                // A discrete card always reports its own temperature, so it never reaches
+                // this line. The exception would be a discrete card whose driver reports none
+                // at all, on a machine whose processor has graphics; that would show the
+                // processor's figure, and is the one case this gets wrong.
+                data.GpuTemp ??= _cpuGraphicsTemp;
             }
         }
         catch (Exception ex)
@@ -377,7 +391,7 @@ public sealed class SensorReader : IDisposable
         };
     }
 
-    private static void ReadHardware(IHardware hw, SensorData data)
+    private void ReadHardware(IHardware hw, SensorData data)
     {
         switch (hw.HardwareType)
         {
@@ -388,7 +402,7 @@ public sealed class SensorReader : IDisposable
         }
     }
 
-    private static void ReadCpu(IHardware hw, SensorData data)
+    private void ReadCpu(IHardware hw, SensorData data)
     {
         float clockSum = 0; int clockCount = 0;
         float usageSum = 0; int usageCount = 0;
@@ -406,7 +420,13 @@ public sealed class SensorReader : IDisposable
             switch (s.SensorType)
             {
                 case SensorType.Temperature:
-                    if (s.Name.Contains("Package", StringComparison.OrdinalIgnoreCase))
+                    // Kept aside rather than considered for the CPU reading: this is the
+                    // graphics part of the die, not the cores, and it is only used if the
+                    // graphics device itself turns out to have no temperature of its own.
+                    if (s.Name.Equals("GFX", StringComparison.OrdinalIgnoreCase)
+                        || s.Name.Contains("Graphics", StringComparison.OrdinalIgnoreCase))
+                        _cpuGraphicsTemp = s.Value;
+                    else if (s.Name.Contains("Package", StringComparison.OrdinalIgnoreCase))
                         tempPackage = s.Value;
                     else if (s.Name.Contains("Tctl", StringComparison.OrdinalIgnoreCase)
                           || s.Name.Contains("Tdie", StringComparison.OrdinalIgnoreCase))
@@ -559,6 +579,21 @@ public sealed class SensorReader : IDisposable
             && !name.Contains("Virtual", StringComparison.OrdinalIgnoreCase)
             && !name.Contains("System", StringComparison.OrdinalIgnoreCase);
     }
+
+    /// <summary>
+    /// The graphics temperature the processor reports, when it has integrated graphics.
+    /// </summary>
+    /// <remarks>
+    /// On a processor with graphics built in, the graphics silicon is on the same die as the
+    /// cores, and its temperature is published by the processor rather than by the graphics
+    /// device. An AMD Ryzen 5 PRO 3500U reports it as "GFX" under /amdcpu/0 while its Vega 8
+    /// graphics device carries no temperature sensor at all, so Pulse showed nothing where
+    /// Task Manager showed 61 degrees.
+    ///
+    /// Reset every poll, because a reading kept from a previous cycle is exactly the kind of
+    /// stale number this project keeps having to remove.
+    /// </remarks>
+    private float? _cpuGraphicsTemp;
 
     private static void ReadMemory(IHardware hw, SensorData data)
     {
