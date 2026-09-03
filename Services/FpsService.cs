@@ -208,6 +208,7 @@ public class FpsService : IDisposable
         {
             RefreshForegroundTarget();
             ExpireIfStale();      // frames stopping is silent; nothing else would notice
+            ReportSilentCapture();
             Updated?.Invoke(this, EventArgs.Empty);
         };
 
@@ -345,6 +346,33 @@ public class FpsService : IDisposable
     }
 
     /// <summary>
+    /// Says so, once, when a capture has been running for a while and heard nothing at all.
+    /// </summary>
+    /// <remarks>
+    /// This is the line that was missing. PresentMon can start, report no error, stay alive and
+    /// deliver not one row, which is what a starved ETW session looks like from outside. It
+    /// happened here for an entire afternoon and produced no log entry of any kind, so a report
+    /// of "the frame rate shows nothing" came with a log that said nothing either.
+    ///
+    /// Warn rather than error, and once rather than repeatedly: a machine sitting on an empty
+    /// desktop with nothing presenting is also silent, and that is not a fault.
+    /// </remarks>
+    private void ReportSilentCapture()
+    {
+        if (_reportedSilence || _process is null || !_captureWanted) return;
+        if (Environment.TickCount64 - _captureStartedAt < SilentCaptureAfter.TotalMilliseconds) return;
+        if (Interlocked.Read(ref _rowsSeen) > 0) return;
+
+        _reportedSilence = true;
+
+        LogService.Warn(nameof(FpsService),
+            $"Frame capture has produced no data in {SilentCaptureAfter.TotalSeconds:F0}s, though it is "
+            + "still running. Either nothing on this machine is presenting frames, or the trace session "
+            + "is being starved of events. Abandoned trace sessions from other tools are the usual cause; "
+            + $"'logman query -ets' lists them and ours is called {TraceSessionName}.");
+    }
+
+    /// <summary>
     /// How long to wait before trying again, capped.
     ///
     /// Never gives up. It used to stop after five attempts and never resume, so five unrelated
@@ -357,6 +385,33 @@ public class FpsService : IDisposable
 
     private int  _captureGeneration;
     private long _captureStartedAt;
+
+    /// <summary>
+    /// The name of the ETW trace session PresentMon runs under.
+    /// </summary>
+    /// <remarks>
+    /// Constant, and deliberately not "PresentMon". Constant so that a session left behind by a
+    /// previous run is stopped by the next one rather than accumulating, and not the default so
+    /// that stopping it can never reach another tool's capture. See the note where it is used.
+    /// </remarks>
+    internal const string TraceSessionName = "PulseMonitor";
+
+    /// <summary>
+    /// How long a capture may run without a single row arriving before that is worth saying.
+    /// </summary>
+    /// <remarks>
+    /// PresentMon can start cleanly, stay running, and deliver nothing at all: that is what a
+    /// starved ETW session looks like from outside, and it produced no log entry of any kind
+    /// while frame capture was dead for an entire afternoon. Not an error, because a machine
+    /// with nothing presenting also produces no rows, but it is the single most useful line
+    /// anyone could have when reporting that the frame rate reads "--".
+    /// </remarks>
+    private static readonly TimeSpan SilentCaptureAfter = TimeSpan.FromSeconds(90);
+
+    /// Rows parsed from PresentMon since this capture started, counting every process rather
+    /// than only the foreground one, so this measures the capture rather than the target.
+    private long _rowsSeen;
+    private bool _reportedSilence;
 
     private void StartCapture()
     {
@@ -382,14 +437,32 @@ public class FpsService : IDisposable
                     // relying on whichever happens to be the default would mean a future
                     // PresentMon silently renaming the columns we look for — and FPS just
                     // quietly stopping.
-                    // --session_name is what makes --stop_existing_session safe. PresentMon
-                    // stops "a trace session with the same name", and with no name given that
-                    // is the default one, which any other PresentMon based tool is also using.
-                    // So starting frame capture silently killed a capture belonging to
-                    // CapFrameX, OCAT, or someone's own PresentMon run. Named after our own
-                    // process, the flag now only ever clears a session we abandoned ourselves.
+                    // --session_name is what makes --stop_existing_session safe, and the name
+                    // has to be both ours alone and the same every time. Both halves matter,
+                    // and getting either wrong has already caused a bug.
+                    //
+                    // Unnamed, the session is called "PresentMon", which every other tool
+                    // built on it also uses. --stop_existing_session then stopped a capture
+                    // belonging to CapFrameX, OCAT, Intel's own Graphics Software, or someone
+                    // running PresentMon by hand.
+                    //
+                    // Named per process id, nothing is ever stopped, because the name is new
+                    // every launch. An ETW session outlives the process that made it and has
+                    // to be closed explicitly, and this one is killed rather than asked to
+                    // stop, so every run of Pulse abandoned a session that stayed subscribed
+                    // to the graphics providers with nobody reading it. They accumulated
+                    // without limit. Six of them was enough to make Windows drop around
+                    // 136,000 events per capture, which broke frame capture for the whole
+                    // machine: our own readings went blank and so did NVIDIA's overlay, while
+                    // tools that inject into the game rather than listening to ETW carried on
+                    // working. Fixing one interoperability bug had created a worse one.
+                    //
+                    // A constant name of our own restores the self-cleaning without touching
+                    // anyone else: a leaked session is stopped by the next launch, so at most
+                    // one can exist at a time. Pulse is single instance by mutex, so a fixed
+                    // name never collides with itself.
                     Arguments              = "--output_stdout --no_console_stats --v1_metrics "
-                                           + $"--session_name Pulse_{Environment.ProcessId} --stop_existing_session",
+                                           + $"--session_name {TraceSessionName} --stop_existing_session",
                     RedirectStandardOutput = true,
                     RedirectStandardError  = true,
                     UseShellExecute        = false,
@@ -407,6 +480,14 @@ public class FpsService : IDisposable
                 LogService.Warn(nameof(FpsService), "Frame capture could not be tied to Pulse's lifetime.");
 
             _captureStartedAt = Environment.TickCount64;
+            _rowsSeen         = 0;
+            _reportedSilence  = false;
+
+            // Said out loud, because until now a successful start logged nothing at all. A
+            // report of "the frame rate shows nothing" arrived with a log that could not
+            // distinguish never started, started and died, or started and heard silence.
+            LogService.Info(nameof(FpsService),
+                $"Frame capture started (pid {_process.Id}, trace session {TraceSessionName}).");
 
             // Read as well as redirected. PresentMon explains itself here when it refuses to
             // start, and none of that was reaching the log, so "FPS shows nothing" was
@@ -512,6 +593,10 @@ public class FpsService : IDisposable
 
         if (_headerProcessIdIndex < 0 || _headerFrameTimeIndex < 0) return;
         if (fields.Length <= Math.Max(_headerProcessIdIndex, _headerFrameTimeIndex)) return;
+
+        // Counted before the foreground filter, so this says whether the capture is receiving
+        // anything at all rather than whether the app being watched is presenting.
+        Interlocked.Increment(ref _rowsSeen);
 
 
         // Invariant culture, not the machine's. PresentMon always writes a dot decimal
