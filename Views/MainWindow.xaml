@@ -1164,6 +1164,20 @@
                                           PreviewMouseWheel="GpuCombo_PreviewMouseWheel"
                                           SelectionChanged="GpuCombo_SelectionChanged"
                                           DropDownClosed="GpuCombo_DropDownClosed"/>
+
+                                <!-- Shown in the dropdown's place on a machine with one
+                                     graphics adapter. There is nothing to choose between, but
+                                     "which GPU are these readings from" is still worth an
+                                     answer, and an empty card is not one. -->
+                                <StackPanel x:Name="GpuSingle" Visibility="Collapsed">
+                                    <TextBlock Text="{Binding SelectedGpuChoice.Label}"
+                                               FontSize="13" FontWeight="SemiBold"
+                                               Foreground="#DBD7F2" TextWrapping="Wrap"/>
+                                    <TextBlock Text="{Binding SelectedGpuChoice.Detail}"
+                                               FontSize="10.5" FontWeight="Medium"
+                                               Foreground="#8B86B4" Margin="0,2,0,0"
+                                               TextWrapping="Wrap"/>
+                                </StackPanel>
                             </StackPanel>
                         </Border>
                         <TextBlock Text="{Binding GpuSourceHint}"
@@ -1291,7 +1305,7 @@
                                                     ToolTip="Megabytes per second, the way a browser or a game launcher reports a download"/>
                                             <Button Grid.Column="1" Content="Mbps" Style="{StaticResource SegBtn}"
                                                     Tag="bits" Click="NetworkUnit_Click"
-                                                    ToolTip="Megabits per second, the way Task Manager, speed tests and internet plans report a connection. Eight times the same number."/>
+                                                    ToolTip="Megabits per second, the way Task Manager, speed tests and internet plans report a connection. Roughly eight times the same number: a byte is eight bits, and the two scales differ slightly as well."/>
                                         </Grid>
                                     </Grid>
                                 </Border>
