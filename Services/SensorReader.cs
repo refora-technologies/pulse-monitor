@@ -158,8 +158,6 @@ public sealed class SensorReader : IDisposable
 
         if (!IsReady) return snapshot;
 
-        _cpuGraphicsTemp = null;
-
         try
         {
             var gpus = new List<IHardware>();
@@ -192,17 +190,7 @@ public sealed class SensorReader : IDisposable
                 snapshot.ActiveGpuName = chosen.Name;
                 ReadGpu(chosen, data);
 
-                // Integrated graphics report their temperature through the processor, because
-                // they are part of it. Applied only when the chosen device reported none of
-                // its own, which is what distinguishes the two cases without having to decide
-                // whether a device is "integrated" — a question its memory size cannot answer,
-                // since an AMD APU can carve out two gigabytes and still be on the CPU die.
-                //
-                // A discrete card always reports its own temperature, so it never reaches
-                // this line. The exception would be a discrete card whose driver reports none
-                // at all, on a machine whose processor has graphics; that would show the
-                // processor's figure, and is the one case this gets wrong.
-                data.GpuTemp ??= _cpuGraphicsTemp;
+                ApplyProcessorTemperature(chosen.Name, data);
             }
         }
         catch (Exception ex)
@@ -423,13 +411,16 @@ public sealed class SensorReader : IDisposable
             switch (s.SensorType)
             {
                 case SensorType.Temperature:
-                    // Kept aside rather than considered for the CPU reading: this is the
-                    // graphics part of the die, not the cores, and it is only used if the
-                    // graphics device itself turns out to have no temperature of its own.
+                    // The graphics block of the die, skipped on purpose. It is not the cores,
+                    // so it must not become the processor's reading, and the graphics tile
+                    // does not want it either: Task Manager shows the die temperature on its
+                    // GPU page, and this sensor sits ten to seventeen degrees below that, so
+                    // showing it guarantees Pulse disagrees with the thing people check.
                     if (s.Name.Equals("GFX", StringComparison.OrdinalIgnoreCase)
                         || s.Name.Contains("Graphics", StringComparison.OrdinalIgnoreCase))
-                        _cpuGraphicsTemp = s.Value;
-                    else if (s.Name.Contains("Package", StringComparison.OrdinalIgnoreCase))
+                        break;
+
+                    if (s.Name.Contains("Package", StringComparison.OrdinalIgnoreCase))
                         tempPackage = s.Value;
                     else if (s.Name.Contains("Tctl", StringComparison.OrdinalIgnoreCase)
                           || s.Name.Contains("Tdie", StringComparison.OrdinalIgnoreCase))
@@ -609,6 +600,38 @@ public sealed class SensorReader : IDisposable
         data.VramIsShared = useShared && data.GpuVram is not null;
     }
 
+    /// <summary>
+    /// Fills in the temperature of graphics that publish none of their own.
+    /// </summary>
+    /// <remarks>
+    /// Graphics built into a processor commonly have no temperature sensor at all. On the AMD
+    /// laptop this was written against, the adapter publishes clocks, loads, memory and
+    /// voltage, and not one temperature; every temperature on the machine belongs to the
+    /// processor package. Task Manager fills its GPU page with the processor's die
+    /// temperature in that situation, and that is the number people will hold Pulse against,
+    /// so Pulse shows the same one and renames the tile rather than passing it off as the
+    /// graphics chip's own reading.
+    ///
+    /// Three conditions, all required:
+    ///
+    ///   1. the adapter reported no temperature itself,
+    ///   2. Windows says the adapter is part of the processor,
+    ///   3. the processor has a die temperature to give.
+    ///
+    /// The second is what makes this safe. Without it, any discrete card that went quiet for a
+    /// poll would inherit the processor's temperature, which is exactly the wrong number and
+    /// impossible to notice: it looks like a plausible reading. With it, a silent discrete
+    /// card shows nothing, which is the truth.
+    /// </remarks>
+    private void ApplyProcessorTemperature(string adapterName, SensorData data)
+    {
+        if (data.GpuTemp is not null || data.CpuTemp is null) return;
+        if (FindAdapter(adapterName) is not { Integrated: true }) return;
+
+        data.GpuTemp = data.CpuTemp;
+        data.GpuTempFromProcessor = true;
+    }
+
     /// The adapter Windows knows by this name, or null. Preferring one that has performance
     /// counters, because a machine can list the same adapter twice and only one of the two
     /// carries them.
@@ -680,21 +703,6 @@ public sealed class SensorReader : IDisposable
         && !name.Contains("Uncore",    StringComparison.OrdinalIgnoreCase)
         && !name.Contains("Effective", StringComparison.OrdinalIgnoreCase)
         && !name.Contains("Average",   StringComparison.OrdinalIgnoreCase);
-
-    /// <summary>
-    /// The graphics temperature the processor reports, when it has integrated graphics.
-    /// </summary>
-    /// <remarks>
-    /// On a processor with graphics built in, the graphics silicon is on the same die as the
-    /// cores, and its temperature is published by the processor rather than by the graphics
-    /// device. An AMD Ryzen 5 PRO 3500U reports it as "GFX" under /amdcpu/0 while its Vega 8
-    /// graphics device carries no temperature sensor at all, so Pulse showed nothing where
-    /// Task Manager showed 61 degrees.
-    ///
-    /// Reset every poll, because a reading kept from a previous cycle is exactly the kind of
-    /// stale number this project keeps having to remove.
-    /// </remarks>
-    private float? _cpuGraphicsTemp;
 
     private static void ReadMemory(IHardware hw, SensorData data)
     {

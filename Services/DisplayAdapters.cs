@@ -25,6 +25,92 @@ internal static class DisplayAdapters
     [DllImport("dxgi.dll")]
     private static extern int CreateDXGIFactory1(ref Guid riid, out IntPtr factory);
 
+    // ── Windows' own opinion of what kind of adapter this is ────────────────────────────
+    //
+    // DXGI describes an adapter's memory but never says whether it is built into the
+    // processor. The display kernel does, and it is the only vendor-neutral answer available:
+    // asked about this machine it marks the Intel graphics HybridIntegrated and the GeForce
+    // HybridDiscrete without either driver being consulted by name.
+    //
+    // This matters for temperature. Integrated graphics frequently publish no temperature of
+    // their own, and the processor die they sit on is the figure Task Manager shows in their
+    // place. Substituting it is only honest when Windows agrees the adapter really is part of
+    // the processor, which is what this asks.
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct AdapterLuid { public uint Low; public int High; }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct OpenAdapterFromLuid { public AdapterLuid Luid; public uint Handle; }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct QueryAdapterInfo
+    {
+        public uint   Handle;
+        public int    Type;
+        public IntPtr Data;
+        public uint   DataSize;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct CloseAdapter { public uint Handle; }
+
+    /// KMTQAITYPE_ADAPTERTYPE.
+    private const int AdapterTypeQuery = 15;
+
+    /// Bit 5 of D3DKMT_ADAPTERTYPE: the adapter is the one built into the processor.
+    private const uint HybridIntegrated = 1u << 5;
+
+    [DllImport("gdi32.dll")] private static extern int D3DKMTOpenAdapterFromLuid(ref OpenAdapterFromLuid a);
+    [DllImport("gdi32.dll")] private static extern int D3DKMTQueryAdapterInfo(ref QueryAdapterInfo a);
+    [DllImport("gdi32.dll")] private static extern int D3DKMTCloseAdapter(ref CloseAdapter a);
+
+    /// <summary>
+    /// Whether Windows considers this adapter to be part of the processor.
+    ///
+    /// False whenever the question cannot be answered, so a failure here can only ever leave a
+    /// reading absent, never replace one with something borrowed from elsewhere.
+    /// </summary>
+    private static bool IsIntegrated(long luid)
+    {
+        var open = new OpenAdapterFromLuid
+        {
+            Luid = new AdapterLuid { Low = (uint)luid, High = (int)(luid >> 32) }
+        };
+
+        try
+        {
+            if (D3DKMTOpenAdapterFromLuid(ref open) != 0 || open.Handle == 0) return false;
+        }
+        catch (DllNotFoundException) { return false; }
+        catch (EntryPointNotFoundException) { return false; }
+
+        IntPtr buffer = Marshal.AllocHGlobal(sizeof(uint));
+        try
+        {
+            Marshal.WriteInt32(buffer, 0);
+            var query = new QueryAdapterInfo
+            {
+                Handle   = open.Handle,
+                Type     = AdapterTypeQuery,
+                Data     = buffer,
+                DataSize = sizeof(uint),
+            };
+
+            if (D3DKMTQueryAdapterInfo(ref query) != 0) return false;
+            return ((uint)Marshal.ReadInt32(buffer) & HybridIntegrated) != 0;
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(buffer);
+
+            // The handle is the display kernel's, and leaking one per poll would accumulate
+            // for as long as Pulse runs. Nothing useful follows a failure to hand it back.
+            var close = new CloseAdapter { Handle = open.Handle };
+            try { D3DKMTCloseAdapter(ref close); } catch { }
+        }
+    }
+
     /// IID_IDXGIFactory1.
     private static Guid FactoryId = new("770aae78-f26f-4dba-a829-253c83d1b387");
 
@@ -62,7 +148,8 @@ internal static class DisplayAdapters
 
     /// <summary>One graphics adapter as Windows describes it.</summary>
     public readonly record struct Adapter(
-        long Luid, string Description, float DedicatedVideoMemoryMb, float SharedSystemMemoryMb)
+        long Luid, string Description, float DedicatedVideoMemoryMb, float SharedSystemMemoryMb,
+        bool Integrated)
     {
         /// <summary>
         /// How this adapter is named in Windows' "GPU Adapter Memory" performance counters.
@@ -113,7 +200,8 @@ internal static class DisplayAdapters
                             desc.AdapterLuid,
                             desc.Description ?? "",
                             (float)(desc.DedicatedVideoMemory.ToUInt64() / (1024.0 * 1024.0)),
-                            (float)(desc.SharedSystemMemory.ToUInt64()   / (1024.0 * 1024.0))));
+                            (float)(desc.SharedSystemMemory.ToUInt64()   / (1024.0 * 1024.0)),
+                            IsIntegrated(desc.AdapterLuid)));
                     }
                 }
                 finally
