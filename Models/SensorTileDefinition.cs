@@ -77,7 +77,13 @@ public class SensorTileDefinition
         // again, an invented figure presented as a judgement.
         new() { Id = "cpu_power",    Label = "CPU Power",     Unit = "W",    Category = SensorCategory.CPU,     HasBar = false, WarnThreshold = 0,   DangerThreshold = 0   },
 
-        new() { Id = "gpu_usage",    Label = "GPU Usage",     Unit = "%",    Category = SensorCategory.GPU,     HasBar = true,  BarMax = 100, WarnThreshold = 70,   DangerThreshold = 95 },
+        new() { Id = "gpu_usage",    Label = "GPU Usage",     Unit = "%",    Category = SensorCategory.GPU,     HasBar = true,  BarMax = 100, WarnThreshold = 70,   DangerThreshold = 95,
+                Description = "How busy the graphics chip is, as MSI Afterburner and the NVIDIA "
+                            + "overlay report it. Task Manager measures this differently and will "
+                            + "read lower, often by a lot, because it counts how long the 3D engine "
+                            + "was executing work rather than how often the card was doing anything. "
+                            + "Integrated graphics publish no figure of their own, so there this is "
+                            + "Task Manager's number." },
         new() { Id = "gpu_temp",     Label = "GPU Temp",      Unit = "°C",   Category = SensorCategory.GPU,     HasBar = false, WarnThreshold = 75,  DangerThreshold = 90  },
         new() { Id = "gpu_clock",    Label = "GPU Clock",     Unit = "MHz",  Category = SensorCategory.GPU,     HasBar = false, WarnThreshold = 0,   DangerThreshold = 0   },
         // "GPU Power", not "GPU TDP". TDP is a fixed rating of the card; this sensor is what
