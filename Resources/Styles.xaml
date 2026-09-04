@@ -220,19 +220,20 @@
         <Setter Property="FontFamily" Value="{StaticResource PrimaryFont}"/>
         <Setter Property="FontSize" Value="11.5"/>
         <Setter Property="MaxWidth" Value="320"/>
+        <Setter Property="HasDropShadow" Value="True"/>
         <Setter Property="HorizontalOffset" Value="8"/>
         <Setter Property="VerticalOffset" Value="6"/>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="ToolTip">
+                    <!-- No shadow. The popup is sized to its content, so a blur has nowhere
+                         to fall and gets clipped at the popup's edge, which reads as a square
+                         border around a rounded box. The tooltip already separates itself from
+                         what is behind it with its own background and border. -->
                     <Border Background="{TemplateBinding Background}"
                             BorderBrush="{TemplateBinding BorderBrush}"
                             BorderThickness="1" CornerRadius="10"
                             Padding="12,9">
-                        <Border.Effect>
-                            <DropShadowEffect Color="#000000" BlurRadius="16"
-                                              ShadowDepth="3" Opacity="0.55"/>
-                        </Border.Effect>
 
                         <!-- The wrap lives here rather than on the content, so it applies to a
                              plain string tooltip as well as to one built from elements. -->
