@@ -102,7 +102,7 @@ public class SensorTileDefinition
         // to tell anyone which to believe. The id is unchanged from when this was the average,
         // so nobody loses a tile they had already turned on.
         new() { Id = "fps_1low",     Label = "1% Low",        Unit = "fps",  Category = SensorCategory.System,  HasBar = false, WarnThreshold = 0,   DangerThreshold = 0,
-                Description = "How fast your slowest frames are, over the last minute: the 99th "
+                Description = "How fast your slowest frames are, over the last 2,000 frames: the 99th "
                             + "percentile frame time. A number well below your FPS means stutter, "
                             + "even when the average looks fine. Same method as MSI Afterburner "
                             + "and RTSS, so an overlay measuring over a different window will differ." },
