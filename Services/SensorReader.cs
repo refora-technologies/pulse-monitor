@@ -139,6 +139,9 @@ public sealed class SensorReader : IDisposable
         // Capacities belong to the adapters that were there a moment ago.
         _dedicatedVram.Clear();
 
+        // And so do the memory counters, whose keys are identifiers Windows reassigns.
+        _gpuMemory.Refresh();
+
         Open();
     }
 
@@ -532,20 +535,89 @@ public sealed class SensorReader : IDisposable
 
         data.GpuUsage = d3dEngineLoad ?? coreLoad;
 
-        // Capacity comes from Windows in preference to the vendor sensor.
-        //
-        // It is the same figure Task Manager shows as "Dedicated GPU memory", which is what
-        // people compare us against, and it is right in the two places the sensor is not.
-        // Integrated graphics publish no dedicated total at all, so there was nothing to read
-        // and the tile fell back to a capacity Pulse had invented. An AMD APU publishes the
-        // slice of system memory the BIOS reserved as though it were a card's own memory, so
-        // one user saw a 740M reported with 4 GB of video memory it does not have.
-        //
-        // Zero means Windows had no answer, not that there is no memory, so it is left alone
-        // rather than overwriting a sensor reading that might be real.
-        var dedicatedMb = DedicatedVideoMemoryMb(hw.Name);
-        if (dedicatedMb > 0) data.TotalVramGb = dedicatedMb / 1024f;
+        ApplyVideoMemory(hw, data);
     }
+
+    /// <summary>
+    /// How much dedicated memory an adapter must have before that is the pool worth showing.
+    /// </summary>
+    /// <remarks>
+    /// Its only job is to tell a framebuffer stub from a real pool. An Intel UHD reports 128 MB
+    /// and uses none of it, with everything it touches coming from the shared pool; an AMD
+    /// Vega 8 reports 2,033 MB and genuinely uses it, and Task Manager shows that as its
+    /// Dedicated GPU memory. Both were measured. The boundary sits well above the first and far
+    /// below the second, and low enough that an APU configured with a 512 MB slice in its BIOS
+    /// still reads as having a real pool.
+    ///
+    /// Deliberately not the same question as discrete versus integrated, and deliberately not
+    /// the same constant: the Vega 8 is integrated and has two gigabytes.
+    /// </remarks>
+    private const float RealDedicatedPoolMb = 256f;
+
+    /// <summary>
+    /// Fills in the video memory reading, its capacity, and which pool it came from.
+    /// </summary>
+    /// <remarks>
+    /// Windows first, the sensor library second, nothing third.
+    ///
+    /// Windows publishes both pools for every adapter under "GPU Adapter Memory", which is the
+    /// source Task Manager reads, so agreeing with it is the point rather than a coincidence.
+    /// The library is kept as a fallback because these counters are absent on old Windows and
+    /// on machines whose counter registry has been damaged.
+    ///
+    /// Which pool is shown follows what the adapter actually has. A card with real dedicated
+    /// memory shows that; graphics with none shows the shared pool, which is where its memory
+    /// genuinely is, and the tile is renamed so nobody has to guess which they are looking at.
+    /// </remarks>
+    private void ApplyVideoMemory(IHardware hw, SensorData data)
+    {
+        var adapter = FindAdapter(hw.Name);
+
+        float dedicatedTotalMb = adapter?.DedicatedVideoMemoryMb ?? 0f;
+        float sharedTotalMb    = adapter?.SharedSystemMemoryMb   ?? 0f;
+
+        bool useShared = dedicatedTotalMb < RealDedicatedPoolMb;
+        var usage = adapter is { } a ? _gpuMemory.Read(a.CounterKey) : null;
+
+        if (usage is { } used)
+        {
+            float bytes = useShared ? used.SharedBytes : used.DedicatedBytes;
+            if (bytes >= 0) data.GpuVram = MathF.Round(bytes / (1024f * 1024f * 1024f), 2);
+        }
+
+        // The capacity of whichever pool is being shown. Zero still means "not known" and is
+        // never drawn, so an adapter Windows cannot describe leaves the tile without a total
+        // rather than with an invented one.
+        float totalMb = useShared ? sharedTotalMb : dedicatedTotalMb;
+        if (totalMb > 0) data.TotalVramGb = totalMb / 1024f;
+
+        // Said out loud so the tile can be named honestly. Only claimed when there is a
+        // reading to label; otherwise the tile keeps its ordinary name and shows nothing.
+        data.VramIsShared = useShared && data.GpuVram is not null;
+    }
+
+    /// The adapter Windows knows by this name, or null. Preferring one that has performance
+    /// counters, because a machine can list the same adapter twice and only one of the two
+    /// carries them.
+    private DisplayAdapters.Adapter? FindAdapter(string adapterName)
+    {
+        if (string.IsNullOrWhiteSpace(adapterName)) return null;
+
+        DisplayAdapters.Adapter? first = null;
+
+        foreach (var adapter in DisplayAdapters.All())
+        {
+            if (!string.Equals(adapter.Description.Trim(), adapterName.Trim(),
+                               StringComparison.OrdinalIgnoreCase)) continue;
+
+            first ??= adapter;
+            if (_gpuMemory.Read(adapter.CounterKey) != null) return adapter;
+        }
+
+        return first;
+    }
+
+    private readonly GpuMemoryCounters _gpuMemory = new();
 
     /// Cached per adapter name. Asking DXGI costs about a millisecond, which is not much until
     /// it happens on every poll. Cleared by Rescan, which is the only time the answer changes.
@@ -726,6 +798,10 @@ public sealed class SensorReader : IDisposable
     public void Dispose()
     {
         try { _computer.Close(); } catch { }
+
+        // Performance counters hold handles into the counter provider, so they are released
+        // rather than left to a finaliser.
+        try { _gpuMemory.Dispose(); } catch { }   // shutting down; nothing follows to inform
     }
 }
 
