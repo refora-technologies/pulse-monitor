@@ -107,7 +107,7 @@ internal static class DisplayAdapters
             // The handle is the display kernel's, and leaking one per poll would accumulate
             // for as long as Pulse runs. Nothing useful follows a failure to hand it back.
             var close = new CloseAdapter { Handle = open.Handle };
-            try { D3DKMTCloseAdapter(ref close); } catch { }
+            try { D3DKMTCloseAdapter(ref close); } catch { }   // nothing useful follows failing to hand a handle back
         }
     }
 
