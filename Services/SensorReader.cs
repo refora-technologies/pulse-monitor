@@ -785,7 +785,19 @@ public sealed class SensorReader : IDisposable
 
     private static HashSet<string> BuildPhysicalAdapterSet()
     {
-        var physical = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // One physical address, one entry. Windows exposes every NDIS filter bound to an
+        // adapter as an adapter in its own right, reporting the same bytes over the same
+        // wire, and they all carry the physical address of the adapter they sit on. Counting
+        // them separately is what made the tiles read six times the real traffic on the
+        // machine this was found on: one Wi-Fi card, and six things reporting its bytes.
+        //
+        // The real adapter is the one with the shortest name, because a binding is named
+        // after the adapter it attaches to and then extended.
+        var chosenByAddress = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        // Adapters that report no address at all are kept as they are. Deduplicating them
+        // against each other would mean treating "unknown" as a shared identity.
+        var withoutAddress = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         try
         {
@@ -798,7 +810,19 @@ public sealed class SensorReader : IDisposable
                 if (nic.OperationalStatus != System.Net.NetworkInformation.OperationalStatus.Up) continue;
                 if (LooksVirtual(nic.Name) || LooksVirtual(nic.Description)) continue;
 
-                physical.Add(nic.Name);
+                string address = nic.GetPhysicalAddress().ToString();
+
+                if (string.IsNullOrEmpty(address))
+                {
+                    withoutAddress.Add(nic.Name);
+                    continue;
+                }
+
+                if (!chosenByAddress.TryGetValue(address, out var chosen)
+                    || nic.Name.Length < chosen.Length)
+                {
+                    chosenByAddress[address] = nic.Name;
+                }
             }
         }
         catch
@@ -811,6 +835,8 @@ public sealed class SensorReader : IDisposable
             // out is the instance logger.
         }
 
+        var physical = new HashSet<string>(chosenByAddress.Values, StringComparer.OrdinalIgnoreCase);
+        physical.UnionWith(withoutAddress);
         return physical;
 
         static bool LooksVirtual(string text) =>
