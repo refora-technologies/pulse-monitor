@@ -26,6 +26,17 @@ public class SensorData
     public float TotalRamGb { get; set; }
     public float TotalVramGb { get; set; }
 
+    /// <summary>
+    /// True when GpuVram is memory borrowed from system RAM rather than the adapter's own.
+    /// </summary>
+    /// <remarks>
+    /// Graphics built into a processor have essentially no memory of their own, so what they
+    /// use comes from the shared pool. Reporting that under a name meaning "the card's own
+    /// memory" would be wrong in the way this project keeps having to remove, so the tile is
+    /// renamed instead of the number being quietly redefined.
+    /// </remarks>
+    public bool VramIsShared { get; set; }
+
     public float? GetById(string id) => id switch
     {
         "cpu_temp"     => CpuTemp,
@@ -100,6 +111,13 @@ public class HardwareService : IDisposable
     /// </summary>
     public float TotalRamGb { get; private set; }
     public float TotalVramGb { get; private set; }
+
+    /// <summary>
+    /// Whether the video memory reading is memory borrowed from system RAM.
+    /// </summary>
+    /// Read by the overlay so the tile can be named for what it is showing rather than for
+    /// what a graphics tile usually shows.
+    public bool VramIsShared { get; private set; }
 
     /// Every GPU detected on this machine, for the settings picker.
     public IReadOnlyList<GpuInfo> AvailableGpus { get; private set; } = Array.Empty<GpuInfo>();
@@ -649,6 +667,7 @@ public class HardwareService : IDisposable
             // every tile that shows "used of total" lose its scale as well as its value.
             TotalRamGb  = previous.TotalRamGb,
             TotalVramGb = previous.TotalVramGb,
+            VramIsShared = previous.VramIsShared,
         };
 
         if (!alsoClearTheRest)
@@ -714,6 +733,11 @@ public class HardwareService : IDisposable
         // poll, and zeroing them each time would make the capacity flicker away and back.
         if (data.TotalRamGb  > 0) TotalRamGb  = data.TotalRamGb;
         if (data.TotalVramGb > 0) TotalVramGb = data.TotalVramGb;
+
+        // Which pool the reading came from, followed only while there is a reading. A held
+        // snapshot keeps the last answer rather than flipping the tile's name to and fro while
+        // the readings are briefly missing.
+        if (data.GpuVram is not null) VramIsShared = data.VramIsShared;
 
         bool gpusChanged   = false;
         bool stateChanged  = false;

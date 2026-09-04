@@ -161,7 +161,7 @@
                                         <SolidColorBrush Color="#2A2548"/>
                                     </Border.BorderBrush>
                                     <StackPanel>
-                                        <TextBlock Text="{Binding Definition.Label}"
+                                        <TextBlock Text="{Binding DisplayLabel}"
                                                    FontSize="10" FontWeight="SemiBold"
                                                    Foreground="#928EB4" Margin="0,0,0,5"/>
                                         <StackPanel Orientation="Horizontal" VerticalAlignment="Bottom">
@@ -261,7 +261,7 @@
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
                                     <TextBlock Grid.Column="0"
-                                               Text="{Binding Definition.Label}"
+                                               Text="{Binding DisplayLabel}"
                                                FontSize="11" FontWeight="Medium"
                                                Foreground="#9692B8"
                                                TextTrimming="CharacterEllipsis"

@@ -61,7 +61,24 @@ internal static class DisplayAdapters
     }
 
     /// <summary>One graphics adapter as Windows describes it.</summary>
-    public readonly record struct Adapter(long Luid, string Description, float DedicatedVideoMemoryMb);
+    public readonly record struct Adapter(
+        long Luid, string Description, float DedicatedVideoMemoryMb, float SharedSystemMemoryMb)
+    {
+        /// <summary>
+        /// How this adapter is named in Windows' "GPU Adapter Memory" performance counters.
+        /// </summary>
+        /// <remarks>
+        /// A LUID is two halves, and the counters spell them high first: an adapter whose
+        /// identifier is 0x000000000000cf0b appears as luid_0x00000000_0x0000cf0b_phys_0.
+        /// Windows publishes the hexadecimal in upper case, so anything comparing against this
+        /// must ignore case.
+        ///
+        /// The trailing _phys_0 is the physical adapter index within the identifier, which is
+        /// zero for every adapter seen so far.
+        /// </remarks>
+        public string CounterKey =>
+            $"luid_0x{(uint)(Luid >> 32):x8}_0x{(uint)Luid:x8}_phys_0";
+    }
 
     /// <summary>
     /// Every adapter Windows can see, or an empty list if DXGI could not be asked.
@@ -95,7 +112,8 @@ internal static class DisplayAdapters
                         found.Add(new Adapter(
                             desc.AdapterLuid,
                             desc.Description ?? "",
-                            (float)(desc.DedicatedVideoMemory.ToUInt64() / (1024.0 * 1024.0))));
+                            (float)(desc.DedicatedVideoMemory.ToUInt64() / (1024.0 * 1024.0)),
+                            (float)(desc.SharedSystemMemory.ToUInt64()   / (1024.0 * 1024.0))));
                     }
                 }
                 finally

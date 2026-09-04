@@ -26,6 +26,10 @@ public class TileViewModel : BaseViewModel
                 OnPropertyChanged(nameof(BarFraction));
                 OnPropertyChanged(nameof(HasValue));
                 OnPropertyChanged(nameof(CompactLine));
+
+                // The video memory tile is named for the pool it is showing, and switching
+                // graphics can change that, so the name follows the reading.
+                OnPropertyChanged(nameof(DisplayLabel));
             }
         }
     }
@@ -39,6 +43,23 @@ public class TileViewModel : BaseViewModel
         "gpu_vram" => HardwareService.Instance.TotalVramGb,
         _          => 0
     };
+
+    /// <summary>
+    /// What the tile is called on screen, which for video memory depends on where the memory is.
+    /// </summary>
+    /// <remarks>
+    /// Graphics built into a processor have essentially no memory of their own and draw from
+    /// system RAM instead. Showing that figure under "VRAM Used" would be claiming it is the
+    /// card's own memory, which is the shape of mistake this project has already had to remove
+    /// once. Windows calls the two pools "Dedicated GPU memory" and "Shared GPU memory", and the
+    /// tile follows whichever one it is actually showing.
+    ///
+    /// Every other tile simply uses its catalogue name.
+    /// </remarks>
+    public string DisplayLabel =>
+        Definition.Id == "gpu_vram" && HardwareService.Instance.VramIsShared
+            ? "Shared VRAM"
+            : Definition.Label;
 
     public string DisplayValue
     {
@@ -177,6 +198,7 @@ public class TileViewModel : BaseViewModel
     {
         OnPropertyChanged(nameof(DisplayValue));
         OnPropertyChanged(nameof(CompactLine));
+        OnPropertyChanged(nameof(DisplayLabel));
     }
 }
 
