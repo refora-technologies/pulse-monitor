@@ -158,6 +158,8 @@ public sealed class SensorReader : IDisposable
 
         if (!IsReady) return snapshot;
 
+        _vendorGpuLoad = null;
+
         try
         {
             var gpus = new List<IHardware>();
@@ -498,11 +500,16 @@ public sealed class SensorReader : IDisposable
         // beside Afterburner and the NVIDIA overlay in a game. Nobody has ever reported that it
         // disagreed with Task Manager.
         //
-        // The engine counter stays as the fallback, and it is not a rare path: Intel graphics
-        // expose no vendor load at all, so on those this is still the only number there is.
-        // GPU Usage therefore means the vendor's figure where one exists and the engine figure
-        // where none does, which is a real inconsistency, accepted because the alternative is
-        // disagreeing with the tools people hold Pulse against.
+        // Discrete cards only, and that limit was learned the hard way. A Vega 8 reports its
+        // "GPU Core" load as a flat 100.00 whatever the machine is doing: measured at 100 while
+        // the engine counter read 8.02 and Task Manager read 8%. Intel graphics report no
+        // vendor load at all. So on graphics built into a processor the vendor figure is not a
+        // better number, it is not a number, and the engine counter is the only honest one.
+        //
+        // GPU Usage therefore means the vendor's figure on a discrete card and the engine
+        // figure on integrated graphics. That is a real inconsistency, accepted because the
+        // alternative is either disagreeing with the tools people hold Pulse against, or
+        // reporting a constant 100% on every AMD APU.
         float? d3dEngineLoad = null;
         float? coreLoad      = null;
 
@@ -549,7 +556,8 @@ public sealed class SensorReader : IDisposable
             }
         }
 
-        data.GpuUsage = coreLoad ?? d3dEngineLoad;
+        data.GpuUsage   = d3dEngineLoad ?? coreLoad;
+        _vendorGpuLoad  = coreLoad;
 
         ApplyVideoMemory(hw, data);
     }
@@ -639,6 +647,11 @@ public sealed class SensorReader : IDisposable
     {
         if (FindAdapter(adapterName) is not { } adapter) return;
 
+        // The vendor's own load, but only from a card that has one worth reading. See the
+        // reasoning above ReadGpu: on integrated graphics this figure is either absent or a
+        // constant 100, so there the engine counter already in place is the right answer.
+        if (!adapter.Integrated && _vendorGpuLoad is { } vendor) data.GpuUsage = vendor;
+
         data.GpuTemp ??= DisplayAdapters.Temperature(adapter.Luid);
 
         // Said out loud so the tile can be named honestly, and only while there is something
@@ -646,6 +659,13 @@ public sealed class SensorReader : IDisposable
         // is why it matches CPU Temp exactly: one piece of silicon, measured once.
         data.GpuTempIsDie = adapter.Integrated && data.GpuTemp is not null;
     }
+
+    /// <summary>
+    /// The vendor's own load figure for the chosen graphics device, kept aside until the
+    /// adapter is known, because whether it can be trusted depends on what kind of adapter
+    /// it is. Reset every poll: a figure held over from a previous cycle is a stale reading.
+    /// </summary>
+    private float? _vendorGpuLoad;
 
     /// The adapter Windows knows by this name, or null. Preferring one that has performance
     /// counters, because a machine can list the same adapter twice and only one of the two

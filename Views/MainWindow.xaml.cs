@@ -755,15 +755,30 @@ public partial class MainWindow : Window
         try   { _vm.RefreshGpuChoices(); }
         finally { _rebuildingGpuList = false; }
 
-        // Nothing to choose between on a machine that only ever had one GPU, so don't add
-        // noise. On anything hybrid the section stays put once seen — LibreHardwareMonitor
-        // stops reporting an iGPU while a game holds the discrete card, and a card switched
-        // off in Device Manager disappears until it comes back. Hiding the picker at those
-        // moments removed the one thing on screen that says which GPU is being read, right
-        // when that answer had just changed.
-        GpuSourceSection.Visibility = _vm.HasMultipleGpus
-            ? System.Windows.Visibility.Visible
-            : System.Windows.Visibility.Collapsed;
+        // The section is always shown, because it answers "which GPU are these readings from",
+        // and that question does not stop mattering on a machine with one graphics adapter.
+        // It used to be hidden there, which left a Ryzen laptop with no way to see what Pulse
+        // was reading at all.
+        //
+        // The dropdown is what goes away, since there is genuinely nothing to choose between.
+        // The line underneath still names the adapter and says it is the only one available.
+        //
+        // On anything hybrid the dropdown stays put once seen: LibreHardwareMonitor stops
+        // reporting an iGPU while a game holds the discrete card, and a card switched off in
+        // Device Manager disappears until it comes back. Hiding it at those moments removed
+        // the one control on screen that says which GPU is being read, right when that answer
+        // had just changed.
+        GpuSourceSection.Visibility = System.Windows.Visibility.Visible;
+
+        bool choosable = _vm.HasMultipleGpus;
+
+        if (GpuCombo != null)
+            GpuCombo.Visibility = choosable ? System.Windows.Visibility.Visible
+                                            : System.Windows.Visibility.Collapsed;
+
+        if (GpuSingle != null)
+            GpuSingle.Visibility = choosable ? System.Windows.Visibility.Collapsed
+                                             : System.Windows.Visibility.Visible;
     }
 
     private void Monitor_Click(object sender, RoutedEventArgs e)
