@@ -378,7 +378,6 @@ public class OverlayViewModel : BaseViewModel
             {
                 "fps"           => fps.CurrentFps,
                 "fps_1low"      => fps.OnePercentLowFps,
-                "fps_displayed" => fps.DisplayedFps,
                 _               => tile.Value,   // not a frame rate; leave the sensor value alone
             };
         }
@@ -391,7 +390,7 @@ public class OverlayViewModel : BaseViewModel
             // Frame rates are not part of this reading. They arrive on their own timer, which
             // is faster than the sensor interval, so taking them from the snapshot would keep
             // replacing a fresh value with an older one and make the tile stutter.
-            if (tile.Definition.Id is "fps" or "fps_1low" or "fps_displayed")
+            if (tile.Definition.Id is "fps" or "fps_1low")
                 continue;
 
             tile.Value = data.GetById(tile.Definition.Id);

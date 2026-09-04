@@ -39,8 +39,8 @@ public class SensorTileDefinition
     ///   ...            CPU block, then the GPU block mirroring it
     ///   VRAM  | RAM         the two memory readings, side by side
     ///   FPS   | 1% Low      frame rate and its worst case belong together
-    ///   Disp  | Up          displayed frame rate, then the network pair begins
-    ///   Down  | Disk        the rest, and the summary total last
+    ///   Up    | Down        network pairs naturally
+    ///   Disk  | CPU+GPU     what is left, and the summary total
     ///
     /// Users can drag tiles into any order they prefer; this is only the starting point.
     /// </summary>
@@ -93,14 +93,6 @@ public class SensorTileDefinition
                             + "method MSI Afterburner, RTSS and CapFrameX use. A number well below your "
                             + "FPS means stutter, even when the average looks healthy. Other overlays may "
                             + "differ because they measure over a different length of time." },
-
-        // Also off by default. Most people want the rate their card is producing, which is what
-        // FPS already shows; this one is for seeing how much of that the monitor never receives.
-        new() { Id = "fps_displayed",Label = "Displayed FPS", Unit = "fps",  Category = SensorCategory.System,  HasBar = false, WarnThreshold = 0,   DangerThreshold = 0,
-                Description = "Frames that actually reached your monitor, which your refresh rate caps. "
-                            + "A 60Hz screen cannot show more than 60 however fast the game runs, so this "
-                            + "sitting well below FPS is normal and means frames are being replaced before "
-                            + "they are shown. With V-Sync on it should sit at your refresh rate." },
 
         new() { Id = "net_upload",   Label = "Net Upload",    Unit = "MB/s", Category = SensorCategory.Network, HasBar = false, WarnThreshold = 0,   DangerThreshold = 0   },
         new() { Id = "net_download", Label = "Net Download",  Unit = "MB/s", Category = SensorCategory.Network, HasBar = false, WarnThreshold = 0,   DangerThreshold = 0   },
