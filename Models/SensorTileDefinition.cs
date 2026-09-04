@@ -31,6 +31,14 @@ public class SensorTileDefinition
     /// tile added later is carried along instead of quietly keeping one unit.
     public bool IsNetworkSpeed => Category == SensorCategory.Network && Unit == NetworkUnits.Bytes;
 
+    /// <summary>
+    /// True when a low reading is the bad one, rather than a high one.
+    /// </summary>
+    /// Battery only. Everything else Pulse shows counts upward into trouble: hotter, busier,
+    /// fuller. The thresholds are read the same way round for both, so this decides which
+    /// direction crossing one means.
+    public bool LowerIsWorse { get; set; }
+
     /// True only for tiles where Pulse knows a real hardware capacity (total RAM/VRAM),
     /// as opposed to warn/danger thresholds, which are just our own guessed defaults and
     /// would be misleading if shown as a "max".
@@ -111,6 +119,20 @@ public class SensorTileDefinition
         new() { Id = "net_download", Label = "Net Download",  Unit = "MB/s", Category = SensorCategory.Network, HasBar = false, WarnThreshold = 0,   DangerThreshold = 0   },
 
         new() { Id = "disk_activity",Label = "Disk Activity", Unit = "%",    Category = SensorCategory.Storage, HasBar = true,  BarMax = 100, WarnThreshold = 70,   DangerThreshold = 90 },
+
+        // The one tile where a small number is the bad one, hence LowerIsWorse. Twenty percent
+        // is the point Windows itself starts warning, and ten is where it suggests plugging in.
+        //
+        // Charge level only. The library offers seven more readings for a battery — capacity in
+        // watt-hours, charge and discharge rates, voltage, wear, and an estimated time left —
+        // and none of them earn a tile. The time estimate especially: it swings with whatever
+        // the machine is doing, so it would read two hours and then forty minutes a moment
+        // later, which is the kind of confident wrong number this project keeps removing.
+        new() { Id = "battery",      Label = "Battery",       Unit = "%",    Category = SensorCategory.System,  HasBar = true,  BarMax = 100, WarnThreshold = 20,   DangerThreshold = 10, LowerIsWorse = true,
+                Description = "How much charge is left. Amber under 20 percent and red under 10, "
+                            + "because for this one tile a small number is the bad one. A desktop "
+                            + "has no battery to report, so the tile stays empty there rather than "
+                            + "showing zero." },
         new() { Id = "sys_power",    Label = "CPU+GPU Power", Unit = "W",    Category = SensorCategory.System,  HasBar = false, WarnThreshold = 0,   DangerThreshold = 0   },
     };
 }

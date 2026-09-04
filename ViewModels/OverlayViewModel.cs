@@ -179,6 +179,17 @@ public class TileViewModel : BaseViewModel
 
             var (warn, danger) = Thresholds;
             if (danger == 0) return 0;
+
+            // Battery is the one reading where a small number is the bad one. Every other tile
+            // counts upward into trouble: hotter, busier, fuller. Colouring 8% the same calm
+            // white as 80% would be the tile refusing to say the one thing it is for.
+            if (Definition.LowerIsWorse)
+            {
+                if (_value <= danger) return 3;
+                if (_value <= warn)   return 2;
+                return 1;
+            }
+
             if (_value >= danger) return 3;
             if (_value >= warn)   return 2;
             return 1;

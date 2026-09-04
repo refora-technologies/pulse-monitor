@@ -7,7 +7,7 @@ namespace Pulse.Services;
 [Flags]
 public enum SensorSubsystems
 {
-    None = 0, Cpu = 1, Gpu = 2, Memory = 4, Storage = 8, Network = 16,
+    None = 0, Cpu = 1, Gpu = 2, Memory = 4, Storage = 8, Network = 16, Battery = 32,
 }
 
 /// <summary>
@@ -67,6 +67,7 @@ public sealed class SensorReader : IDisposable
         computer.IsMemoryEnabled      = s.HasFlag(SensorSubsystems.Memory);
         computer.IsStorageEnabled     = s.HasFlag(SensorSubsystems.Storage);
         computer.IsNetworkEnabled     = s.HasFlag(SensorSubsystems.Network);
+        computer.IsBatteryEnabled     = s.HasFlag(SensorSubsystems.Battery);
         computer.IsMotherboardEnabled = false;
     }
 
@@ -391,6 +392,7 @@ public sealed class SensorReader : IDisposable
             case HardwareType.Cpu:     ReadCpu(hw, data);     break;
             case HardwareType.Memory:  ReadMemory(hw, data);  break;
             case HardwareType.Network: ReadNetwork(hw, data); break;
+            case HardwareType.Battery: ReadBattery(hw, data); break;
             case HardwareType.Storage: ReadStorage(hw, data); break;
         }
     }
@@ -778,6 +780,35 @@ public sealed class SensorReader : IDisposable
                 data.NetUpload = (data.NetUpload ?? 0) + s.Value.Value / 1_048_576f;
             else if (s.Name.Contains("Download", StringComparison.OrdinalIgnoreCase))
                 data.NetDownload = (data.NetDownload ?? 0) + s.Value.Value / 1_048_576f;
+        }
+    }
+
+    /// <summary>
+    /// The charge left in the battery, as a percentage.
+    /// </summary>
+    /// <remarks>
+    /// One sensor of the eight the library offers for a battery. The others are capacity in
+    /// watt-hours, charge and discharge rates, voltage, wear, and an estimated time remaining.
+    /// Only the percentage is shown, because it is the one people asked for and the one that
+    /// needs no explaining. The time estimate in particular was left out on purpose: it swings
+    /// wildly with load, and a tile that reads two hours and then forty minutes a moment later
+    /// is the kind of number this project keeps having to remove.
+    ///
+    /// A machine with no battery reports no battery device at all, so the tile shows nothing
+    /// rather than zero. Zero percent is a reading a desktop must never appear to have.
+    /// </remarks>
+    private static void ReadBattery(IHardware hw, SensorData data)
+    {
+        foreach (var s in hw.Sensors)
+        {
+            if (s.Value is not { } value) continue;
+
+            if (s.SensorType == SensorType.Level
+                && s.Name.Contains("Charge", StringComparison.OrdinalIgnoreCase)
+                && data.BatteryLevel is null)
+            {
+                data.BatteryLevel = value;
+            }
         }
     }
 

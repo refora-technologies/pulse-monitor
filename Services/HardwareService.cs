@@ -21,6 +21,10 @@ public class SensorData
     public float? NetUpload { get; set; }
     public float? NetDownload { get; set; }
     public float? DiskActivity { get; set; }
+
+    /// Charge left in the battery, as a percentage. Null on a machine with no battery, which
+    /// is a desktop showing nothing rather than a desktop showing zero percent.
+    public float? BatteryLevel { get; set; }
     public float? Fps { get; set; }
     public float? Fps1Low { get; set; }
     public float TotalRamGb { get; set; }
@@ -65,6 +69,7 @@ public class SensorData
         "net_upload"   => NetUpload,
         "net_download" => NetDownload,
         "disk_activity"=> DiskActivity,
+        "battery"      => BatteryLevel,
         "fps"          => Fps,
         "fps_1low"     => Fps1Low,
         _ => null
@@ -281,6 +286,7 @@ public class HardwareService : IDisposable
                 "gpu_usage" or "gpu_temp" or "gpu_clock" or "gpu_power" or "gpu_vram" => SensorSubsystems.Gpu,
                 "ram_used"      => SensorSubsystems.Memory,
                 "disk_activity" => SensorSubsystems.Storage,
+                "battery"       => SensorSubsystems.Battery,
                 "net_upload" or "net_download" => SensorSubsystems.Network,
                 // Total power is derived from both chips, so it needs each of them.
                 "sys_power"     => SensorSubsystems.Cpu | SensorSubsystems.Gpu,
