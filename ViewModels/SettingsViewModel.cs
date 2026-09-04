@@ -16,6 +16,18 @@ public class TileSelectionItem : BaseViewModel
     private bool _isSelected;
     public bool IsSelected { get => _isSelected; set => Set(ref _isSelected, value); }
 
+    /// <summary>
+    /// The unit shown on the chip, which for network speed is the user's choice.
+    /// </summary>
+    /// The chooser shows the same unit the overlay will, so picking a tile here tells you what
+    /// you are going to get rather than what the catalogue happens to say.
+    public string DisplayUnit =>
+        Definition.IsNetworkSpeed
+            ? NetworkUnits.Label(SettingsService.Instance.Settings.NetworkUnitBits)
+            : Definition.Unit;
+
+    public void RefreshUnit() => OnPropertyChanged(nameof(DisplayUnit));
+
     public TileSelectionItem(SensorTileDefinition def, bool selected)
     {
         Definition = def;
@@ -734,6 +746,24 @@ public class SettingsViewModel : BaseViewModel
         }
     }
 
+    private bool _networkUnitBits;
+    public bool NetworkUnitBits
+    {
+        get => _networkUnitBits;
+        set
+        {
+            if (!Set(ref _networkUnitBits, value)) return;
+
+            SettingsService.Instance.Settings.NetworkUnitBits = value;
+            SettingsService.Instance.Save();
+
+            // The chooser chips print the unit too, and they are not rebuilt when a setting
+            // changes, so they are told. The overlay picks it up on its next reading, which
+            // is at most one poll away.
+            foreach (var tile in AllTiles) tile.RefreshUnit();
+        }
+    }
+
     public int SelectedCount  => AllTiles.Count(t => t.IsSelected);
     public int OpacityPercent => (int)Math.Round(_opacity * 100);
     public int BackgroundPercent => (int)Math.Round(_backgroundOpacity * 100);
@@ -938,6 +968,7 @@ public class SettingsViewModel : BaseViewModel
         _showStatusBar         = settings.ShowStatusBar;
         _selectedMonitorIndex  = settings.SelectedMonitorIndex;
         _showMaxValues         = settings.ShowMaxValues;
+        _networkUnitBits       = settings.NetworkUnitBits;
         _shortcutsEnabled      = settings.ShortcutsEnabled;
 
         BuildShortcutRows();

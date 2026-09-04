@@ -118,6 +118,20 @@ public class AppSettings
     public bool ShowMaxValues { get; set; } = false;
     public double OverlayScale { get; set; } = 1.0;
 
+    /// <summary>
+    /// Show network speed in megabits per second rather than megabytes.
+    /// </summary>
+    /// <remarks>
+    /// Both are the same measurement written differently, and which one somebody wants depends
+    /// entirely on what they are comparing against. Task Manager, speed tests and internet
+    /// plans all speak megabits; browsers, game launchers and file copies all speak megabytes.
+    /// Whichever Pulse picked on its own, half its users would be doing arithmetic in their
+    /// head, and the eight times difference reads like a bug rather than a unit.
+    ///
+    /// Off by default, so an update never changes the numbers somebody is already used to.
+    /// </remarks>
+    public bool NetworkUnitBits { get; set; } = false;
+
     /// LibreHardwareMonitor identifier of the GPU to monitor. Empty means auto-detect.
     public string SelectedGpuId { get; set; } = "";
 

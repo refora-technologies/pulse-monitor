@@ -23,6 +23,14 @@ public class SensorTileDefinition
     /// fall back to its keyboard hint through TargetNullValue.
     public string? Description { get; set; }
 
+    /// <summary>
+    /// True for the tiles that show a network speed, which is the only reading the user can
+    /// choose the unit of.
+    /// </summary>
+    /// Decided from the catalogue rather than by listing the two ids, so a third network speed
+    /// tile added later is carried along instead of quietly keeping one unit.
+    public bool IsNetworkSpeed => Category == SensorCategory.Network && Unit == NetworkUnits.Bytes;
+
     /// True only for tiles where Pulse knows a real hardware capacity (total RAM/VRAM),
     /// as opposed to warn/danger thresholds, which are just our own guessed defaults and
     /// would be misleading if shown as a "max".
@@ -88,11 +96,10 @@ public class SensorTileDefinition
         // to tell anyone which to believe. The id is unchanged from when this was the average,
         // so nobody loses a tile they had already turned on.
         new() { Id = "fps_1low",     Label = "1% Low",        Unit = "fps",  Category = SensorCategory.System,  HasBar = false, WarnThreshold = 0,   DangerThreshold = 0,
-                Description = "How fast your slowest frames are, measured over the last minute: the "
-                            + "frame time at the 99th percentile, converted to a rate. This is the same "
-                            + "method MSI Afterburner, RTSS and CapFrameX use. A number well below your "
-                            + "FPS means stutter, even when the average looks healthy. Other overlays may "
-                            + "differ because they measure over a different length of time." },
+                Description = "How fast your slowest frames are, over the last minute: the 99th "
+                            + "percentile frame time. A number well below your FPS means stutter, "
+                            + "even when the average looks fine. Same method as MSI Afterburner "
+                            + "and RTSS, so an overlay measuring over a different window will differ." },
 
         new() { Id = "net_upload",   Label = "Net Upload",    Unit = "MB/s", Category = SensorCategory.Network, HasBar = false, WarnThreshold = 0,   DangerThreshold = 0   },
         new() { Id = "net_download", Label = "Net Download",  Unit = "MB/s", Category = SensorCategory.Network, HasBar = false, WarnThreshold = 0,   DangerThreshold = 0   },

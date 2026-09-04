@@ -1109,7 +1109,7 @@
                                                     <Run Text="{Binding Definition.Label, Mode=OneWay}"
                                                          Foreground="#DBD7F2" FontWeight="Medium"/>
                                                     <Run Text=" "/>
-                                                    <Run Text="{Binding Definition.Unit, Mode=OneWay}"
+                                                    <Run Text="{Binding DisplayUnit, Mode=OneWay}"
                                                          Foreground="#8B86B4" FontSize="10"/>
                                                 </TextBlock>
                                             </CheckBox>
@@ -1259,6 +1259,39 @@
                                                     Tag="2" Click="PollRate_Click"/>
                                             <Button Grid.Column="3" Content="5 sec" Style="{StaticResource SegBtn}"
                                                     Tag="5" Click="PollRate_Click"/>
+                                        </Grid>
+                                    </Grid>
+                                </Border>
+                            </StackPanel>
+
+                            <Border Height="1" Background="#131128"/>
+
+                            <!-- Network Units (segmented control) -->
+                            <StackPanel Margin="18,14,18,14">
+                                <TextBlock Text="Network Units" FontSize="13" FontWeight="SemiBold"
+                                           Foreground="#DBD7F2" Margin="0,0,0,2"/>
+                                <TextBlock Text="Megabytes like a download, or megabits like Task Manager"
+                                           FontSize="10.5" FontWeight="Medium" Foreground="#8B86B4" Margin="0,0,0,12"/>
+                                <Border Background="#0A0918" CornerRadius="10"
+                                        BorderBrush="#181530" BorderThickness="1" Padding="3">
+                                    <Grid>
+                                        <Border x:Name="NetUnitIndicator" HorizontalAlignment="Left"
+                                                VerticalAlignment="Stretch" Background="#1C1540" CornerRadius="8">
+                                            <Border.RenderTransform>
+                                                <TranslateTransform x:Name="NetUnitIndicatorTranslate"/>
+                                            </Border.RenderTransform>
+                                        </Border>
+                                        <Grid x:Name="NetUnitPanel">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <Button Grid.Column="0" Content="MB/s" Style="{StaticResource SegBtn}"
+                                                    Tag="bytes" Click="NetworkUnit_Click"
+                                                    ToolTip="Megabytes per second, the way a browser or a game launcher reports a download"/>
+                                            <Button Grid.Column="1" Content="Mbps" Style="{StaticResource SegBtn}"
+                                                    Tag="bits" Click="NetworkUnit_Click"
+                                                    ToolTip="Megabits per second, the way Task Manager, speed tests and internet plans report a connection. Eight times the same number."/>
                                         </Grid>
                                     </Grid>
                                 </Border>

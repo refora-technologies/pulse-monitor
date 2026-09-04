@@ -1,4 +1,4 @@
-<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+﻿<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
     <ResourceDictionary.MergedDictionaries>
@@ -196,6 +196,53 @@
                             </Track.Thumb>
                         </Track>
                     </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- ═══ TOOLTIP ═══════════════════════════════════════════════════════════════════
+         Every tooltip in Pulse, deliberately, rather than one style applied where somebody
+         remembers to ask for it.
+
+         WPF's default has no maximum width and does not wrap, so a tooltip is exactly as wide
+         as its text. That is fine for "Close" and useless for a sentence: the description on
+         the 1% Low tile is three hundred and fifty characters, and it drew as a single line
+         about nineteen hundred pixels across, out of the panel and over whatever else was on
+         the screen. These descriptions are worth having, so the tooltip is what changes.
+
+         Wrapped to a readable measure, coloured like the settings surface it belongs to, and
+         given room to breathe: these are sentences, not one word hints. -->
+    <Style TargetType="ToolTip">
+        <Setter Property="Foreground" Value="#DBD7F2"/>
+        <Setter Property="Background" Value="#0A0918"/>
+        <Setter Property="BorderBrush" Value="#26224A"/>
+        <Setter Property="FontFamily" Value="{StaticResource PrimaryFont}"/>
+        <Setter Property="FontSize" Value="11.5"/>
+        <Setter Property="MaxWidth" Value="320"/>
+        <Setter Property="HorizontalOffset" Value="8"/>
+        <Setter Property="VerticalOffset" Value="6"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ToolTip">
+                    <Border Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="1" CornerRadius="10"
+                            Padding="12,9">
+                        <Border.Effect>
+                            <DropShadowEffect Color="#000000" BlurRadius="16"
+                                              ShadowDepth="3" Opacity="0.55"/>
+                        </Border.Effect>
+
+                        <!-- The wrap lives here rather than on the content, so it applies to a
+                             plain string tooltip as well as to one built from elements. -->
+                        <TextBlock Text="{TemplateBinding Content}"
+                                   TextWrapping="Wrap"
+                                   LineHeight="17" LineStackingStrategy="BlockLineHeight"
+                                   Foreground="{TemplateBinding Foreground}"
+                                   FontFamily="{TemplateBinding FontFamily}"
+                                   FontSize="{TemplateBinding FontSize}"/>
+                    </Border>
                 </ControlTemplate>
             </Setter.Value>
         </Setter>

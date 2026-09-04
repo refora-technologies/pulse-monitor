@@ -30,6 +30,7 @@ public class TileViewModel : BaseViewModel
                 // The video memory tile is named for the pool it is showing, and switching
                 // graphics can change that, so the name follows the reading.
                 OnPropertyChanged(nameof(DisplayLabel));
+                OnPropertyChanged(nameof(DisplayUnit));
             }
         }
     }
@@ -69,11 +70,29 @@ public class TileViewModel : BaseViewModel
         _ => Definition.Label,
     };
 
+    /// <summary>
+    /// The unit printed beside the reading.
+    /// </summary>
+    /// <remarks>
+    /// Only network speed can differ from the catalogue, and only because the user asked. The
+    /// value below is converted to match, so the two can never disagree.
+    /// </remarks>
+    public string DisplayUnit =>
+        Definition.IsNetworkSpeed
+            ? NetworkUnits.Label(SettingsService.Instance.Settings.NetworkUnitBits)
+            : Definition.Unit;
+
     public string DisplayValue
     {
         get
         {
             if (!_value.HasValue) return "--";
+
+            // Megabits, when asked for. Written where the number is formatted rather than
+            // where it is measured: the reading itself stays in one unit, so nothing that
+            // compares, stores or sends it has to know which the user prefers.
+            if (Definition.IsNetworkSpeed && SettingsService.Instance.Settings.NetworkUnitBits)
+                return NetworkUnits.Convert(_value.Value, bits: true).ToString("F1");
 
             var formatted = Definition.Unit switch
             {
@@ -100,7 +119,7 @@ public class TileViewModel : BaseViewModel
     }
 
     /// Compact HUD line: "CPU Temp  68 °C"
-    public string CompactLine => $"{DisplayValue} {Definition.Unit}";
+    public string CompactLine => $"{DisplayValue} {DisplayUnit}";
 
     // Tile values only ever take one of four states, so the colours and brushes are
     // shared and frozen rather than allocated per read. Previously every binding
