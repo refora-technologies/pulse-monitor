@@ -447,7 +447,20 @@ public sealed class SensorReader : IDisposable
                         powerFallback = s.Value;
                     break;
 
-                case SensorType.Clock when !s.Name.Contains("Bus", StringComparison.OrdinalIgnoreCase):
+                // Core clocks only, and only the real ones.
+                //
+                // This used to average every clock the processor published except the bus,
+                // which on an Intel chip happens to be nothing but core clocks and was right
+                // by luck. An AMD processor publishes far more: alongside four core clocks it
+                // reports an "effective" figure per core, two aggregates, and separate clocks
+                // for the fabric, the memory controller, the uncore and the integrated
+                // graphics. Averaging all fourteen gave 1,110 MHz where the cores were running
+                // at 1,895, and Task Manager said 2.13 GHz.
+                //
+                // Excluded by name: the bus, the "effective" figures, which are averages over
+                // idle time and pull the number down, the aggregates, which would double count,
+                // and the uncore, which contains the word "core" without being one.
+                case SensorType.Clock when IsCoreClock(s.Name):
                     clockSum += s.Value.Value; clockCount++;
                     break;
 
@@ -651,6 +664,22 @@ public sealed class SensorReader : IDisposable
             && !name.Contains("Virtual", StringComparison.OrdinalIgnoreCase)
             && !name.Contains("System", StringComparison.OrdinalIgnoreCase);
     }
+
+    /// <summary>
+    /// Whether a clock sensor is one of the processor's cores.
+    /// </summary>
+    /// <remarks>
+    /// Measured names, not guessed. Intel publishes "Bus Speed", "P-Core #n" and "E-Core #n".
+    /// AMD publishes "Core #n", "Core #n (Effective)", "Cores (Average)", "Cores (Average
+    /// Effective)", "Fabric", "GFX", "Memory" and "Uncore" as well as the bus.
+    ///
+    /// "Uncore" has to be excluded explicitly because it contains the word.
+    /// </remarks>
+    private static bool IsCoreClock(string name) =>
+        name.Contains("Core", StringComparison.OrdinalIgnoreCase)
+        && !name.Contains("Uncore",    StringComparison.OrdinalIgnoreCase)
+        && !name.Contains("Effective", StringComparison.OrdinalIgnoreCase)
+        && !name.Contains("Average",   StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// The graphics temperature the processor reports, when it has integrated graphics.
