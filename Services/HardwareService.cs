@@ -37,6 +37,19 @@ public class SensorData
     /// </remarks>
     public bool VramIsShared { get; set; }
 
+    /// <summary>
+    /// True when GpuTemp is the processor's die temperature rather than a sensor on the
+    /// graphics device itself.
+    /// </summary>
+    /// <remarks>
+    /// Set only for graphics Windows says are part of the processor, and only when that
+    /// device published no temperature of its own. It is the same figure Task Manager shows
+    /// on its GPU page in that situation, and the same figure Pulse shows as CPU Temp, which
+    /// is why the tile is renamed: two identical readings with no explanation look like a
+    /// bug, and the explanation is that there is one piece of silicon.
+    /// </remarks>
+    public bool GpuTempFromProcessor { get; set; }
+
     public float? GetById(string id) => id switch
     {
         "cpu_temp"     => CpuTemp,
@@ -118,6 +131,14 @@ public class HardwareService : IDisposable
     /// Read by the overlay so the tile can be named for what it is showing rather than for
     /// what a graphics tile usually shows.
     public bool VramIsShared { get; private set; }
+
+    /// <summary>
+    /// Whether the graphics temperature is the processor's, because the graphics are part of
+    /// it and publish none of their own.
+    /// </summary>
+    /// Read by the overlay for the same reason as VramIsShared: the tile says which reading
+    /// it is showing rather than leaving two identical numbers unexplained.
+    public bool GpuTempFromProcessor { get; private set; }
 
     /// Every GPU detected on this machine, for the settings picker.
     public IReadOnlyList<GpuInfo> AvailableGpus { get; private set; } = Array.Empty<GpuInfo>();
@@ -668,6 +689,7 @@ public class HardwareService : IDisposable
             TotalRamGb  = previous.TotalRamGb,
             TotalVramGb = previous.TotalVramGb,
             VramIsShared = previous.VramIsShared,
+            GpuTempFromProcessor = previous.GpuTempFromProcessor,
         };
 
         if (!alsoClearTheRest)
@@ -738,6 +760,10 @@ public class HardwareService : IDisposable
         // snapshot keeps the last answer rather than flipping the tile's name to and fro while
         // the readings are briefly missing.
         if (data.GpuVram is not null) VramIsShared = data.VramIsShared;
+
+        // Same rule for the temperature: followed only while there is a reading, so a blank
+        // poll does not rename the tile back and forth.
+        if (data.GpuTemp is not null) GpuTempFromProcessor = data.GpuTempFromProcessor;
 
         bool gpusChanged   = false;
         bool stateChanged  = false;
