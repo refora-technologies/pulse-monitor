@@ -478,19 +478,31 @@ public sealed class SensorReader : IDisposable
 
     private void ReadGpu(IHardware hw, SensorData data)
     {
-        // GPU Usage comes from the D3D 3D engine counter in preference to the vendor's own
-        // "GPU Core" load.
+        // GPU Usage comes from the vendor's own "GPU Core" load in preference to the D3D 3D
+        // engine counter, and this is a deliberate reversal of what it used to be.
         //
-        // Measured on an RTX 3050 under sustained load: D3D 3D averaged 80.9% while GPU Core
-        // averaged 99.3%. Task Manager read 79% and NVIDIA's overlay 82% — both agree with
-        // the engine counter, so reporting the vendor figure made Pulse look wrong against
-        // every other tool a user can check it against.
+        // The two measure different things and both are honest. The engine counter is the
+        // fraction of wall time the 3D engine had work executing, which is what the Windows
+        // scheduler reports and what Task Manager draws. The vendor figure is the share of
+        // sample periods in which any kernel was running, which ignores how idle the card was
+        // inside those periods.
         //
-        // It also makes the number mean the same thing on every vendor. Intel iGPUs expose
-        // no Core load at all, so they were already being read this way, and GPU Usage
-        // silently changed meaning depending on which GPU was selected.
+        // Measured on an RTX 3050 over thirty seconds in a game, all three at once:
         //
-        // Core load is kept as the fallback for any adapter that reports no engine counters.
+        //     D3D 3D       51.4 average, 54.3 peak      Task Manager reads 50.8
+        //     GPU Core     88.4 average, 93.0 peak      Afterburner and the NVIDIA overlay
+        //
+        // So the engine counter agrees with Task Manager almost exactly, and the vendor figure
+        // is what every overlay a gamer already runs is showing them. Pulse used to choose
+        // Task Manager. Two people reported the same thing within a week: that Pulse read low
+        // beside Afterburner and the NVIDIA overlay in a game. Nobody has ever reported that it
+        // disagreed with Task Manager.
+        //
+        // The engine counter stays as the fallback, and it is not a rare path: Intel graphics
+        // expose no vendor load at all, so on those this is still the only number there is.
+        // GPU Usage therefore means the vendor's figure where one exists and the engine figure
+        // where none does, which is a real inconsistency, accepted because the alternative is
+        // disagreeing with the tools people hold Pulse against.
         float? d3dEngineLoad = null;
         float? coreLoad      = null;
 
@@ -537,7 +549,7 @@ public sealed class SensorReader : IDisposable
             }
         }
 
-        data.GpuUsage = d3dEngineLoad ?? coreLoad;
+        data.GpuUsage = coreLoad ?? d3dEngineLoad;
 
         ApplyVideoMemory(hw, data);
     }
