@@ -190,7 +190,7 @@ public sealed class SensorReader : IDisposable
                 snapshot.ActiveGpuName = chosen.Name;
                 ReadGpu(chosen, data);
 
-                ApplyProcessorTemperature(chosen.Name, data);
+                ApplyWindowsTemperature(chosen.Name, data);
             }
         }
         catch (Exception ex)
@@ -601,35 +601,38 @@ public sealed class SensorReader : IDisposable
     }
 
     /// <summary>
-    /// Fills in the temperature of graphics that publish none of their own.
+    /// Fills in the temperature of graphics that publish none of their own, from Windows.
     /// </summary>
     /// <remarks>
-    /// Graphics built into a processor commonly have no temperature sensor at all. On the AMD
-    /// laptop this was written against, the adapter publishes clocks, loads, memory and
-    /// voltage, and not one temperature; every temperature on the machine belongs to the
-    /// processor package. Task Manager fills its GPU page with the processor's die
-    /// temperature in that situation, and that is the number people will hold Pulse against,
-    /// so Pulse shows the same one and renames the tile rather than passing it off as the
-    /// graphics chip's own reading.
+    /// Graphics built into a processor commonly have no temperature sensor the sensor library
+    /// can read. On the AMD laptop this was written against, the adapter publishes clocks,
+    /// loads, memory and voltage and not one temperature.
     ///
-    /// Three conditions, all required:
+    /// Windows still has an answer for some of them, because the display driver reports it,
+    /// and that report is what Task Manager's GPU page is drawn from. Asking the same source
+    /// means Pulse agrees with Task Manager by construction rather than by resemblance: where
+    /// Task Manager shows 71 for a Vega 8, Windows holds 71; where Task Manager shows N/A for
+    /// Intel graphics, Windows holds nothing and Pulse shows nothing too.
     ///
-    ///   1. the adapter reported no temperature itself,
-    ///   2. Windows says the adapter is part of the processor,
-    ///   3. the processor has a die temperature to give.
+    /// That last part is the rule. A driver with no temperature to give is not a gap to be
+    /// filled from somewhere else in the machine. The earlier attempt did fill it, with the
+    /// processor die, and it was right on the AMD laptop and wrong on the Intel one, where it
+    /// put a number on screen that Task Manager does not show at all.
     ///
-    /// The second is what makes this safe. Without it, any discrete card that went quiet for a
-    /// poll would inherit the processor's temperature, which is exactly the wrong number and
-    /// impossible to notice: it looks like a plausible reading. With it, a silent discrete
-    /// card shows nothing, which is the truth.
+    /// The adapter's own sensor is still preferred when it has one. A discrete card reads its
+    /// own die directly, that is the figure its vendor's own tools show, and it needs no
+    /// second opinion.
     /// </remarks>
-    private void ApplyProcessorTemperature(string adapterName, SensorData data)
+    private void ApplyWindowsTemperature(string adapterName, SensorData data)
     {
-        if (data.GpuTemp is not null || data.CpuTemp is null) return;
-        if (FindAdapter(adapterName) is not { Integrated: true }) return;
+        if (FindAdapter(adapterName) is not { } adapter) return;
 
-        data.GpuTemp = data.CpuTemp;
-        data.GpuTempFromProcessor = true;
+        data.GpuTemp ??= DisplayAdapters.Temperature(adapter.Luid);
+
+        // Said out loud so the tile can be named honestly, and only while there is something
+        // to name. On graphics that are part of the processor this reading is the die's, which
+        // is why it matches CPU Temp exactly: one piece of silicon, measured once.
+        data.GpuTempIsDie = adapter.Integrated && data.GpuTemp is not null;
     }
 
     /// The adapter Windows knows by this name, or null. Preferring one that has performance

@@ -54,18 +54,18 @@ public class TileViewModel : BaseViewModel
     /// once. Windows calls the two pools "Dedicated GPU memory" and "Shared GPU memory", and the
     /// tile follows whichever one it is actually showing.
     ///
-    /// Graphics temperature works the same way. Graphics built into a processor frequently
-    /// publish no temperature at all, and the figure Task Manager shows in their place is the
-    /// processor die, which is also what Pulse shows as CPU Temp. Leaving both tiles named
-    /// plainly would put two identical numbers on screen and invite a bug report, so the one
-    /// borrowing the reading says where it came from.
+    /// Graphics temperature works the same way. On graphics that are part of the processor the
+    /// temperature is the die's, so it reads exactly the same as CPU Temp, because it is the
+    /// same silicon measured once. Task Manager has the same property and says nothing about
+    /// it; two identical numbers with no explanation read as a bug, so the tile says which
+    /// reading it is.
     ///
     /// Every other tile simply uses its catalogue name.
     /// </remarks>
     public string DisplayLabel => Definition.Id switch
     {
         "gpu_vram" when HardwareService.Instance.VramIsShared         => "Shared VRAM",
-        "gpu_temp" when HardwareService.Instance.GpuTempFromProcessor => "GPU Die Temp",
+        "gpu_temp" when HardwareService.Instance.GpuTempIsDie => "GPU Die Temp",
         _ => Definition.Label,
     };
 
