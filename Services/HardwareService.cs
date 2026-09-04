@@ -38,17 +38,16 @@ public class SensorData
     public bool VramIsShared { get; set; }
 
     /// <summary>
-    /// True when GpuTemp is the processor's die temperature rather than a sensor on the
-    /// graphics device itself.
+    /// True when GpuTemp belongs to graphics that are part of the processor, so the reading is
+    /// the die's.
     /// </summary>
     /// <remarks>
-    /// Set only for graphics Windows says are part of the processor, and only when that
-    /// device published no temperature of its own. It is the same figure Task Manager shows
-    /// on its GPU page in that situation, and the same figure Pulse shows as CPU Temp, which
-    /// is why the tile is renamed: two identical readings with no explanation look like a
-    /// bug, and the explanation is that there is one piece of silicon.
+    /// Set from Windows' own view of the adapter, not from its name or its memory. It is the
+    /// same figure Task Manager shows on its GPU page, and the same figure Pulse shows as CPU
+    /// Temp, which is why the tile is renamed: two identical readings with no explanation look
+    /// like a bug, and the explanation is that there is one piece of silicon measured once.
     /// </remarks>
-    public bool GpuTempFromProcessor { get; set; }
+    public bool GpuTempIsDie { get; set; }
 
     public float? GetById(string id) => id switch
     {
@@ -133,12 +132,12 @@ public class HardwareService : IDisposable
     public bool VramIsShared { get; private set; }
 
     /// <summary>
-    /// Whether the graphics temperature is the processor's, because the graphics are part of
-    /// it and publish none of their own.
+    /// Whether the graphics temperature is a die reading, because the graphics are part of the
+    /// processor.
     /// </summary>
     /// Read by the overlay for the same reason as VramIsShared: the tile says which reading
     /// it is showing rather than leaving two identical numbers unexplained.
-    public bool GpuTempFromProcessor { get; private set; }
+    public bool GpuTempIsDie { get; private set; }
 
     /// Every GPU detected on this machine, for the settings picker.
     public IReadOnlyList<GpuInfo> AvailableGpus { get; private set; } = Array.Empty<GpuInfo>();
@@ -689,7 +688,7 @@ public class HardwareService : IDisposable
             TotalRamGb  = previous.TotalRamGb,
             TotalVramGb = previous.TotalVramGb,
             VramIsShared = previous.VramIsShared,
-            GpuTempFromProcessor = previous.GpuTempFromProcessor,
+            GpuTempIsDie = previous.GpuTempIsDie,
         };
 
         if (!alsoClearTheRest)
@@ -763,7 +762,7 @@ public class HardwareService : IDisposable
 
         // Same rule for the temperature: followed only while there is a reading, so a blank
         // poll does not rename the tile back and forth.
-        if (data.GpuTemp is not null) GpuTempFromProcessor = data.GpuTempFromProcessor;
+        if (data.GpuTemp is not null) GpuTempIsDie = data.GpuTempIsDie;
 
         bool gpusChanged   = false;
         bool stateChanged  = false;

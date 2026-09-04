@@ -25,17 +25,18 @@ internal static class DisplayAdapters
     [DllImport("dxgi.dll")]
     private static extern int CreateDXGIFactory1(ref Guid riid, out IntPtr factory);
 
-    // ── Windows' own opinion of what kind of adapter this is ────────────────────────────
+    // ── What Windows itself holds about each adapter ────────────────────────────────────
     //
-    // DXGI describes an adapter's memory but never says whether it is built into the
-    // processor. The display kernel does, and it is the only vendor-neutral answer available:
-    // asked about this machine it marks the Intel graphics HybridIntegrated and the GeForce
-    // HybridDiscrete without either driver being consulted by name.
+    // DXGI describes an adapter's memory and nothing else. The display kernel holds the rest,
+    // including the temperature Task Manager puts on its GPU page and whether the adapter is
+    // built into the processor, and it answers for every vendor without any of them being
+    // named here. That is the whole point: each time this project has decided something about
+    // graphics from a name or a memory size it has had to be undone later.
     //
-    // This matters for temperature. Integrated graphics frequently publish no temperature of
-    // their own, and the processor die they sit on is the figure Task Manager shows in their
-    // place. Substituting it is only honest when Windows agrees the adapter really is part of
-    // the processor, which is what this asks.
+    // Temperature especially. Graphics with no sensor of their own report nothing here, which
+    // is exactly why Task Manager shows N/A for them, so asking Windows and showing nothing
+    // when Windows has nothing gives the same answer Task Manager gives, on any machine,
+    // without Pulse ever having to invent one.
 
     [StructLayout(LayoutKind.Sequential)]
     private struct AdapterLuid { public uint Low; public int High; }
@@ -58,12 +59,90 @@ internal static class DisplayAdapters
     /// KMTQAITYPE_ADAPTERTYPE.
     private const int AdapterTypeQuery = 15;
 
+    /// KMTQAITYPE_ADAPTERPERFDATA and KMTQAITYPE_ADAPTERPERFDATA_CAPS.
+    private const int PerfDataQuery     = 62;
+    private const int PerfDataCapsQuery = 63;
+
+    /// <summary>
+    /// What the display driver reports about the adapter, and what Task Manager's GPU page is
+    /// drawn from.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    private struct AdapterPerfData
+    {
+        public uint  PhysicalAdapterIndex;
+        public ulong MemoryFrequency;
+        public ulong MaxMemoryFrequency;
+        public ulong MaxMemoryFrequencyOc;
+        public ulong MemoryBandwidth;
+        public ulong PcieBandwidth;
+        public uint  FanRpm;
+        public uint  Power;
+        public uint  Temperature;
+        public byte  PowerDrawP1;
+    }
+
+    /// The limits for the above. TemperatureMax is what says which scale Temperature is on.
+    [StructLayout(LayoutKind.Sequential)]
+    private struct AdapterPerfDataCaps
+    {
+        public uint  PhysicalAdapterIndex;
+        public ulong MaxMemoryBandwidth;
+        public ulong MaxPcieBandwidth;
+        public uint  MaxFanRpm;
+        public uint  TemperatureMax;
+        public uint  TemperatureWarning;
+    }
+
     /// Bit 5 of D3DKMT_ADAPTERTYPE: the adapter is the one built into the processor.
     private const uint HybridIntegrated = 1u << 5;
 
     [DllImport("gdi32.dll")] private static extern int D3DKMTOpenAdapterFromLuid(ref OpenAdapterFromLuid a);
     [DllImport("gdi32.dll")] private static extern int D3DKMTQueryAdapterInfo(ref QueryAdapterInfo a);
     [DllImport("gdi32.dll")] private static extern int D3DKMTCloseAdapter(ref CloseAdapter a);
+
+    /// <summary>
+    /// The temperature Windows holds for this adapter, in degrees Celsius, or null when it
+    /// holds none.
+    /// </summary>
+    /// <remarks>
+    /// This is the figure on Task Manager's GPU page, taken from the same place Task Manager
+    /// takes it, which is why null here means Task Manager shows nothing either. Measured on
+    /// this machine: the GeForce reports 475 with a stated maximum of 1050, and Task Manager
+    /// shows 47; the Intel graphics report zero with a maximum of zero, and Task Manager shows
+    /// N/A. So a driver that has no temperature to give says so by giving nothing, and Pulse
+    /// leaves the tile empty rather than substituting something from elsewhere in the machine.
+    ///
+    /// The scale is read rather than assumed. The values above are tenths of a degree, which
+    /// is what the field is documented to be, but a driver reporting whole degrees would put
+    /// 47 where 470 was expected and the tile would read 4.7. TemperatureMax says which it is:
+    /// a maximum has to land somewhere near a hundred degrees, so whichever reading of it does
+    /// is the reading applied to the temperature as well. A driver that leaves the maximum
+    /// unset is judged the same way on the temperature alone.
+    /// </remarks>
+    public static float? Temperature(long luid)
+    {
+        if (!Open(luid, out uint handle)) return null;
+
+        try
+        {
+            if (!Query<AdapterPerfData>(handle, PerfDataQuery, out var perf)) return null;
+            if (perf.Temperature == 0) return null;
+
+            uint max = Query<AdapterPerfDataCaps>(handle, PerfDataCapsQuery, out var caps)
+                     ? caps.TemperatureMax : 0;
+
+            // Tenths unless something says otherwise. "Otherwise" is a stated maximum that only
+            // makes sense read as whole degrees, or, when there is no maximum, a temperature
+            // too small to be tenths of anything a running adapter reaches.
+            bool tenths = max > 0 ? max >= 200 : perf.Temperature >= 200;
+            float celsius = tenths ? perf.Temperature / 10f : perf.Temperature;
+
+            // Nothing outside this is a temperature, whichever way it was read.
+            return celsius is > 0f and <= 150f ? celsius : null;
+        }
+        finally { Close(handle); }
+    }
 
     /// <summary>
     /// Whether Windows considers this adapter to be part of the processor.
@@ -73,6 +152,21 @@ internal static class DisplayAdapters
     /// </summary>
     private static bool IsIntegrated(long luid)
     {
+        if (!Open(luid, out uint handle)) return false;
+
+        try
+        {
+            return Query<uint>(handle, AdapterTypeQuery, out uint flags)
+                && (flags & HybridIntegrated) != 0;
+        }
+        finally { Close(handle); }
+    }
+
+    /// A handle to the adapter from the display kernel, or false when it will not give one.
+    private static bool Open(long luid, out uint handle)
+    {
+        handle = 0;
+
         var open = new OpenAdapterFromLuid
         {
             Luid = new AdapterLuid { Low = (uint)luid, High = (int)(luid >> 32) }
@@ -82,33 +176,56 @@ internal static class DisplayAdapters
         {
             if (D3DKMTOpenAdapterFromLuid(ref open) != 0 || open.Handle == 0) return false;
         }
-        catch (DllNotFoundException) { return false; }
-        catch (EntryPointNotFoundException) { return false; }
+        catch (DllNotFoundException)       { return false; }   // no display kernel to ask
+        catch (EntryPointNotFoundException){ return false; }   // an older one that cannot answer
 
-        IntPtr buffer = Marshal.AllocHGlobal(sizeof(uint));
+        handle = open.Handle;
+        return true;
+    }
+
+    /// <summary>
+    /// One question to the display kernel about an open adapter.
+    /// </summary>
+    /// <remarks>
+    /// The size passed is the size of the structure asked for, and the kernel refuses anything
+    /// else, which is how a structure that changed shape between Windows versions would be
+    /// caught rather than silently misread: the call fails and the caller reports nothing.
+    /// </remarks>
+    private static bool Query<T>(uint handle, int type, out T value) where T : struct
+    {
+        value = default;
+
+        int size = Marshal.SizeOf<T>();
+        IntPtr buffer = Marshal.AllocHGlobal(size);
+
         try
         {
-            Marshal.WriteInt32(buffer, 0);
+            // Zeroed first: these structures carry an input field, and everything not written
+            // by the kernel is read back as though it had been.
+            for (int i = 0; i < size; i++) Marshal.WriteByte(buffer, i, 0);
+
             var query = new QueryAdapterInfo
             {
-                Handle   = open.Handle,
-                Type     = AdapterTypeQuery,
+                Handle   = handle,
+                Type     = type,
                 Data     = buffer,
-                DataSize = sizeof(uint),
+                DataSize = (uint)size,
             };
 
             if (D3DKMTQueryAdapterInfo(ref query) != 0) return false;
-            return ((uint)Marshal.ReadInt32(buffer) & HybridIntegrated) != 0;
-        }
-        finally
-        {
-            Marshal.FreeHGlobal(buffer);
 
-            // The handle is the display kernel's, and leaking one per poll would accumulate
-            // for as long as Pulse runs. Nothing useful follows a failure to hand it back.
-            var close = new CloseAdapter { Handle = open.Handle };
-            try { D3DKMTCloseAdapter(ref close); } catch { }   // nothing useful follows failing to hand a handle back
+            value = Marshal.PtrToStructure<T>(buffer);
+            return true;
         }
+        catch (Exception) { return false; }   // an adapter that answers nothing is not a fault
+        finally { Marshal.FreeHGlobal(buffer); }
+    }
+
+    /// Handing the handle back. Leaking one per poll accumulates for as long as Pulse runs.
+    private static void Close(uint handle)
+    {
+        var close = new CloseAdapter { Handle = handle };
+        try { D3DKMTCloseAdapter(ref close); } catch { }   // nothing useful follows failing to hand a handle back
     }
 
     /// IID_IDXGIFactory1.
