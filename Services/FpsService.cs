@@ -68,24 +68,32 @@ public class FpsService : IDisposable
     private const int StaleAfterMs  = 2000;
 
     /// <summary>
-    /// Window the 1% low is measured over, and the guard rails around it.
+    /// How much history the 1% low is measured over: the last <see cref="LowMaxSamples"/>
+    /// frames, and never more than <see cref="LowWindowMs"/> of them.
+    /// </summary>
+    /// <remarks>
+    /// A count and a duration together, because either alone gets one end of the range wrong.
     ///
-    /// 1% of a one-second window would be well under a single frame, so the low needs its
-    /// own much longer history. Sixty seconds matches what people expect from a live
-    /// overlay, the sample cap keeps memory bounded at very high frame rates, and the
-    /// minimum stops a number appearing before there is enough data for "the slowest 1%"
-    /// to mean anything.
-    /// </summary>
-    private const int LowWindowMs   = 60_000;
-
-    /// <summary>
-    /// A safety limit, not a window. It used to be 20,000, which is only sixty seconds' worth
-    /// up to about 333fps: above that the cap silently became the real window, so a "60 second"
-    /// 1% low was measuring 33 seconds at 600fps and 20 at 1000, with nothing saying so. Sized
-    /// now for sixty seconds at 2000fps, so time decides the window at any frame rate a real
-    /// machine produces and this only ever catches a stream that has gone wrong.
-    /// </summary>
-    private const int LowMaxSamples = 120_000;
+    /// This used to be sixty seconds flat, and the complaint was that a single stutter stayed
+    /// in the number for a full minute after the game had recovered. Counting frames instead
+    /// fixes that where it hurts most, since a fast machine fills the buffer quickly:
+    ///
+    ///     240 fps    8.5 s        100 fps   20.5 s
+    ///     143 fps   14.3 s         60 fps   34.1 s -> capped to 30
+    ///                              30 fps   68.3 s -> capped to 30
+    ///
+    /// But frames alone would have made it worse for the machines that stutter most: at 30fps
+    /// two thousand frames is sixty-eight seconds, longer than the window being complained
+    /// about. Hence the cap. Every frame rate now recovers faster than it used to, and none
+    /// recovers slower.
+    ///
+    /// Two thousand is also about the smallest buffer the statistic survives. The 99th
+    /// percentile is a rank, so the number is set by the twenty-first worst frame in the
+    /// buffer; at a thousand frames it would be the eleventh, and one hitch would swing the
+    /// tile and then vanish from it seconds later.
+    /// </remarks>
+    private const int LowWindowMs   = 30_000;
+    private const int LowMaxSamples = 2_048;
 
     /// <summary>
     /// Before the 1% low means anything it needs both enough frames and enough time.
@@ -824,7 +832,7 @@ public class FpsService : IDisposable
 
         // Enough frames and enough time. A count alone is not a duration: two hundred frames
         // is nearly seven seconds at 30fps and under one at 240, so this used to appear almost
-        // at once on a fast machine while describing a moment rather than a minute.
+        // at once on a fast machine while describing a moment rather than a window.
         long span = _lowSamples.Count > 0 ? now - _lowSamples.Peek().At : 0;
 
         if (_lowSamples.Count < LowMinSamples || span < LowMinSpanMs)
