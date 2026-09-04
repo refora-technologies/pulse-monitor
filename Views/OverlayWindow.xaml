@@ -177,7 +177,7 @@
                                             <TextBlock FontSize="11" Foreground="#8E8AB0"
                                                        FontWeight="Medium"
                                                        VerticalAlignment="Bottom" Margin="4,0,0,3">
-                                                <Run Text="{Binding Definition.Unit, Mode=OneWay}"/>
+                                                <Run Text="{Binding DisplayUnit, Mode=OneWay}"/>
                                             </TextBlock>
                                         </StackPanel>
                                         <Grid Margin="0,6,0,0"
@@ -274,7 +274,7 @@
                                                Margin="10,0,4,0"
                                                VerticalAlignment="Center"/>
                                     <TextBlock Grid.Column="2"
-                                               Text="{Binding Definition.Unit}"
+                                               Text="{Binding DisplayUnit}"
                                                FontSize="10" Foreground="#8E8AB0"
                                                FontWeight="Medium"
                                                VerticalAlignment="Bottom" Margin="4,0,0,1"/>

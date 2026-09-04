@@ -52,6 +52,7 @@ public partial class MainWindow : Window
             WindowBorder.SizeChanged += (_, _) => RefreshCornerClip();
 
             HighlightActivePollingRate();
+            HighlightActiveNetworkUnit();
             HighlightActivePosition();
             UpdateOverlayButton();
             PopulateMonitorButtons();
@@ -78,6 +79,9 @@ public partial class MainWindow : Window
             Pulse.Services.HardwareService.Instance.GpuListChanged += OnGpuListChanged;
 
             PollRatePanel.SizeChanged += (_, _) => UpdateSegIndicator(false);
+            NetUnitPanel.SizeChanged  += (_, _) => UpdateNetUnitIndicator(false);
+            Dispatcher.InvokeAsync(() => UpdateNetUnitIndicator(false),
+                System.Windows.Threading.DispatcherPriority.Loaded);
             Dispatcher.InvokeAsync(() => UpdateSegIndicator(false),
                 System.Windows.Threading.DispatcherPriority.Render);
         };
@@ -232,6 +236,57 @@ public partial class MainWindow : Window
         }
 
         UpdateSegIndicator(true);
+    }
+
+    private void NetworkUnit_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not WpfButton btn || _vm == null) return;
+
+        _vm.NetworkUnitBits = (btn.Tag as string) == "bits";
+        HighlightActiveNetworkUnit();
+    }
+
+    private void HighlightActiveNetworkUnit()
+    {
+        if (_vm == null || NetUnitPanel == null) return;
+
+        var activeStyle = (WpfStyle)FindResource("SegBtnActive");
+        var normalStyle = (WpfStyle)FindResource("SegBtn");
+
+        foreach (var child in NetUnitPanel.Children)
+        {
+            if (child is not WpfButton btn) continue;
+            bool isActive = ((btn.Tag as string) == "bits") == _vm.NetworkUnitBits;
+            btn.Style = isActive ? activeStyle : normalStyle;
+        }
+
+        UpdateNetUnitIndicator(true);
+    }
+
+    private void UpdateNetUnitIndicator(bool animate)
+    {
+        if (_vm == null || NetUnitIndicator == null || NetUnitPanel == null) return;
+        if (NetUnitPanel.ActualWidth <= 0) return;
+
+        double segW = NetUnitPanel.ActualWidth / 2.0;
+        NetUnitIndicator.Width = segW;
+
+        double targetX = _vm.NetworkUnitBits ? segW : 0;
+
+        if (animate)
+        {
+            var anim = new DoubleAnimation
+            {
+                To = targetX,
+                Duration = TimeSpan.FromMilliseconds(200),
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+            };
+            NetUnitIndicatorTranslate.BeginAnimation(TranslateTransform.XProperty, anim);
+        }
+        else
+        {
+            NetUnitIndicatorTranslate.X = targetX;
+        }
     }
 
     private void UpdateSegIndicator(bool animate)
