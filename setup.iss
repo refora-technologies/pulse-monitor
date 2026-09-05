@@ -265,6 +265,22 @@ begin
     Result := -1;
 end;
 
+{ Whether the sensor driver is actually registered with Windows.
+
+  This is the question that matters, and it is not the same question as what its installer
+  returned. PawnIO's setup reports success in its own words and still exits non-zero, so
+  checking the exit code told a machine with a perfectly working driver that its driver had
+  failed. That is worse than not checking at all: the whole point of looking was to stop
+  setup being quiet about a real failure, and instead it invented one.
+
+  The service key is where Windows records a kernel driver, so its presence is the outcome
+  itself rather than a report about the outcome. Read from the 64-bit view explicitly; this
+  key is not redirected, but saying so costs nothing and removes the question. }
+function DriverIsInstalled(): Boolean;
+begin
+  Result := RegKeyExists(HKEY_LOCAL_MACHINE_64, 'SYSTEM\CurrentControlSet\Services\PawnIO');
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   Code: Integer;
@@ -275,10 +291,12 @@ begin
   Code := InstallStep(ExpandConstant('{app}\PawnIO_setup.exe'), '-install -silent',
                       'Installing sensor driver...');
 
+  { 3010 still means "in place, but not until you restart", which is worth passing on. }
   if Code = 3010 then
-    RebootWanted := True
-  else if Code <> 0 then
-    DriverFailed := True;
+    RebootWanted := True;
+
+  { Judged on what is on the machine afterwards, not on what the installer said about it. }
+  DriverFailed := not DriverIsInstalled();
 
   { Registered through Pulse rather than schtasks so there is one definition of this task.
     The bare schtasks command line cannot express three settings that matter here, and it
@@ -299,9 +317,10 @@ begin
     exit;
 
   if DriverFailed then
-    MsgBox('Pulse is installed, but the sensor driver did not install correctly.' + #13#10 + #13#10 +
-           'Temperatures, power and fan readings will be unavailable until it does. You can try ' +
-           'again by running PawnIO_setup.exe from the Pulse folder.',
+    MsgBox('Pulse is installed, but the sensor driver is not registered on this computer.' + #13#10 + #13#10 +
+           'Temperatures, power and fan readings will be unavailable until it is. You can try ' +
+           'again by running PawnIO_setup.exe from the Pulse folder.' + #13#10 + #13#10 +
+           'Its installer exited with code ' + IntToStr(Code) + '.',
            mbError, MB_OK);
 
   if StartupFailed then
