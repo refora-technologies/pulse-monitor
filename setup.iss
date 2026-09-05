@@ -254,7 +254,10 @@ function InstallStep(const Exe, Params, Message: String): Integer;
 var
   Code: Integer;
 begin
-  WizardForm.StatusLabel.Caption := Message;
+  { Guarded, because this now runs on the silent path too and a wizard nobody is shown is one
+    more thing that can be absent. A missing caption is not worth failing an install over. }
+  if WizardForm <> nil then
+    WizardForm.StatusLabel.Caption := Message;
 
   if Exec(Exe, Params, '', SW_HIDE, ewWaitUntilTerminated, Code) then
     Result := Code
