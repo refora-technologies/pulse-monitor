@@ -38,6 +38,18 @@ public static class StartupTask
     private const int TimeoutMs = 10_000;
 
     /// <summary>
+    /// The full path to schtasks, rather than its name.
+    /// </summary>
+    /// <remarks>
+    /// A bare name is resolved through the search path, and the search path is not ours. Pulse
+    /// runs elevated, so anything it starts starts elevated too, and a program that decides
+    /// what to run by searching directories it does not control is handing that decision to
+    /// whoever can write to one of them. Naming the file removes the question.
+    /// </remarks>
+    private static readonly string SchTasks =
+        Path.Combine(Environment.SystemDirectory, "schtasks.exe");
+
+    /// <summary>
     /// What Windows says about the task.
     /// </summary>
     /// <remarks>
@@ -316,7 +328,18 @@ public static class StartupTask
 
             // UTF-16 with a BOM: the schema declares UTF-16 and that is what Windows emits
             // when asked for a task definition, so it is what it expects to be handed back.
-            File.WriteAllText(file, BuildXml(exePath), new UnicodeEncoding(false, true));
+            //
+            // CreateNew and no sharing, rather than WriteAllText. This file is handed to an
+            // elevated schtasks a moment later and it decides what will run at every logon, so
+            // it is worth a little care about what is between writing it and reading it back.
+            // CreateNew refuses to follow an existing name, so a file or link already sitting
+            // there is an error rather than a target; FileShare.None means nothing can open it
+            // while we are writing. The name is a fresh GUID either way.
+            using (var stream = new FileStream(file, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            using (var writer = new StreamWriter(stream, new UnicodeEncoding(false, true)))
+            {
+                writer.Write(BuildXml(exePath));
+            }
 
             // /F replaces atomically, so the old task survives if this is rejected.
             return Run($"/Create /TN \"{TaskName}\" /XML \"{file}\" /F");
@@ -462,7 +485,7 @@ public static class StartupTask
         {
             var info = new ProcessStartInfo
             {
-                FileName               = "schtasks.exe",
+                FileName               = SchTasks,
                 Arguments              = arguments,
                 CreateNoWindow         = true,
                 UseShellExecute        = false,

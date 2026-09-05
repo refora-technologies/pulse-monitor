@@ -1249,8 +1249,8 @@
 
                                 <Button Style="{StaticResource LinkBtn}" Content="Reset to default look"
                                         HorizontalAlignment="Right" Margin="0,13,0,0"
-                                        AutomationProperties.Name="Reset overlay opacity and background to their defaults"
-                                        ToolTip="Puts opacity and background back to how Pulse looks out of the box"
+                                        AutomationProperties.Name="Reset overlay opacity, background and size to their defaults"
+                                        ToolTip="Puts opacity, background and size back to how Pulse looks out of the box. Use this if the overlay has been resized larger than the screen."
                                         Click="ResetAppearance_Click"/>
                             </StackPanel>
 

@@ -146,9 +146,8 @@ public class SensorTileDefinition
                 Description = "Charge left in the battery. Amber below 20 percent and red below 10. A machine "
                             + "with no battery leaves the tile empty." },
         new() { Id = "sys_power",    Label = "CPU+GPU Power", Unit = "W",    Category = SensorCategory.System,  HasBar = false, WarnThreshold = 0,   DangerThreshold = 0,
-                Description = "The processor and graphics power together. With a separate graphics "
-                            + "card these are two readings added up. Where the graphics are built into "
-                            + "the processor they are one chip drawing one amount of power, so this "
-                            + "matches CPU Power rather than being larger than it." },
+                Description = "The processor and graphics power together. With a separate graphics card "
+                            + "that is two readings added up. Where the graphics are built into the "
+                            + "processor they are one chip drawing one amount, so this matches CPU Power." },
     };
 }

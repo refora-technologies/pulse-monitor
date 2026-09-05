@@ -235,14 +235,24 @@ public class UpdateService
         if (string.IsNullOrEmpty(expectedSha256))
             return UpdateDownloadStatus.VerificationUnavailable;
 
-        var fileName = string.IsNullOrEmpty(info.InstallerName)
-            ? $"PulseSetup-{info.TagName}.exe"
-            : info.InstallerName;
+        var fileName = SafeInstallerName(info);
 
         string target;
         try
         {
-            target = Path.Combine(CreateSecureDownloadDirectory(), fileName);
+            var folder = CreateSecureDownloadDirectory();
+            target = Path.Combine(folder, fileName);
+
+            // Belt as well as braces. The name above is already reduced to a file name, and
+            // this proves the result actually landed in the folder we just locked down rather
+            // than trusting that reduction to have covered every shape a path can take.
+            if (!Path.GetFullPath(target).StartsWith(
+                    Path.GetFullPath(folder) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            {
+                LogService.Warn(nameof(UpdateService),
+                    $"Refusing to download to a path outside the update folder (asset name: {fileName}).");
+                return UpdateDownloadStatus.DownloadFailed;
+            }
         }
         catch (Exception ex)
         {
@@ -377,6 +387,38 @@ public class UpdateService
     /// elevated installer out of a location they could not secure — the same stance as
     /// refusing an installer whose checksum will not verify.
     /// </summary>
+    /// <summary>
+    /// The file name to save the installer under, reduced to something that can only ever be a
+    /// file name.
+    /// </summary>
+    /// <remarks>
+    /// The asset name comes from the release on GitHub, which makes it remote text, and it was
+    /// being handed to Path.Combine as-is. Path.Combine does not join an absolute second part,
+    /// it returns it, so a name like <c>C:\Windows\System32\something.exe</c> would have
+    /// become the download target outright; a name with <c>..\</c> in it would have climbed out
+    /// of the folder that had just been locked down. Nothing has ever put such a name in one of
+    /// our releases, and that is not the same as the code refusing to accept one.
+    ///
+    /// GetFileName removes any directory part there is. The rest is a plain sanity check: an
+    /// empty or odd result falls back to a name of our own, built from the tag.
+    /// </remarks>
+    private static string SafeInstallerName(UpdateInfo info)
+    {
+        var fallback = $"PulseSetup-{new string(info.TagName.Where(char.IsLetterOrDigit).ToArray())}.exe";
+
+        if (string.IsNullOrWhiteSpace(info.InstallerName)) return fallback;
+
+        string name;
+        try   { name = Path.GetFileName(info.InstallerName); }
+        catch { return fallback; }
+
+        if (string.IsNullOrWhiteSpace(name)) return fallback;
+        if (name is "." or "..") return fallback;
+        if (name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0) return fallback;
+
+        return name;
+    }
+
     private static string CreateSecureDownloadDirectory()
     {
         var path = Path.Combine(Path.GetTempPath(), DownloadDirPrefix + Guid.NewGuid().ToString("N"));
@@ -414,11 +456,18 @@ public class UpdateService
             ownerInfo.SetOwner(admins);
             dir.SetAccessControl(ownerInfo);
         }
-        catch
+        catch (Exception ex)
         {
             // Deliberate, and explained at length above: the access list that actually keeps
             // other users out is already applied, and this is the further hardening that some
             // processes are not permitted to do. Failing costs nothing that was relied on.
+            //
+            // Said out loud all the same. It was silent, and a security step that quietly did
+            // not happen is the kind of thing nobody discovers until they need it to have
+            // happened. One line, and the folder is still protected.
+            LogService.Warn(nameof(UpdateService),
+                $"The download folder was created but its owner could not be set to Administrators "
+              + $"({ex.GetType().Name}). Its access list is still applied.");
         }
 
         return path;

@@ -132,7 +132,17 @@ internal sealed class GpuMemoryCounters : IDisposable
             // The adapter went away between listing the instances and reading one, which on a
             // laptop that powers its discrete card down is routine. Dropped rather than logged:
             // the next poll rebuilds it, and the caller shows nothing meanwhile.
-            cache.Remove(instance);
+            //
+            // Disposed on the way out, not merely forgotten. A PerformanceCounter holds a
+            // handle, and a card that comes and goes takes one with it every time it goes. On a
+            // laptop that powers its graphics down between games, over a session left running
+            // for days, that is a handle leak with nothing to show for it.
+            if (cache.TryGetValue(instance, out var dead))
+            {
+                try { dead.Dispose(); } catch { }   // it already failed; nothing follows from this
+                cache.Remove(instance);
+            }
+
             return -1;
         }
     }
