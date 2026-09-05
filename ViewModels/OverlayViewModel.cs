@@ -230,11 +230,22 @@ public class TileViewModel : BaseViewModel
 
     public TileViewModel(SensorTileDefinition def) { Definition = def; }
 
-    /// Re-raises formatting-dependent properties without needing a new sensor value —
-    /// used when the "show max values" setting is toggled.
+    /// <summary>
+    /// Re-raises everything that depends on a setting rather than on the reading, for when one
+    /// of those settings changes and no new reading is coming.
+    /// </summary>
+    /// <remarks>
+    /// DisplayUnit belongs here, and its absence was a real bug rather than an omission of
+    /// tidiness. The normal overlay binds the unit as its own element, so switching between
+    /// MB/s and Mbps converted the number and left the old unit beside it until the next
+    /// reading happened to differ. A machine sitting at a flat 0.00 with no traffic never
+    /// produces a differing reading, because a value that has not changed raises nothing, so
+    /// the wrong unit stayed on screen indefinitely.
+    /// </remarks>
     public void RefreshDisplayFormatting()
     {
         OnPropertyChanged(nameof(DisplayValue));
+        OnPropertyChanged(nameof(DisplayUnit));
         OnPropertyChanged(nameof(CompactLine));
         OnPropertyChanged(nameof(DisplayLabel));
     }
@@ -325,12 +336,48 @@ public class OverlayViewModel : BaseViewModel
         return brush;
     }
 
+    /// <summary>
+    /// The card behind each reading, its outline, and the empty part of a bar.
+    /// </summary>
+    /// <remarks>
+    /// These fade with the panel, which they did not used to. The setting says "turn it all the
+    /// way down to leave just the readings on screen", and at zero the panel behind the tiles
+    /// disappeared while every tile kept an opaque card and a hard outline, so what was left was
+    /// a grid of boxes rather than the readings. A promise the interface makes about itself is
+    /// worth as much as a number being right.
+    ///
+    /// Finished brushes rather than an Opacity binding inside the brush, for the reason set out
+    /// above: a BorderBrush written in XAML gets no data context, so a binding inside it never
+    /// resolves and silently leaves the outline at full strength.
+    /// </remarks>
+    private WpfBrush _tileFillBrush     = MakeTileBrush(0x1A, 0x16, 0x32, 1.0);
+    private WpfBrush _tileBorderBrush   = MakeTileBrush(0x2A, 0x25, 0x48, 1.0);
+    private WpfBrush _tileBarTrackBrush = MakeTileBrush(0x2A, 0x2A, 0x3A, 1.0);
+
+    public WpfBrush TileFillBrush     => _tileFillBrush;
+    public WpfBrush TileBorderBrush   => _tileBorderBrush;
+    public WpfBrush TileBarTrackBrush => _tileBarTrackBrush;
+
+    private static WpfBrush MakeTileBrush(byte r, byte g, byte b, double alpha)
+    {
+        var brush = new WpfBrush(WpfColor.FromRgb(r, g, b)) { Opacity = Math.Clamp(alpha, 0, 1) };
+        brush.Freeze();
+        return brush;
+    }
+
     private void RebuildBorderBrushes()
     {
         _normalBorderBrush  = MakeBorderBrush(_backgroundOpacity * 0.22);
         _compactBorderBrush = MakeBorderBrush(_backgroundOpacity * 0.18);
         OnPropertyChanged(nameof(NormalBorderBrush));
         OnPropertyChanged(nameof(CompactBorderBrush));
+
+        _tileFillBrush     = MakeTileBrush(0x1A, 0x16, 0x32, _backgroundOpacity);
+        _tileBorderBrush   = MakeTileBrush(0x2A, 0x25, 0x48, _backgroundOpacity);
+        _tileBarTrackBrush = MakeTileBrush(0x2A, 0x2A, 0x3A, _backgroundOpacity);
+        OnPropertyChanged(nameof(TileFillBrush));
+        OnPropertyChanged(nameof(TileBorderBrush));
+        OnPropertyChanged(nameof(TileBarTrackBrush));
     }
 
     private double _overlayScale = 1.0;

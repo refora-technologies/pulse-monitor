@@ -1607,6 +1607,28 @@
                     <Border Background="#111020" CornerRadius="13" Padding="18,16"
                             BorderBrush="#1C1A30" BorderThickness="1" Margin="0,0,0,8">
                         <StackPanel>
+                            <!-- The details the overlay's status line sends people here to read.
+                                 Hidden entirely when sensors are working, which is almost always. -->
+                            <Border CornerRadius="9" Background="#2A1220" BorderBrush="#5A2436"
+                                    BorderThickness="1" Padding="13,10" Margin="0,0,0,12"
+                                    Visibility="{Binding HasSensorFault, Converter={StaticResource BoolToVis}}">
+                                <StackPanel>
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                                        <TextBlock Text="&#xE7BA;" FontFamily="Segoe MDL2 Assets"
+                                                   FontSize="11" Foreground="#FF5C6C"
+                                                   VerticalAlignment="Center" Margin="0,0,7,0"/>
+                                        <TextBlock Text="Sensors unavailable" FontSize="12"
+                                                   FontWeight="SemiBold" Foreground="#FF8A96"
+                                                   VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                    <TextBlock Text="{Binding SensorFault}" FontSize="11"
+                                               Foreground="#D8B4BE" TextWrapping="Wrap"/>
+                                    <TextBlock FontSize="10.5" Foreground="#A9A4CE"
+                                               TextWrapping="Wrap" Margin="0,6,0,0"
+                                               Text="Pulse keeps trying to open them. Saving diagnostics below records what happened."/>
+                                </StackPanel>
+                            </Border>
+
                             <Grid Margin="0,0,0,8">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*"/>

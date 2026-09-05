@@ -69,6 +69,22 @@ public partial class MainWindow : Window
                 PopulateMonitorButtons();
             };
 
+            // The corner and display buttons are painted in code rather than bound, so they
+            // need telling when something other than a click moves the overlay. Dragging it
+            // writes a new position and a new display straight into settings, and without this
+            // the panel went on highlighting the corner and the screen it used to be on.
+            if (_vm != null)
+            {
+                _vm.PropertyChanged += (_, args) =>
+                {
+                    switch (args.PropertyName)
+                    {
+                        case nameof(_vm.OverlayPosition):     HighlightActivePosition(); break;
+                        case nameof(_vm.SelectedMonitorIndex): HighlightActiveMonitor(); break;
+                    }
+                };
+            }
+
             // Displays can also change while the panel is open, which is the case someone is
             // most likely to be looking at: plugging a monitor in and going straight to Pulse
             // to move the overlay onto it.
@@ -171,10 +187,26 @@ public partial class MainWindow : Window
 
         // Never block the real exit: Shutdown closes windows through this same path, so
         // cancelling here would make "Exit Pulse" do nothing at all.
-        if (!App.IsExiting && _vm?.MinimizeToTray == true)
+        if (!App.IsExiting)
         {
+            if (_vm?.MinimizeToTray == true)
+            {
+                e.Cancel = true;
+                Hide();
+                return;
+            }
+
+            // Tray minimising is off, so closing this window means closing Pulse, which is
+            // what the ✕ has always done. Alt+F4, the taskbar's close item and the system menu
+            // used to close the window and leave Pulse running: the overlay is a window too,
+            // so WPF never reached its last one and never exited. What the user got was an
+            // application with no way back to its settings except a keyboard shortcut.
+            //
+            // Posted rather than called, so this close finishes being cancelled before the
+            // exit starts closing the same window again.
             e.Cancel = true;
-            Hide();
+            if (WpfApplication.Current is App app)
+                Dispatcher.BeginInvoke(new Action(app.RequestExit));
             return;
         }
 
@@ -184,7 +216,7 @@ public partial class MainWindow : Window
     private void CloseOrHide()
     {
         if (_vm?.MinimizeToTray == true) Hide();
-        else WpfApplication.Current.Shutdown();
+        else if (WpfApplication.Current is App app) app.RequestExit();
     }
 
     private void BtnOverlayToggle_Click(object sender, RoutedEventArgs e)
@@ -793,15 +825,24 @@ public partial class MainWindow : Window
         if (sender is not WpfButton btn || _vm == null) return;
         _vm.SelectedMonitorIndex = (int)btn.Tag;
 
+        HighlightActiveMonitor();
+        HighlightActivePosition();
+    }
+
+    /// Which display button is shown as chosen. Its own method because the overlay being
+    /// dragged onto another screen has to repaint these too, not only a click here.
+    private void HighlightActiveMonitor()
+    {
+        if (_vm == null || MonitorPanel == null) return;
+
         var activeStyle = (WpfStyle)FindResource("MonitorBtnActive");
         var normalStyle = (WpfStyle)FindResource("MonitorBtn");
+
         foreach (var child in MonitorPanel.Children)
         {
             if (child is WpfButton b)
                 b.Style = (int)b.Tag == _vm.SelectedMonitorIndex ? activeStyle : normalStyle;
         }
-
-        HighlightActivePosition();
     }
 
     // Both of these are async void, so an exception escaping one goes straight to the

@@ -152,14 +152,17 @@
                         </ItemsControl.ItemsPanel>
                         <ItemsControl.ItemTemplate>
                             <DataTemplate DataType="{x:Type vm:TileViewModel}">
+                                <!-- Card and outline both follow the background setting, so
+                                     turning it all the way down really does leave only the
+                                     readings. Taken from the view model as finished brushes:
+                                     a brush written inside BorderBrush gets no data context
+                                     and its bindings never resolve. -->
                                 <Border CornerRadius="12" Margin="3,3" Padding="13,9,13,10"
-                                        BorderThickness="1">
-                                    <Border.Background>
-                                        <SolidColorBrush Color="#1A1632"/>
-                                    </Border.Background>
-                                    <Border.BorderBrush>
-                                        <SolidColorBrush Color="#2A2548"/>
-                                    </Border.BorderBrush>
+                                        BorderThickness="1"
+                                        Background="{Binding DataContext.TileFillBrush,
+                                                    RelativeSource={RelativeSource AncestorType=Window}}"
+                                        BorderBrush="{Binding DataContext.TileBorderBrush,
+                                                     RelativeSource={RelativeSource AncestorType=Window}}">
                                     <StackPanel>
                                         <TextBlock Text="{Binding DisplayLabel}"
                                                    FontSize="10" FontWeight="SemiBold"
@@ -182,7 +185,9 @@
                                         </StackPanel>
                                         <Grid Margin="0,6,0,0"
                                               Visibility="{Binding Definition.HasBar, Converter={StaticResource BoolToVis}}">
-                                            <Border Height="4" CornerRadius="2" Background="#2A2A3A"/>
+                                            <Border Height="4" CornerRadius="2"
+                                                    Background="{Binding DataContext.TileBarTrackBrush,
+                                                                RelativeSource={RelativeSource AncestorType=Window}}"/>
                                             <Border Height="4" CornerRadius="2" HorizontalAlignment="Left">
                                                 <Border.Width>
                                                     <MultiBinding Converter="{StaticResource BarWidthConv}">
