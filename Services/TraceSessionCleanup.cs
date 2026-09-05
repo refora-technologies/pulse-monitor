@@ -69,9 +69,27 @@ internal static class TraceSessionCleanup
         try
         {
             var listing = Capture("query -ets");
-            if (listing is null) return;
 
-            var leaked = Leaked(listing);
+            // Judged on whether a listing came back, not on what logman returned.
+            //
+            // logman exits 0x80071068, ERROR_WMI_GUID_NOT_FOUND, when it meets a session it
+            // cannot resolve while enumerating, and prints every session it could read anyway.
+            // Reading the exit code threw that listing away and left the leftovers in place,
+            // and it happened on a real machine: "logman failed (-2147020696): query -ets"
+            // with nothing at all on its error stream.
+            //
+            // A partial listing is safe to act on. The pattern below can only match the old
+            // per-process naming, so the worst a missing line can do is leave one session for
+            // the next launch to find. It can never cause the wrong thing to be stopped.
+            if (!listing.Ran || listing.Output.Trim().Length == 0)
+            {
+                if (listing.Ran)
+                    LogService.Warn(nameof(TraceSessionCleanup),
+                        $"logman listed no trace sessions (exit code {listing.ExitCode}); nothing was cleared.");
+                return;
+            }
+
+            var leaked = Leaked(listing.Output);
             if (leaked.Count == 0) return;
 
             LogService.Info(nameof(TraceSessionCleanup),
@@ -82,7 +100,13 @@ internal static class TraceSessionCleanup
             {
                 // Quoted although the pattern above cannot admit a space, because the argument
                 // is built from text that came out of another program.
-                if (Capture($"stop \"{name}\" -ets") is not null) stopped++;
+                //
+                // This one is judged on the exit code, unlike the query above, and the
+                // difference is not an inconsistency. A listing either arrived or it did not,
+                // and its own text is the evidence. A stop produces no output to be evidence
+                // of anything, so what it returned is all there is to go on.
+                var stop = Capture($"stop \"{name}\" -ets");
+                if (stop.Ran && stop.ExitCode == 0) stopped++;
             }
 
             if (stopped == leaked.Count)
@@ -148,7 +172,20 @@ internal static class TraceSessionCleanup
     /// forever on a child that hangs, and the timeout below never gets evaluated. Both pipes are
     /// started asynchronously, the wait is bounded, and a child that outlives it is killed.
     /// </remarks>
-    private static string? Capture(string arguments)
+    /// <summary>
+    /// What came back from logman: whether it ran, what it exited with, and what it said.
+    /// </summary>
+    /// <remarks>
+    /// Three facts rather than "output or null". Collapsing them is what made a listing that
+    /// arrived intact indistinguishable from one that never came, on the strength of an exit
+    /// code that did not mean what it was taken to mean.
+    /// </remarks>
+    private readonly record struct Reply(bool Ran, int ExitCode, string Output)
+    {
+        public static Reply Failed => new(false, -1, "");
+    }
+
+    private static Reply Capture(string arguments)
     {
         var info = new ProcessStartInfo
         {
@@ -161,7 +198,7 @@ internal static class TraceSessionCleanup
         };
 
         using var process = Process.Start(info);
-        if (process is null) return null;
+        if (process is null) return Reply.Failed;
 
         var outputTask = process.StandardOutput.ReadToEndAsync();
         var errorTask  = process.StandardError.ReadToEndAsync();
@@ -170,21 +207,27 @@ internal static class TraceSessionCleanup
         {
             try { process.Kill(entireProcessTree: true); } catch { }   // nothing useful follows
             LogService.Warn(nameof(TraceSessionCleanup), $"logman timed out: {arguments}");
-            return null;
+            return Reply.Failed;
         }
 
         if (!Task.WhenAll(outputTask, errorTask).Wait(2_000))
         {
             LogService.Warn(nameof(TraceSessionCleanup), $"logman output could not be read: {arguments}");
-            return null;
+            return Reply.Failed;
         }
 
-        if (process.ExitCode == 0) return outputTask.Result;
+        // Reported without a verdict attached. A non-zero code from a query is not a failure
+        // to list, as the caller explains; a non-zero code from a stop is worth knowing about,
+        // and stopping a session that has already gone is an ordinary answer rather than a
+        // fault, since another Pulse may have cleared it in between.
+        if (process.ExitCode != 0)
+        {
+            LogService.Info(nameof(TraceSessionCleanup),
+                $"logman exited {process.ExitCode} for '{arguments}'"
+              + $"{(errorTask.Result.Trim().Length > 0 ? " :: " + errorTask.Result.Trim() : "")}"
+              + $" ({outputTask.Result.Trim().Length} characters of output).");
+        }
 
-        // Stopping a session that has already gone is an ordinary answer, not a fault: another
-        // Pulse may have cleared it, or it may have ended between the listing and this call.
-        LogService.Warn(nameof(TraceSessionCleanup),
-            $"logman failed ({process.ExitCode}): {arguments} :: {errorTask.Result.Trim()}");
-        return null;
+        return new Reply(true, process.ExitCode, outputTask.Result);
     }
 }
