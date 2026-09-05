@@ -226,6 +226,24 @@ begin
   Result := (Code = 0) or (Code = 3010);
 end;
 
+{ Stops the frame capture trace session, which outlives every process that touched it.
+
+  Pulse names its session PulseMonitor and reuses that one name, so a killed PresentMon leaves
+  at most one behind and the next launch takes it over. After an uninstall there is no next
+  launch, so it sits registered until the machine reboots, holding one of the few dozen slots
+  Windows allows. Filling those is what stopped frame capture working machine wide, including
+  for other tools, so leaving one behind on the way out is not a tidy way to go.
+
+  Failure is ignored on purpose: there is usually no session to stop, and logman says so with a
+  non zero exit code. }
+procedure StopTraceSession();
+var
+  ResultCode: Integer;
+begin
+  Exec(ExpandConstant('{sys}\logman.exe'), 'stop PulseMonitor -ets',
+       '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+end;
+
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   ResultCode: Integer;
@@ -234,6 +252,7 @@ begin
   if CurUninstallStep = usUninstall then
   begin
     CloseRunningPulse();
+    StopTraceSession();
 
     { A MsgBox created from [Code] is shown even under /SILENT and /SUPPRESSMSGBOXES, so an
       unattended uninstall would sit waiting for an answer nobody is there to give. Silent
