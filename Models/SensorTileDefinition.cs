@@ -110,8 +110,11 @@ public class SensorTileDefinition
                 Description = "System memory in use, out of what is installed." },
 
         new() { Id = "fps",          Label = "FPS",           Unit = "fps",  Category = SensorCategory.System,  HasBar = false, WarnThreshold = 0,   DangerThreshold = 0,
-                Description = "Frames your graphics card produced in the last second, for whichever app is in "
-                            + "focus." },
+                // "Presented", not "produced". PresentMon measures the gap between an app
+                // handing finished frames to Windows, which is what every overlay calls FPS
+                // and is not quite the same as frames the card has drawn or the monitor has
+                // shown. The tile should say the thing it measures.
+                Description = "Frames presented in the last second by the app in focus." },
 
         // One 1% low, computed the way the rest of the world computes it: the frame time at the
         // 99th percentile. Pulse briefly offered a second tile alongside this, the average of

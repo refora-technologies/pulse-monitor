@@ -151,8 +151,11 @@ public partial class WhatsNewWindow : Window
         {
             blocks.RemoveRange(MaxNoteBlocks, blocks.Count - MaxNoteBlocks);
             blocks.Add(new NoteBlock(NoteBlockKind.Blank, ""));
+            // Says what happened and nothing more. It used to tell the reader to open the
+            // release page, and this dialog has no button that opens one, so the one
+            // instruction it gave could not be followed.
             blocks.Add(new NoteBlock(NoteBlockKind.Paragraph,
-                "These notes were shortened to fit. Open the release page to read all of them."));
+                "These notes were shortened to fit."));
         }
 
         return blocks;
