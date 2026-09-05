@@ -364,7 +364,18 @@ public static class LogService
             var task = StartupTask.Query();
             var wanted = Safe(() => SettingsService.Instance.Settings.StartWithWindows.ToString());
 
-            report.AppendLine($"Startup   : setting={wanted}, task={(task.Exists ? "present" : "absent")}"
+            // The four states are spelled out, because "present" was the answer for a task
+            // that had been switched off and for one that was working, and those are the two
+            // cases a report of "Pulse does not start with Windows" has to be told apart.
+            var described = task.Presence switch
+            {
+                StartupTask.TaskPresence.Missing    => "absent",
+                StartupTask.TaskPresence.Enabled    => "present and enabled",
+                StartupTask.TaskPresence.Disabled   => "present but DISABLED, so nothing will start",
+                _                                   => "could not be read",
+            };
+
+            report.AppendLine($"Startup   : setting={wanted}, task={described}"
                             + (task.Exists ? $", settings {(task.SettingsCorrect ? "correct" : "OUTDATED")}" : ""));
 
             if (task.Exists) report.AppendLine($"          - runs {Redact(task.CommandPath)}");

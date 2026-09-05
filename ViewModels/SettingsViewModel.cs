@@ -358,6 +358,25 @@ public class SettingsViewModel : BaseViewModel
         }
     }
 
+    /// <summary>
+    /// Re-reads the startup setting from disk, for after something else has corrected it.
+    /// </summary>
+    /// <remarks>
+    /// Reconciliation runs in the background at launch and writes the truth into settings, but
+    /// this view model had already cached the old value on the way up. The panel therefore went
+    /// on showing what settings.json said before the check, which on the one machine where the
+    /// two disagree is precisely the machine whose owner is trying to work out why startup does
+    /// not work. Must be called on the interface thread.
+    /// </remarks>
+    public void RefreshStartWithWindows()
+    {
+        var actual = SettingsService.Instance.Settings.StartWithWindows;
+        if (actual == _startWithWindows) return;
+
+        _startWithWindows = actual;
+        OnPropertyChanged(nameof(StartWithWindows));
+    }
+
     private bool _minimizeToTray;
     public bool MinimizeToTray
     {
@@ -380,6 +399,10 @@ public class SettingsViewModel : BaseViewModel
         {
             if (Set(ref _selectedMonitorIndex, value))
             {
+                // Same reasoning as the corner presets: this replaces the position, so a
+                // pending write of the old one must not arrive after it.
+                CancelPendingPositionSave();
+
                 var s = SettingsService.Instance.Settings;
                 s.SelectedMonitorIndex = value;
 
@@ -494,6 +517,24 @@ public class SettingsViewModel : BaseViewModel
         _positionSaveTimer.Start();
     }
 
+    /// <summary>
+    /// Abandons a position that was scheduled to be written and has not been written yet.
+    /// </summary>
+    /// <remarks>
+    /// Moving a slider schedules its write for 400ms later. Choosing a corner, or another
+    /// display, is a decision that replaces whatever the sliders were doing, and until now it
+    /// did not stop that timer. The timer then fired and committed the slider position, and
+    /// committing a position sets it to "Custom", so a preset chosen within 400ms of touching a
+    /// slider was silently undone a moment after it was clicked.
+    ///
+    /// The later, explicit action wins. That is the only ordering a person can predict.
+    /// </remarks>
+    private void CancelPendingPositionSave()
+    {
+        _positionSaveTimer?.Stop();
+        IsDraggingPositionSlider = false;
+    }
+
     /// Upper bounds for the position sliders: the overlay can never be moved further than its
     /// own size short of the far edge.
     public int OverlayMaxX => LiveOverlay?.GetPositionPixels().MaxX ?? 0;
@@ -526,6 +567,29 @@ public class SettingsViewModel : BaseViewModel
     /// </summary>
     public void NotifyPositionChanged()
     {
+        // One authoritative answer about where the overlay is, which is the settings file the
+        // overlay just wrote. This view model used to keep a second opinion and never revisit
+        // it, so dragging the overlay left the corner buttons highlighting a preset that had
+        // already been replaced by "Custom", and dragging it onto another display left that
+        // display's button unselected. Clicking the button it had selected then did nothing at
+        // all, because as far as the property was concerned nothing had changed.
+        var s = SettingsService.Instance.Settings;
+
+        if (_overlayPosition != s.OverlayPosition)
+        {
+            _overlayPosition = s.OverlayPosition;
+            OnPropertyChanged(nameof(OverlayPosition));
+        }
+
+        if (_selectedMonitorIndex != s.SelectedMonitorIndex)
+        {
+            // The field rather than the property: the setter treats a change as the user
+            // asking to move displays and retires the saved position, which is the opposite
+            // of following one that has just been saved.
+            _selectedMonitorIndex = s.SelectedMonitorIndex;
+            OnPropertyChanged(nameof(SelectedMonitorIndex));
+        }
+
         OnPropertyChanged(nameof(OverlayX));
         OnPropertyChanged(nameof(OverlayY));
         OnPropertyChanged(nameof(OverlayMaxX));
@@ -1007,12 +1071,31 @@ public class SettingsViewModel : BaseViewModel
             OnPropertyChanged(nameof(StatusColor));
         };
 
+        HardwareService.Instance.HardwareStateChanged += (_, _) =>
+        {
+            OnPropertyChanged(nameof(SensorFault));
+            OnPropertyChanged(nameof(HasSensorFault));
+        };
+
         // Write the order back once at startup so the overlay always matches what the
         // settings list shows. Without this, an install upgrading from a version that
         // had no saved order would show the new arrangement in settings while the
         // overlay still rendered the old one until something was toggled.
         ApplyTileSelection();
     }
+
+    /// <summary>
+    /// Why sensors are unavailable, or null when they are fine.
+    /// </summary>
+    /// <remarks>
+    /// The overlay's status line says "Sensors unavailable, see About for details" when this is
+    /// set. It said that for a long time while the details existed nowhere in the interface:
+    /// the reason reached the log and the diagnostics export and no screen at all, so the one
+    /// instruction Pulse gives a user whose tiles are empty led nowhere.
+    /// </remarks>
+    public string? SensorFault => HardwareService.Instance.HardwareFault;
+
+    public bool HasSensorFault => !string.IsNullOrWhiteSpace(SensorFault);
 
     /// <summary>
     /// Returns tile definitions in the user's saved order. Anything the saved order
@@ -1081,10 +1164,31 @@ public class SettingsViewModel : BaseViewModel
     {
         var settings = SettingsService.Instance.Settings;
 
+        // Tiles this build does not have, kept rather than dropped.
+        //
+        // AppSettings.Sanitise goes out of its way to preserve ids it does not recognise, so
+        // that opening an older Pulse does not cost someone the layout they built in a newer
+        // one. This method then rebuilt both lists purely from the catalogue and saved, which
+        // threw those ids away a moment later and without anybody touching anything: it runs
+        // once as the panel is built. The care taken in one file was undone in another.
+        //
+        // They go at the end, since there is no meaningful place to put a tile that cannot be
+        // drawn, and the overlay skips any id it has no definition for.
+        var known = new HashSet<string>(AllTiles.Select(t => t.Definition.Id), StringComparer.Ordinal);
+
+        var keptActive = settings.ActiveTileIds.Where(id => !known.Contains(id)).ToList();
+        var keptOrder  = settings.TileOrder.Where(id => !known.Contains(id)).ToList();
+
         // Both lists follow AllTiles, so the order shown in settings is the order the
         // overlay renders.
-        settings.ActiveTileIds = AllTiles.Where(t => t.IsSelected).Select(t => t.Definition.Id).ToList();
-        settings.TileOrder     = AllTiles.Select(t => t.Definition.Id).ToList();
+        settings.ActiveTileIds = AllTiles.Where(t => t.IsSelected)
+                                         .Select(t => t.Definition.Id)
+                                         .Concat(keptActive)
+                                         .ToList();
+
+        settings.TileOrder     = AllTiles.Select(t => t.Definition.Id)
+                                         .Concat(keptOrder)
+                                         .ToList();
 
         SettingsService.Instance.Save();
         OverlayViewModel.Instance.LoadActiveTiles();
@@ -1093,6 +1197,10 @@ public class SettingsViewModel : BaseViewModel
 
     public void SetPositionPreset(string position)
     {
+        // Before anything else: a slider write still waiting on its debounce belongs to the
+        // position this replaces, and letting it land would put "Custom" back.
+        CancelPendingPositionSave();
+
         var s = SettingsService.Instance.Settings;
         s.OverlayPosition  = position;
         s.IsDragEnabled    = false;
