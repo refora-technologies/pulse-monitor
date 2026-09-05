@@ -68,9 +68,11 @@ public class TileViewModel : BaseViewModel
         "gpu_vram" when HardwareService.Instance.VramIsShared         => "Shared VRAM",
         "gpu_temp" when HardwareService.Instance.GpuTempIsDie => "GPU Die Temp",
 
-        // One chip, so one reading, and it is the same one CPU Power shows. Named for what it
-        // is rather than left to look like an addition that came out wrong.
-        "sys_power" when HardwareService.Instance.SysPowerIsPackage => "Package Power",
+        // CPU+GPU Power is deliberately not renamed on a processor with built-in graphics,
+        // unlike the two above. The name is still true there: the package reading is the
+        // processor and the graphics together, because they are one chip. "Package Power"
+        // would be the precise term and would mean nothing to most people reading a tile.
+        // The tooltip explains why it matches CPU Power on those machines.
         _ => Definition.Label,
     };
 
