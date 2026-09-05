@@ -117,7 +117,13 @@ public readonly record struct Shortcut(ModifierKeys Modifiers, Key Key)
         Key.OemCloseBrackets=> "]",
         Key.OemSemicolon    => ";",
         Key.OemQuotes       => "'",
-        Key.OemBackslash or Key.OemPipe => "\\",
+        // Only OemPipe is written as a backslash. OemBackslash is a different key: the extra
+        // one next to the left shift on European keyboards, which US keyboards do not have.
+        // Writing both as "\" meant they saved identically and both read back as OemPipe, so
+        // a user who chose the key beside their left shift got a shortcut bound to the key
+        // above their Enter instead, and nothing on screen said so. It keeps its enum name,
+        // which is not pretty and is unambiguous, and this key is rarely chosen.
+        Key.OemPipe         => "\\",
         Key.Return          => "Enter",
         Key.Next            => "PageDown",
         Key.Prior           => "PageUp",
@@ -140,7 +146,7 @@ public readonly record struct Shortcut(ModifierKeys Modifiers, Key Key)
         var modifiers = ModifierKeys.None;
         var key = Key.None;
 
-        foreach (var raw in text.Split('+', StringSplitOptions.RemoveEmptyEntries))
+        foreach (var raw in Split(text))
         {
             var part = raw.Trim();
             if (part.Length == 0) return None;
@@ -162,6 +168,38 @@ public readonly record struct Shortcut(ModifierKeys Modifiers, Key Key)
 
         var shortcut = new Shortcut(modifiers, key);
         return shortcut.Rejection() == null ? shortcut : None;
+    }
+
+    /// <summary>
+    /// Splits "Alt+Shift+X" into its parts, knowing that the last part can itself be "+".
+    /// </summary>
+    /// <remarks>
+    /// This used to be Split with RemoveEmptyEntries, which quietly deleted the one key whose
+    /// name is also the separator. "Alt++" came back as a single part, "Alt", so the key was
+    /// lost and the whole shortcut read as unset. A user who chose Alt and the plus key had it
+    /// silently forgotten the next time it was read, with nothing to say why.
+    ///
+    /// Only a trailing separator is treated as the key, because that is the only place
+    /// ToString can put one: the modifiers are written first and the key always last.
+    /// </remarks>
+    private static List<string> Split(string text)
+    {
+        var parts = new List<string>(4);
+        int start = 0;
+
+        for (int i = 0; i <= text.Length; i++)
+        {
+            if (i < text.Length && text[i] != '+') continue;
+
+            var part = text[start..i].Trim();
+
+            if (part.Length > 0) parts.Add(part);
+            else if (i < text.Length && i + 1 == text.Length) parts.Add("+");
+
+            start = i + 1;
+        }
+
+        return parts;
     }
 
     private static Key ParseKey(string part)
