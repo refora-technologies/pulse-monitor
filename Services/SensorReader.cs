@@ -225,6 +225,10 @@ public sealed class SensorReader : IDisposable
         _vendorGpuLoad     = null;
         _adaptersThisPoll  = null;
 
+        // Whether the graphics being read are a card of their own, which decides below whether
+        // the processor and graphics figures are two things or one thing counted twice.
+        bool chosenIsDiscrete = false;
+
         try
         {
             var gpus = new List<IHardware>();
@@ -265,7 +269,8 @@ public sealed class SensorReader : IDisposable
                 snapshot.ActiveGpuName = chosen.Name;
                 ReadGpu(chosen, data);
 
-                ApplyWindowsTemperature(chosen.Name, IsDiscrete(chosen), data);
+                chosenIsDiscrete = IsDiscrete(chosen);
+                ApplyWindowsTemperature(chosen.Name, chosenIsDiscrete, data);
             }
         }
         catch (Exception ex)
@@ -296,20 +301,44 @@ public sealed class SensorReader : IDisposable
 
         _consecutiveReadFailures = 0;
 
-        // Only a real total. Adding whichever of the two happened to be readable produced a
-        // number labelled "CPU+GPU Power" that was silently just one of them — indisting-
-        // uishable from a genuine total, and roughly half the true figure.
+        // Two chips are added together. One chip is read once.
         //
-        // Both have to be above zero, not merely present. That is not pedantry: an unreadable
-        // processor power sensor reports 0.0 rather than nothing, which passes a test for
-        // having a value and contributes nothing to the sum. Measured here on this machine with
-        // the driver unavailable, CpuPower came back as 0.0 and the total was published as
-        // 6.302 W, which was the graphics figure alone wearing a label that claims to be both.
-        // Exactly the fault the paragraph above says was fixed, arriving through the one door
-        // that had been left open. Nothing that is running draws no power.
-        data.SysPower = data.CpuPower is > 0 and { } cpuW && data.GpuPower is > 0 and { } gpuW
-            ? cpuW + gpuW
-            : null;
+        // Where the graphics are part of the processor there is nothing to add: the package
+        // reading already contains them. Intel states this in its own domain model, and these
+        // are exactly the two registers the sensor library reads for these tiles: the processor
+        // figure is MSR_PKG_ENERGY_STATUS and the graphics figure is MSR_PP1_ENERGY_STATUS,
+        // and PP1 is a subdomain of PKG. Adding them counted the graphics twice on every
+        // machine without a separate card.
+        //
+        // AMD does not publish which rails its package figure covers, but the same holds, and
+        // on an APU its graphics figure has been reported to return the whole chip rather than
+        // the graphics part of it, which would make the sum roughly double rather than merely
+        // high. Either way, adding is the wrong operation.
+        //
+        // The package figure is not a fallback. It is the total, taken at the one boundary with
+        // a sensor across it. Cores plus graphics is the tempting alternative and is worse: the
+        // uncore and memory controller are inside the package and inside neither plane, so that
+        // would understate by an amount that moves with the workload.
+        //
+        // Both figures have to be above zero, not merely present. An unreadable processor power
+        // sensor reports 0.0 rather than nothing, which passes a test for having a value and
+        // contributes nothing to the sum. Measured on this machine with the driver unavailable,
+        // CpuPower came back as 0.0 and the total was published as 6.302 W, which was the
+        // graphics figure alone wearing a label claiming to be both. Nothing that is running
+        // draws no power.
+        if (data.CpuPower is > 0 and { } cpuW)
+        {
+            data.SysPower = chosenIsDiscrete
+                ? data.GpuPower is > 0 and { } gpuW ? cpuW + gpuW : null
+                : cpuW;
+
+            data.SysPowerIsPackage = !chosenIsDiscrete && data.SysPower is not null;
+        }
+        else
+        {
+            data.SysPower          = null;
+            data.SysPowerIsPackage = false;
+        }
 
         return snapshot;
     }

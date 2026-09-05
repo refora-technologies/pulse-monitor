@@ -67,6 +67,10 @@ public class TileViewModel : BaseViewModel
     {
         "gpu_vram" when HardwareService.Instance.VramIsShared         => "Shared VRAM",
         "gpu_temp" when HardwareService.Instance.GpuTempIsDie => "GPU Die Temp",
+
+        // One chip, so one reading, and it is the same one CPU Power shows. Named for what it
+        // is rather than left to look like an addition that came out wrong.
+        "sys_power" when HardwareService.Instance.SysPowerIsPackage => "Package Power",
         _ => Definition.Label,
     };
 

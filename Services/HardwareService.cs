@@ -53,6 +53,30 @@ public class SensorData
     /// </remarks>
     public bool GpuTempIsDie { get; set; }
 
+    /// <summary>
+    /// True when SysPower is one chip's package reading rather than two figures added together.
+    /// </summary>
+    /// <remarks>
+    /// Where the graphics are part of the processor, the package reading already contains them,
+    /// so there is nothing to add and adding anyway counts the same watts twice. Intel says so
+    /// outright: the graphics plane PP1 is a subdomain of the package domain PKG, and those are
+    /// the two registers the sensor library reads for these tiles. AMD does not publish which
+    /// rails its package figure covers, but the same holds, and on an APU its graphics figure
+    /// has been observed to report the whole chip rather than the graphics, which would make
+    /// the sum roughly double rather than merely high.
+    ///
+    /// The package reading is not a compromise here. It is the total, taken at the one boundary
+    /// with a real sensor across it, and it is the figure HWiNFO, Ryzen Master and Intel's own
+    /// tools all point people at when they ask what a chip is drawing. Cores plus graphics is
+    /// the tempting alternative and is worse: the uncore and memory controller sit inside the
+    /// package and inside neither of those planes, so it would understate by a varying amount.
+    ///
+    /// The tile is renamed when this is set, for the reason GpuTempIsDie exists: it then reads
+    /// exactly the same as CPU Power, and two identical numbers with no explanation look like a
+    /// fault rather than like one chip measured once.
+    /// </remarks>
+    public bool SysPowerIsPackage { get; set; }
+
     public float? GetById(string id) => id switch
     {
         "cpu_temp"     => CpuTemp,
@@ -143,6 +167,15 @@ public class HardwareService : IDisposable
     /// Read by the overlay for the same reason as VramIsShared: the tile says which reading
     /// it is showing rather than leaving two identical numbers unexplained.
     public bool GpuTempIsDie { get; private set; }
+
+    /// <summary>
+    /// Whether the combined power reading is one chip's package figure rather than two figures
+    /// added together.
+    /// </summary>
+    /// Read by the overlay for the same reason as the two above. On a processor with built-in
+    /// graphics this tile reads exactly the same as CPU Power, because it is the same sensor,
+    /// and an unexplained duplicate reads as a fault.
+    public bool SysPowerIsPackage { get; private set; }
 
     /// Every GPU detected on this machine, for the settings picker.
     public IReadOnlyList<GpuInfo> AvailableGpus { get; private set; } = Array.Empty<GpuInfo>();
@@ -780,6 +813,7 @@ public class HardwareService : IDisposable
             TotalVramGb = previous.TotalVramGb,
             VramIsShared = previous.VramIsShared,
             GpuTempIsDie = previous.GpuTempIsDie,
+            SysPowerIsPackage = previous.SysPowerIsPackage,
         };
 
         if (!alsoClearTheRest)
@@ -854,6 +888,9 @@ public class HardwareService : IDisposable
         // Same rule for the temperature: followed only while there is a reading, so a blank
         // poll does not rename the tile back and forth.
         if (data.GpuTemp is not null) GpuTempIsDie = data.GpuTempIsDie;
+
+        // And the same for the combined power figure.
+        if (data.SysPower is not null) SysPowerIsPackage = data.SysPowerIsPackage;
 
         bool gpusChanged   = false;
         bool stateChanged  = false;
