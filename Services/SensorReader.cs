@@ -111,6 +111,69 @@ public sealed class SensorReader : IDisposable
     }
 
     /// <summary>
+    /// One further attempt at opening sensors that are not open, from scratch.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="Open"/> tries three times over about six seconds and then stops, which is the
+    /// right shape for startup and the wrong shape for the rest of the session. The case those
+    /// three attempts exist for is the reboot straight after installation, where the driver is
+    /// still settling; if it settles seven seconds later instead of six, Pulse showed "--" on
+    /// every tile until somebody restarted it, and nothing was ever going to try again.
+    ///
+    /// A fresh Computer rather than another go at the old one, for the same reason a rescan
+    /// builds one: the vendor libraries keep state behind it, and that state is part of what
+    /// failed.
+    /// </remarks>
+    public void Retry()
+    {
+        if (IsReady) return;
+
+        _openRetries++;
+
+        try { _computer.Close(); } catch { }   // it never opened; there may be nothing to close
+
+        _computer = new Computer();
+        Apply(_computer, _subsystems);
+
+        try
+        {
+            _computer.Open();
+
+            IsReady = true;
+            Fault   = null;
+            _openRetries = 0;
+
+            Log("info", "Sensors opened on a later attempt; readings resume.");
+        }
+        catch (Exception ex)
+        {
+            // The first failure, then occasionally. This runs for as long as Pulse does, and a
+            // machine with no working driver must not write a line every half minute forever.
+            if (_openRetries == 1 || _openRetries % 10 == 0)
+                Log("warn", $"Sensors still will not open (attempt {_openRetries}): "
+                          + $"{ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    private int _openRetries;
+
+    /// <summary>
+    /// How many polls in a row may fail before the reader declares itself unavailable.
+    /// </summary>
+    /// <remarks>
+    /// A single failed poll is ordinary: one device throws, that reading is missing, the next
+    /// poll is fine. What was not handled is the same thing failing every time, which produced
+    /// a stream of incomplete snapshots all claiming to be ready. Pulse saw a healthy child
+    /// answering promptly and had no reason to do anything, while the tiles showed nothing.
+    ///
+    /// Saying so puts it back on the path that already exists: not ready means the message
+    /// reaches the user, and <see cref="Retry"/> rebuilds everything from scratch.
+    /// </remarks>
+    private const int MaxConsecutiveReadFailures = 5;
+
+    private int _consecutiveReadFailures;
+
+    /// <summary>
     /// Throws away the open sensor library and enumerates the machine again.
     ///
     /// Needed when the set of graphics adapters changes. LibreHardwareMonitor builds its
@@ -159,7 +222,8 @@ public sealed class SensorReader : IDisposable
 
         if (!IsReady) return snapshot;
 
-        _vendorGpuLoad = null;
+        _vendorGpuLoad     = null;
+        _adaptersThisPoll  = null;
 
         try
         {
@@ -181,7 +245,15 @@ public sealed class SensorReader : IDisposable
                 }
             }
 
+            // Before anything asks Windows about a card by name.
+            NoteAmbiguousNames(gpus);
+
             Publish(gpus);
+
+            // Said explicitly, so an empty list can be believed. Only true when graphics were
+            // actually enumerated this poll; with every GPU tile switched off they are not,
+            // and an empty list then says nothing about what is fitted.
+            snapshot.GpusKnown = _subsystems.HasFlag(SensorSubsystems.Gpu);
             snapshot.Gpus = new List<GpuInfo>(_seenGpus.Values);
             snapshot.Gpus.Sort((a, b) => b.IsDiscrete.CompareTo(a.IsDiscrete));
 
@@ -193,7 +265,7 @@ public sealed class SensorReader : IDisposable
                 snapshot.ActiveGpuName = chosen.Name;
                 ReadGpu(chosen, data);
 
-                ApplyWindowsTemperature(chosen.Name, data);
+                ApplyWindowsTemperature(chosen.Name, IsDiscrete(chosen), data);
             }
         }
         catch (Exception ex)
@@ -203,13 +275,40 @@ public sealed class SensorReader : IDisposable
             // one sensor threw — but recorded, and only once per fault rather than every poll,
             // which at two-second intervals would bury the log in minutes.
             ReportFailure(ex);
+
+            // Failing every time is a different thing from failing once, and it used to look
+            // identical from outside: an incomplete reading that still called itself ready.
+            if (++_consecutiveReadFailures >= MaxConsecutiveReadFailures)
+            {
+                _consecutiveReadFailures = 0;
+
+                IsReady = false;
+                Fault   = "Sensors stopped responding. Pulse is trying to open them again.";
+
+                Log("error", $"{MaxConsecutiveReadFailures} readings in a row failed; "
+                           + "treating sensors as unavailable and reopening them.");
+            }
+
+            snapshot.Ready = IsReady;
+            snapshot.Fault = Fault;
+            return snapshot;
         }
+
+        _consecutiveReadFailures = 0;
 
         // Only a real total. Adding whichever of the two happened to be readable produced a
         // number labelled "CPU+GPU Power" that was silently just one of them — indisting-
         // uishable from a genuine total, and roughly half the true figure.
-        data.SysPower = data.CpuPower.HasValue && data.GpuPower.HasValue
-            ? data.CpuPower.Value + data.GpuPower.Value
+        //
+        // Both have to be above zero, not merely present. That is not pedantry: an unreadable
+        // processor power sensor reports 0.0 rather than nothing, which passes a test for
+        // having a value and contributes nothing to the sum. Measured here on this machine with
+        // the driver unavailable, CpuPower came back as 0.0 and the total was published as
+        // 6.302 W, which was the graphics figure alone wearing a label that claims to be both.
+        // Exactly the fault the paragraph above says was fixed, arriving through the one door
+        // that had been left open. Nothing that is running draws no power.
+        data.SysPower = data.CpuPower is > 0 and { } cpuW && data.GpuPower is > 0 and { } gpuW
+            ? cpuW + gpuW
             : null;
 
         return snapshot;
@@ -341,6 +440,18 @@ public sealed class SensorReader : IDisposable
             return false;
 
         if (gpu.HardwareType == HardwareType.GpuNvidia) return true;
+
+        // Windows' own answer, where it gives one. The display driver marks the integrated half
+        // of a hybrid laptop, and that is a statement of fact rather than the inference from
+        // memory size below.
+        //
+        // Consulted here so that one question has one answer. The picker decided integrated or
+        // discrete from the tests in this method while the temperature and load code decided it
+        // from this flag, and on a machine where the two disagreed the tile could be renamed
+        // "GPU Die Temp" for an adapter the picker was calling a graphics card. Only trusted
+        // when it says integrated: the flag is about hybrid systems, so a desktop with nothing
+        // but an APU can leave it clear, and the memory test below is what catches that.
+        if (FindAdapter(gpu.Name) is { Integrated: true }) return false;
 
         var windowsMb = DedicatedVideoMemoryMb(gpu.Name);
         if (windowsMb > 0) return windowsMb >= IntegratedVramCeilingMb;
@@ -602,14 +713,31 @@ public sealed class SensorReader : IDisposable
         float dedicatedTotalMb = adapter?.DedicatedVideoMemoryMb ?? 0f;
         float sharedTotalMb    = adapter?.SharedSystemMemoryMb   ?? 0f;
 
-        bool useShared = dedicatedTotalMb < RealDedicatedPoolMb;
-        var usage = adapter is { } a ? _gpuMemory.Read(a.CounterKey) : null;
+        // Nothing is known about this adapter, so nothing can be claimed about which pool a
+        // reading came from. The sensor library's own figure stands, under its ordinary name.
+        if (adapter is null) return;
 
-        if (usage is { } used)
+        bool useShared = dedicatedTotalMb < RealDedicatedPoolMb;
+        var usage = _gpuMemory.Read(adapter.Value.CounterKey);
+
+        // Usage, capacity and the name of the pool are one measurement and are decided
+        // together.
+        //
+        // They were not. If the Windows counters could not be read, the amount in use was left
+        // as the sensor library had it, which is dedicated memory; the capacity was still
+        // replaced with the shared pool's; and the tile was still renamed "Shared VRAM". The
+        // result read as a coherent measurement and was three quarters of one: dedicated usage,
+        // shared capacity, and a name belonging to neither.
+        if (usage is not { } used)
         {
-            float bytes = useShared ? used.SharedBytes : used.DedicatedBytes;
-            if (bytes >= 0) data.GpuVram = MathF.Round(bytes / (1024f * 1024f * 1024f), 2);
+            // The capacity still applies when the adapter really has dedicated memory, since
+            // that is what the library's figure is measuring.
+            if (!useShared && dedicatedTotalMb > 0) data.TotalVramGb = dedicatedTotalMb / 1024f;
+            return;
         }
+
+        float bytes = useShared ? used.SharedBytes : used.DedicatedBytes;
+        if (bytes >= 0) data.GpuVram = MathF.Round(bytes / (1024f * 1024f * 1024f), 2);
 
         // The capacity of whichever pool is being shown. Zero still means "not known" and is
         // never drawn, so an adapter Windows cannot describe leaves the tile without a total
@@ -645,21 +773,29 @@ public sealed class SensorReader : IDisposable
     /// own die directly, that is the figure its vendor's own tools show, and it needs no
     /// second opinion.
     /// </remarks>
-    private void ApplyWindowsTemperature(string adapterName, SensorData data)
+    /// <param name="discrete">Whether this is a graphics card rather than part of the
+    /// processor, decided once by <see cref="IsDiscrete"/> and passed in.
+    ///
+    /// Passed rather than read from the adapter's own flag, so that the picker's answer and
+    /// this one cannot differ. They could: the picker weighs four tests and this used the
+    /// hybrid flag alone, so a machine the two disagreed about would list an adapter as a
+    /// graphics card and then rename its temperature tile to say it was part of the
+    /// processor.</param>
+    private void ApplyWindowsTemperature(string adapterName, bool discrete, SensorData data)
     {
         if (FindAdapter(adapterName) is not { } adapter) return;
 
         // The vendor's own load, but only from a card that has one worth reading. See the
         // reasoning above ReadGpu: on integrated graphics this figure is either absent or a
         // constant 100, so there the engine counter already in place is the right answer.
-        if (!adapter.Integrated && _vendorGpuLoad is { } vendor) data.GpuUsage = vendor;
+        if (discrete && _vendorGpuLoad is { } vendor) data.GpuUsage = vendor;
 
         data.GpuTemp ??= DisplayAdapters.Temperature(adapter.Luid);
 
         // Said out loud so the tile can be named honestly, and only while there is something
         // to name. On graphics that are part of the processor this reading is the die's, which
         // is why it matches CPU Temp exactly: one piece of silicon, measured once.
-        data.GpuTempIsDie = adapter.Integrated && data.GpuTemp is not null;
+        data.GpuTempIsDie = !discrete && data.GpuTemp is not null;
     }
 
     /// <summary>
@@ -672,13 +808,57 @@ public sealed class SensorReader : IDisposable
     /// The adapter Windows knows by this name, or null. Preferring one that has performance
     /// counters, because a machine can list the same adapter twice and only one of the two
     /// carries them.
+    /// <summary>
+    /// Adapter names this machine has more than one of, where a name no longer identifies a
+    /// card. Rebuilt every poll from the devices the sensor library reports.
+    /// </summary>
+    /// <remarks>
+    /// Two identical cards carry identical descriptions, and matching by description then hands
+    /// both of them whatever Windows says about the first. Someone with a pair of the same card
+    /// would pick the second in the picker and read the first one's memory and temperature,
+    /// with nothing to suggest the numbers were not its own.
+    ///
+    /// Windows offers no key that can be tied back to a sensor library device, so the honest
+    /// answer is to stop claiming. Where the name is ambiguous, the readings that come from
+    /// Windows are left out and the vendor's own sensors stand alone; those are read through a
+    /// handle to a specific card and cannot be confused. Fewer readings, and the ones shown
+    /// belong to the card named above them.
+    ///
+    /// The same description appearing twice in Windows' own list is a different thing and not
+    /// ambiguous: one physical card is routinely listed twice, which is why the search below
+    /// prefers the entry that carries performance counters.
+    /// </remarks>
+    private readonly HashSet<string> _ambiguousGpuNames = new(StringComparer.OrdinalIgnoreCase);
+
+    private void NoteAmbiguousNames(List<IHardware> gpus)
+    {
+        _ambiguousGpuNames.Clear();
+
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var gpu in gpus)
+            if (!seen.Add(gpu.Name))
+                _ambiguousGpuNames.Add(gpu.Name);
+    }
+
+    /// <summary>
+    /// Windows' adapter list for the poll in progress, asked for once rather than per lookup.
+    /// </summary>
+    /// <remarks>
+    /// Enumerating DXGI costs about a millisecond and this is now consulted from three places
+    /// per reading rather than two. Cleared at the top of every poll, so an adapter appearing
+    /// or disappearing is still noticed on the next one.
+    /// </remarks>
+    private List<DisplayAdapters.Adapter>? _adaptersThisPoll;
+
     private DisplayAdapters.Adapter? FindAdapter(string adapterName)
     {
         if (string.IsNullOrWhiteSpace(adapterName)) return null;
+        if (_ambiguousGpuNames.Contains(adapterName)) return null;
 
         DisplayAdapters.Adapter? first = null;
 
-        foreach (var adapter in DisplayAdapters.All())
+        foreach (var adapter in _adaptersThisPoll ??= DisplayAdapters.All())
         {
             if (!string.Equals(adapter.Description.Trim(), adapterName.Trim(),
                                StringComparison.OrdinalIgnoreCase)) continue;
@@ -836,8 +1016,24 @@ public sealed class SensorReader : IDisposable
             long now = Environment.TickCount64;
             if (_physicalAdapters is null || now - _physicalAdaptersFetchedAt > 30_000)
             {
-                _physicalAdapters          = BuildPhysicalAdapterSet();
-                _physicalAdaptersFetchedAt = now;
+                var (set, enumerated) = BuildPhysicalAdapterSet();
+
+                if (enumerated || _physicalAdapters is null)
+                {
+                    _physicalAdapters          = set;
+                    _physicalAdaptersFetchedAt = now;
+                }
+                else
+                {
+                    // The enumeration failed and a good answer is already held, so that one
+                    // stands and this is tried again in a few seconds rather than in thirty.
+                    //
+                    // Replacing it would have meant an empty set, and an empty set is read
+                    // below as "count everything" — which puts back the six times overcount
+                    // this filter exists to prevent, on a machine where nothing has changed
+                    // except that one call to Windows did not answer.
+                    _physicalAdaptersFetchedAt = now - 25_000;
+                }
             }
 
             // If nothing survived the filter, something about this machine's naming defeats
@@ -846,7 +1042,7 @@ public sealed class SensorReader : IDisposable
         }
     }
 
-    private static HashSet<string> BuildPhysicalAdapterSet()
+    private static (HashSet<string> Set, bool Enumerated) BuildPhysicalAdapterSet()
     {
         // One physical address, one entry. Windows exposes every NDIS filter bound to an
         // adapter as an adapter in its own right, reporting the same bytes over the same
@@ -890,17 +1086,18 @@ public sealed class SensorReader : IDisposable
         }
         catch
         {
-            // Deliberately silent, and safe. An empty set is not an empty result here: the
-            // caller treats "nothing survived the filter" as "count every adapter", so a
-            // failure to enumerate degrades to including the virtual ones rather than to
-            // reporting a machine with no network at all. Nothing to report and nothing to
-            // report it through — this is static, and in the sensor host, whose only channel
-            // out is the instance logger.
+            // Silent, because there is nothing to report it through: this is static, and in
+            // the sensor host, whose only channel out is the instance logger. The caller is
+            // told the enumeration did not finish, which is the part that matters. It used to
+            // be told nothing, so a failure looked like a machine with no physical adapters,
+            // and the caller reads that as "count every adapter" — putting back the six times
+            // overcount this filter exists to prevent.
+            return (new HashSet<string>(StringComparer.OrdinalIgnoreCase), false);
         }
 
         var physical = new HashSet<string>(chosenByAddress.Values, StringComparer.OrdinalIgnoreCase);
         physical.UnionWith(withoutAddress);
-        return physical;
+        return (physical, true);
 
         static bool LooksVirtual(string text) =>
             VirtualAdapterMarkers.Any(m => text.Contains(m, StringComparison.OrdinalIgnoreCase));

@@ -23,6 +23,17 @@ public sealed class SensorSnapshot
     /// Graphics adapters as the host currently sees them.
     public List<GpuInfo> Gpus { get; set; } = new();
 
+    /// <summary>
+    /// Whether the list above is an answer rather than an absence of one.
+    /// </summary>
+    /// <remarks>
+    /// Graphics are only enumerated when some tile needs them, so an empty list means either
+    /// "this machine has none" or "nobody asked". Pulse could not tell those apart, so it
+    /// ignored every empty list to be safe, and a rescan that correctly found nothing left the
+    /// picker still offering an adapter that had been unplugged.
+    /// </remarks>
+    public bool GpusKnown { get; set; }
+
     /// The adapter the GPU readings above were taken from, for display.
     public string ActiveGpuName { get; set; } = "";
 
@@ -154,6 +165,7 @@ public static class SensorProtocol
         d.DiskActivity = Clean(d.DiskActivity);
         d.Fps          = Clean(d.Fps);
         d.Fps1Low      = Clean(d.Fps1Low);
+        d.BatteryLevel = Clean(d.BatteryLevel);
 
         if (float.IsNaN(d.TotalRamGb)  || float.IsInfinity(d.TotalRamGb))  d.TotalRamGb  = 0;
         if (float.IsNaN(d.TotalVramGb) || float.IsInfinity(d.TotalVramGb)) d.TotalVramGb = 0;

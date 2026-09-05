@@ -150,10 +150,29 @@ public static class SensorHost
         var adapters = DisplayAdapters.Signature();
         long adaptersCheckedAt = Environment.TickCount64;
 
+        // Sensors that would not open get another chance, for as long as Pulse runs.
+        //
+        // Open gives up after three attempts across about six seconds. That is the right
+        // amount of patience for a driver that is nearly ready and none at all for one that
+        // arrives a moment later, and the case it was written for is the reboot straight after
+        // installation. Without this, six seconds decided the whole session: every tile read
+        // "--" until somebody restarted Pulse, and nothing was going to try again.
+        //
+        // Half a minute apart, because a driver that is not there does not become there in two
+        // seconds, and each attempt closes and rebuilds the library.
+        const int OpenRetryMs = 30_000;
+        long lastOpenRetry = Environment.TickCount64;
+
         while (!stop.IsSet)
         {
             var pollStarted = Environment.TickCount64;
             bool rescan = false;
+
+            if (!reader.IsReady && pollStarted - lastOpenRetry >= OpenRetryMs)
+            {
+                lastOpenRetry = pollStarted;
+                reader.Retry();
+            }
 
             lock (pending)
             {
