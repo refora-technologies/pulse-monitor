@@ -78,12 +78,12 @@ public class FpsService : IDisposable
     /// in the number for a full minute after the game had recovered. Counting frames instead
     /// fixes that where it hurts most, since a fast machine fills the buffer quickly:
     ///
-    ///     240 fps    8.5 s        100 fps   20.5 s
-    ///     143 fps   14.3 s         60 fps   34.1 s -> capped to 30
-    ///                              30 fps   68.3 s -> capped to 30
+    ///     240 fps    8.3 s        100 fps   20.0 s
+    ///     143 fps   14.0 s         60 fps   33.3 s -> capped to 30
+    ///                              30 fps   66.7 s -> capped to 30
     ///
     /// But frames alone would have made it worse for the machines that stutter most: at 30fps
-    /// two thousand frames is sixty-eight seconds, longer than the window being complained
+    /// two thousand frames is sixty-seven seconds, longer than the window being complained
     /// about. Hence the cap. Every frame rate now recovers faster than it used to, and none
     /// recovers slower.
     ///
@@ -91,9 +91,14 @@ public class FpsService : IDisposable
     /// percentile is a rank, so the number is set by the twenty-first worst frame in the
     /// buffer; at a thousand frames it would be the eleventh, and one hitch would swing the
     /// tile and then vanish from it seconds later.
+    ///
+    /// A round two thousand rather than 2,048, which is what this was first written as out of
+    /// habit. Nothing here indexes by powers of two, the statistic is identical either way, and
+    /// the tile tells the user "the last 2,000 frames". A tooltip that is nearly true is the
+    /// same small dishonesty as saying megabits are eight times megabytes.
     /// </remarks>
     private const int LowWindowMs   = 30_000;
-    private const int LowMaxSamples = 2_048;
+    private const int LowMaxSamples = 2_000;
 
     /// <summary>
     /// Before the 1% low means anything it needs both enough frames and enough time.
