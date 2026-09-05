@@ -36,7 +36,7 @@
 - **Keyboard Shortcuts:** Show or hide the overlay, open the control panel, or switch compact mode from anywhere, including inside a game. Off until you turn them on, and Pulse refuses combinations that other software needs.
 - **GPU Selection:** On laptops and multi-GPU systems, choose exactly which adapter the GPU tiles read from, or leave it on automatic.
 - **Dynamic Overlay:** A seamless glassmorphic HUD that sits unobtrusively on your screen, featuring a secondary "Compact Mode" designed specifically for distraction-free in-game monitoring. Right-click the overlay in free-drag mode for quick access to the control panel.
-- **Ultra-Fast Polling:** Customizable interval polling directly integrated with LibreHardwareMonitor, down to 0.5 seconds for instantaneous tracking.
+- **Ultra-Fast Polling:** Choose how often readings are taken, from every 5 seconds down to twice a second.
 - **Arrange It Your Way:** Drag tiles into any order you like, or move them with the keyboard, and place the overlay by dragging it, snapping it to a corner, or sliding it into position.
 - **Resilient Sensor Reading:** Sensors are read in an isolated background process, so a graphics driver fault cannot take Pulse down with it. Pulse also notices when a GPU is switched off or comes back, re-detects your hardware on its own, and keeps trying to open sensors that were not ready rather than giving up for the rest of the session.
 - **Verified Updates:** The in-app updater checks a SHA-256 checksum before installing anything and refuses to run an update that doesn't match, and downloads to a location only administrators can write to.
