@@ -255,6 +255,15 @@ public class FpsService : IDisposable
 
     private void StopCapture()
     {
+        // Anything already waiting to restart belongs to the capture being ended here.
+        //
+        // Only the exit handler and the retry used to move this, so turning the tile off and
+        // on again during a restart backoff left the pending work looking current. It then
+        // disposed whatever _process had become, which by that point was the capture that had
+        // just been started, and launched another beside it. Two PresentMons, the second
+        // stopping the first's trace session, and the first left running and deaf.
+        _captureGeneration++;
+
         _stopping = true;   // suppresses the restart that our own Kill would otherwise trigger
         try
         {
@@ -271,15 +280,42 @@ public class FpsService : IDisposable
             _stopping = false;
         }
 
-        // Header indices belong to the stream we just ended.
+        ResetStream();
+    }
+
+    /// <summary>
+    /// Forgets everything that belonged to one run of PresentMon.
+    /// </summary>
+    /// <remarks>
+    /// All of it together, which is the part that was wrong. Stopping cleared the per-chain
+    /// frames and the live rate; restarting cleared three of the four column positions. What
+    /// neither cleared was the long history behind the 1% low, the chain chosen to feed it, or
+    /// the position of the time column.
+    ///
+    /// That matters because PresentMon's timestamps are relative to the start of its own
+    /// capture. A capture that restarts quickly therefore begins numbering again from about
+    /// zero, and those frames were appended behind samples timed from the previous run. Nothing
+    /// downstream can make sense of that: the newest frame in the queue is then older than the
+    /// oldest, so the windows measured in time either expire everything or nothing, and the 1%
+    /// low sat blank until two thousand frames had pushed the old ones out.
+    /// </remarks>
+    private void ResetStream()
+    {
         _headerProcessIdIndex = -1;
         _headerFrameTimeIndex = -1;
         _headerSwapChainIndex = -1;
+        _headerTimeIndex      = -1;
 
         lock (_lock)
         {
             _bySwapChain.Clear();
-            CurrentFps = null;
+            _lowSamples.Clear();
+            _dominantChain      = "";
+            _chainCandidate     = "";
+            _chainCandidateWins = 0;
+            _lastFrameArrival   = 0;
+            CurrentFps          = null;
+            OnePercentLowFps    = null;
         }
     }
 
@@ -319,14 +355,12 @@ public class FpsService : IDisposable
             await Task.Delay(BackoffFor(_restartCount));
 
             // Anything started since supersedes this restart.
-            if (_stopping || !_captureWanted || generation != _captureGeneration) return;
+            if (_disposed || _stopping || !_captureWanted || generation != _captureGeneration) return;
 
             try { _process?.Dispose(); } catch { }
             _process = null;
 
-            _headerProcessIdIndex = -1;
-            _headerFrameTimeIndex = -1;
-            _headerSwapChainIndex = -1;
+            ResetStream();
 
             StartCapture();
         });
@@ -347,14 +381,27 @@ public class FpsService : IDisposable
     private void ReportSilentCapture()
     {
         if (_reportedSilence || _process is null || !_captureWanted) return;
-        if (Environment.TickCount64 - _captureStartedAt < SilentCaptureAfter.TotalMilliseconds) return;
-        if (Interlocked.Read(ref _rowsSeen) > 0) return;
+
+        // Measured from the last row, falling back to the start of the capture when none has
+        // ever arrived.
+        //
+        // It used to ask only whether any row had ever been seen, which meant the check
+        // switched itself off permanently the moment the first one did. A session that is
+        // starved after it has been working looks exactly like the case this exists for and
+        // was the one shape of it that could never be reported. Still said once per capture,
+        // because a machine sitting on an empty desktop is also silent and that is not a fault
+        // worth repeating in the log.
+        long last  = Interlocked.Read(ref _lastRowAt);
+        long since = Environment.TickCount64 - (last == 0 ? _captureStartedAt : last);
+
+        if (since < SilentCaptureAfter.TotalMilliseconds) return;
 
         _reportedSilence = true;
 
         LogService.Warn(nameof(FpsService),
-            $"Frame capture has produced no data in {SilentCaptureAfter.TotalSeconds:F0}s, though it is "
-            + "still running. Either nothing on this machine is presenting frames, or the trace session "
+            $"Frame capture has produced no data in {since / 1000}s, though it is "
+            + (last == 0 ? "still running and has produced none at all. " : "still running. ")
+            + "Either nothing on this machine is presenting frames, or the trace session "
             + "is being starved of events. Abandoned trace sessions from other tools are the usual cause; "
             + $"'logman query -ets' lists them and ours is called {TraceSessionName}.");
     }
@@ -398,10 +445,24 @@ public class FpsService : IDisposable
     /// Rows parsed from PresentMon since this capture started, counting every process rather
     /// than only the foreground one, so this measures the capture rather than the target.
     private long _rowsSeen;
+
+    /// When the last row arrived, on the local clock. Separate from a frame's own timestamp,
+    /// which is relative to the capture and says nothing about whether one is still flowing.
+    private long _lastRowAt;
+
     private bool _reportedSilence;
 
     private void StartCapture()
     {
+        // Nothing starts a capture after Dispose. A retry can already be waiting when Pulse is
+        // shutting down, and starting PresentMon on the way out leaves a process behind.
+        if (_disposed) return;
+
+        // This capture is now the current one, so anything still waiting on the old one stands
+        // down. Written here as well as in StopCapture because a restart arrives through this
+        // method without passing through that one.
+        _captureGeneration++;
+
         if (!File.Exists(PresentMonPath))
         {
             LogService.Warn(nameof(FpsService),
@@ -468,6 +529,7 @@ public class FpsService : IDisposable
 
             _captureStartedAt = Environment.TickCount64;
             _rowsSeen         = 0;
+            _lastRowAt        = 0;
             _reportedSilence  = false;
 
             // Said out loud, because until now a successful start logged nothing at all. A
@@ -510,7 +572,7 @@ public class FpsService : IDisposable
     /// </summary>
     private void ScheduleRetry()
     {
-        if (_stopping || !_captureWanted) return;
+        if (_disposed || _stopping || !_captureWanted) return;
 
         int generation = ++_captureGeneration;
         _restartCount++;
@@ -518,7 +580,7 @@ public class FpsService : IDisposable
         _ = Task.Run(async () =>
         {
             await Task.Delay(BackoffFor(_restartCount));
-            if (_stopping || !_captureWanted || generation != _captureGeneration) return;
+            if (_disposed || _stopping || !_captureWanted || generation != _captureGeneration) return;
             StartCapture();
         });
     }
@@ -574,6 +636,7 @@ public class FpsService : IDisposable
         // Counted before the foreground filter, so this says whether the capture is receiving
         // anything at all rather than whether the app being watched is presenting.
         Interlocked.Increment(ref _rowsSeen);
+        Interlocked.Exchange(ref _lastRowAt, Environment.TickCount64);
 
 
         // Invariant culture, not the machine's. PresentMon always writes a dot decimal
@@ -611,6 +674,15 @@ public class FpsService : IDisposable
 
         lock (_lock)
         {
+            // Checked again, inside the lock this time.
+            //
+            // The test above happens on the reader thread while the foreground target is
+            // changed on the interface thread, and changing it clears these queues. A frame
+            // that passed the test a moment earlier could therefore be added after the clear,
+            // putting one app's frames into the history that had just been emptied for
+            // another. Rare, small, and wrong: the readings are meant to belong to one app.
+            if (pid != _foregroundPid) return;
+
             if (!_bySwapChain.TryGetValue(swapChain, out var samples))
             {
                 samples = new Queue<FrameSample>();
@@ -840,7 +912,22 @@ public class FpsService : IDisposable
         // at once on a fast machine while describing a moment rather than a window.
         long span = _lowSamples.Count > 0 ? now - _lowSamples.Peek().At : 0;
 
-        if (_lowSamples.Count < LowMinSamples || span < LowMinSpanMs)
+        // Or a full buffer, whatever time it took to fill.
+        //
+        // The span test on its own had a ceiling nobody could see. This keeps two thousand
+        // frames, and three seconds of them means about 667 frames per second; above that the
+        // retained history is never three seconds long, so the tile read "--" for as long as
+        // the game ran however steady it was. Seven hundred frames a second is not an exotic
+        // number in an esports title on strong hardware, and it is exactly the audience most
+        // likely to be looking at this tile.
+        //
+        // The span was only ever standing in for "enough evidence", and a full buffer is that
+        // by construction: two thousand frames is more than the percentile needs whether they
+        // arrived over two seconds or twenty.
+        bool enough = _lowSamples.Count >= LowMaxSamples
+                   || (_lowSamples.Count >= LowMinSamples && span >= LowMinSpanMs);
+
+        if (!enough)
         {
             // "--" rather than a figure built from too little data.
             OnePercentLowFps = null;
@@ -967,7 +1054,17 @@ public class FpsService : IDisposable
 
     public void Dispose()
     {
+        // Permanent, and set before anything else. A restart can already be counting down when
+        // Pulse is asked to close, and the checks it makes on waking are about whether capture
+        // is still wanted rather than about whether this object is still alive. Without these
+        // two lines that restart could start PresentMon after the last thing that would ever
+        // have stopped it had already run.
+        _disposed      = true;
+        _captureWanted = false;
+
         _targetTimer.Stop();
         StopCapture();
     }
+
+    private bool _disposed;
 }
