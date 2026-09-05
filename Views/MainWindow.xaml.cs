@@ -145,8 +145,26 @@ public partial class MainWindow : Window
             double availableHeight = work.Height / dpi.DpiScaleY;
 
             const double margin = 24;
-            double width  = Math.Max(MinWidth,  Math.Min(Width,  availableWidth  - margin));
-            double height = Math.Max(MinHeight, Math.Min(Height, availableHeight - margin));
+
+            // The minimum gives way when the screen is smaller than it.
+            //
+            // MinWidth and MinHeight are 420, which is a sensible floor for a usable panel and
+            // not a fact about anybody's display. Clamping to it meant that on a small screen at
+            // a high scaling factor the window stayed larger than the desktop, and since it is
+            // borderless with no resize there was no way to drag it back or reach what had
+            // fallen off the edge. A cramped panel that can be scrolled beats a panel with its
+            // buttons off screen. The absolute floor is there so this can never collapse the
+            // window to nothing if a display reports something absurd.
+            const double floor = 280;
+
+            double roomWidth  = Math.Max(floor, availableWidth  - margin);
+            double roomHeight = Math.Max(floor, availableHeight - margin);
+
+            MinWidth  = Math.Min(MinWidth,  roomWidth);
+            MinHeight = Math.Min(MinHeight, roomHeight);
+
+            double width  = Math.Max(MinWidth,  Math.Min(Width,  roomWidth));
+            double height = Math.Max(MinHeight, Math.Min(Height, roomHeight));
 
             if (Math.Abs(width - Width) < 1 && Math.Abs(height - Height) < 1) return;
 
@@ -954,7 +972,8 @@ public partial class MainWindow : Window
             // attach without a text editor stealing focus.
             System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
             {
-                FileName        = "explorer.exe",
+                FileName        = System.IO.Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe"),
                 Arguments       = $"/select,\"{path}\"",
                 UseShellExecute = true,
             });

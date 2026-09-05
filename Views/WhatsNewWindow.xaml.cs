@@ -34,7 +34,11 @@ public partial class WhatsNewWindow : Window
 
         // Evaluated once after layout as well as on scroll: if the notes happen to fit, no
         // scroll event ever fires and the hint would never be told to stay hidden.
-        Loaded += (_, _) => NotesScroller_ScrollChanged(NotesScroller, null!);
+        Loaded += (_, _) =>
+        {
+            FitToWorkArea();
+            NotesScroller_ScrollChanged(NotesScroller, null!);
+        };
 
         // Dragging anywhere on the dialog moves it, since there is no title bar.
         MouseLeftButtonDown += (_, e) =>
@@ -47,6 +51,53 @@ public partial class WhatsNewWindow : Window
         {
             if (e.Key == Key.Escape) Close();
         };
+    }
+
+    /// <summary>
+    /// Shrinks the dialog to fit the screen it opens on.
+    /// </summary>
+    /// <remarks>
+    /// It is declared 520 by 620 device-independent units and cannot be resized, which is 930
+    /// physical pixels tall at 150% scaling and 1240 at 200%. On a 768-tall laptop at either
+    /// setting the buttons at the bottom, including Download and Install, were below the edge
+    /// of the desktop with no way to reach them: there is no title bar to drag past the top,
+    /// and no resize grip. The notes already scroll, so height costs nothing to give up.
+    ///
+    /// The same shape as the control panel's own fit, and for the same reason.
+    /// </remarks>
+    private void FitToWorkArea()
+    {
+        try
+        {
+            var handle = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+            if (handle == IntPtr.Zero) return;
+
+            var work = System.Windows.Forms.Screen.FromHandle(handle).WorkingArea;
+            var dpi  = VisualTreeHelper.GetDpi(this);
+            if (dpi.DpiScaleX <= 0 || dpi.DpiScaleY <= 0) return;
+
+            double availableWidth  = work.Width  / dpi.DpiScaleX;
+            double availableHeight = work.Height / dpi.DpiScaleY;
+
+            const double margin = 24;
+            const double floor  = 280;
+
+            double width  = Math.Max(floor, Math.Min(Width,  availableWidth  - margin));
+            double height = Math.Max(floor, Math.Min(Height, availableHeight - margin));
+
+            if (Math.Abs(width - Width) < 1 && Math.Abs(height - Height) < 1) return;
+
+            Width  = width;
+            Height = height;
+
+            // Re-centred, since it was placed for the size it was declared with.
+            Left = work.Left / dpi.DpiScaleX + (availableWidth  - width)  / 2;
+            Top  = work.Top  / dpi.DpiScaleY + (availableHeight - height) / 2;
+        }
+        catch (Exception ex)
+        {
+            LogService.Error(nameof(WhatsNewWindow), "Could not fit the update dialog to the screen", ex);
+        }
     }
 
     /// <summary>

@@ -97,6 +97,17 @@ public class SettingsViewModel : BaseViewModel
         var defaults = new Models.AppSettings();
         Opacity           = defaults.OverlayOpacity;
         BackgroundOpacity = defaults.OverlayBackgroundOpacity;
+
+        // The size as well, and this is the part that matters most.
+        //
+        // The overlay is resized by dragging its own bottom corner, and nothing else changes
+        // it. Its position is clamped to the screen but its size is not, so an overlay scaled
+        // up with many tiles enabled can extend past the bottom of the display and take that
+        // corner with it. The only control for the size is then off screen, and the way back
+        // was editing settings.json by hand. This is the way back.
+        OverlayViewModel.Instance.OverlayScale = defaults.OverlayScale;
+        SettingsService.Instance.Settings.OverlayScale = defaults.OverlayScale;
+        SettingsService.Instance.Save();
     }
 
     private System.Windows.Threading.DispatcherTimer? _saveTimer;

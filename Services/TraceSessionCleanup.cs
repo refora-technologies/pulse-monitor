@@ -40,6 +40,12 @@ internal static class TraceSessionCleanup
     /// Long enough for a busy machine, short enough that nothing waits on it meaningfully.
     private const int TimeoutMs = 10_000;
 
+    /// The full path, not the name. Pulse runs elevated, so anything it starts starts elevated
+    /// too, and resolving that through a search path we do not control is a decision handed to
+    /// whoever can write to one of its directories. Same reasoning as StartupTask.SchTasks.
+    private static readonly string Logman =
+        System.IO.Path.Combine(Environment.SystemDirectory, "logman.exe");
+
     /// <summary>
     /// A sanity limit, not an expectation. Fifty-one were seen in the wild; a number far past
     /// that means the output is being misread, and spawning a process per line would then be a
@@ -146,7 +152,7 @@ internal static class TraceSessionCleanup
     {
         var info = new ProcessStartInfo
         {
-            FileName               = "logman.exe",
+            FileName               = Logman,
             Arguments              = arguments,
             CreateNoWindow         = true,
             UseShellExecute        = false,

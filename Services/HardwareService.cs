@@ -479,6 +479,11 @@ public class HardwareService : IDisposable
             catch (Exception ex)
             {
                 LogService.Error(nameof(HardwareService), "Starting the sensor host failed", ex);
+
+                // Disposed, not merely dropped. Process.Start can succeed and the wiring after
+                // it fail, which leaves a live object holding handles that nothing will ever
+                // reach again.
+                try { _host?.Dispose(); } catch { }   // it already failed; nothing follows
                 _host = null;
                 Fail("Sensors unavailable. Pulse could not start the process that reads them.");
             }
@@ -613,6 +618,12 @@ public class HardwareService : IDisposable
                 LogService.Warn(nameof(HardwareService),
                     $"The sensor host stopped unexpectedly after {lived.TotalSeconds:F0}s (exit code {code}). Starting another.");
             }
+
+            // Disposed, not merely dropped. This runs on every replacement, and a machine whose
+            // graphics driver faults occasionally will replace the host many times across a
+            // session left running for days. Each one holds a process handle and the handles
+            // for three redirected pipes, and none of it comes back on its own.
+            try { host.Dispose(); } catch { }   // it has already exited; nothing follows
 
             _host = null;
 
