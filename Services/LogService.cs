@@ -84,9 +84,33 @@ public static class LogService
                 .Append("  ").Append((source ?? "").PadRight(18))
                 .Append("  ").Append(Redact(message));
 
-            // Type and message only. A full stack trace can carry file paths from the build
-            // machine, and this file is meant to be pasteable into a public issue.
-            if (error != null) line.Append("  [").Append(error.GetType().Name).Append(": ").Append(Redact(error.Message)).Append(']');
+            // Type and message, and then the same for whatever it was thrown over.
+            //
+            // No stack trace still: it can carry paths from the build machine, and this file is
+            // meant to be pasteable into a public issue. The inner exceptions carry no such
+            // thing and are where the answer usually is.
+            //
+            // That distinction was learned the hard way. A user reported that Pulse sometimes
+            // did not start, and his log said, nine times across two versions:
+            //
+            //     Unhandled exception on the UI thread  [XamlParseException: Provide value on
+            //     'System.Windows.Baml2006.TypeConverterMarkupExtension' threw an exception.]
+            //
+            // Which says that converting some value in the markup failed and not one word about
+            // which value or why. The inner exception is the whole of the useful content there,
+            // and we were throwing it away to keep the line short.
+            if (error != null)
+            {
+                line.Append("  [").Append(error.GetType().Name).Append(": ").Append(Redact(error.Message));
+
+                // Bounded. A deeply wrapped exception should not be able to write a paragraph
+                // into a log somebody has to read.
+                var inner = error.InnerException;
+                for (int depth = 0; inner != null && depth < 4; depth++, inner = inner.InnerException)
+                    line.Append(" <- ").Append(inner.GetType().Name).Append(": ").Append(Redact(inner.Message));
+
+                line.Append(']');
+            }
 
             lock (Gate)
             {
