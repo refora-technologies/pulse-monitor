@@ -9,7 +9,6 @@
         AllowsTransparency="True"
         Background="Transparent"
         ResizeMode="CanResizeWithGrip"
-        Icon="pack://application:,,,/Resources/Icons/pulse.ico"
         WindowStartupLocation="CenterScreen"
         TextOptions.TextFormattingMode="Ideal"
         TextOptions.TextRenderingMode="ClearType">
