@@ -576,7 +576,18 @@ public class HardwareService : IDisposable
                 {
                     case "error": LogService.Warn("SensorHost", text); break;   // logged, but not our crash
                     case "warn":  LogService.Warn("SensorHost", text); break;
-                    default:      LogService.Info("SensorHost", text); break;
+                    case "info":  LogService.Info("SensorHost", text); break;
+
+                    // No level in front of it, which means the host did not write it. The only
+                    // other thing with a handle to that stream is the runtime, and the only
+                    // time it writes there is while the process is dying: the unhandled
+                    // exception and the stack under it.
+                    //
+                    // These were recorded at INFO, so a sensor host being killed by an access
+                    // violation inside a graphics driver read like an ordinary line. A user's
+                    // log had fourteen of them and they did not stand out at all, which is the
+                    // opposite of what a log is for.
+                    default: LogService.Error("SensorHost", text); break;
                 }
             }
         }

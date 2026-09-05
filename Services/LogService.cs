@@ -56,6 +56,10 @@ public static class LogService
     public static void Warn (string source, string message)              => Write(LogLevel.Warn,  source, message, null);
     public static void Error(string source, string message, Exception e) => Write(LogLevel.Error, source, message, e);
 
+    /// An error that arrived as text rather than as an exception, which is what a crash in
+    /// another process looks like from here.
+    public static void Error(string source, string message) => Write(LogLevel.Error, source, message, null);
+
     private static readonly string UserProfile =
         Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
@@ -296,9 +300,25 @@ public static class LogService
 
             lock (Gate)
             {
-                // Oldest first, so the file reads forwards in time.
-                for (int i = MaxArchives; i >= 1; i--) AppendFile(report, ArchivePath(i), $"log {i} (older)");
-                AppendFile(report, LogPath, "log (current)");
+                // Everything older than the recent detail, counted rather than reprinted.
+                //
+                // This used to paste all six log files in whole. That is up to six megabytes,
+                // which is an awkward thing to ask somebody to send and a worse thing to read:
+                // the one report that arrived this way carried thirteen days of routine lines,
+                // and the nine crashes buried in it only came to light by scrolling.
+                //
+                // Counting them is strictly better for finding a pattern. "9 x Unhandled
+                // exception on the UI thread, first 28 Aug, last 4 Sep" is the finding itself,
+                // where the same nine lines spread across a megabyte are a needle in a haystack.
+                var older = new List<string>();
+                for (int i = MaxArchives; i >= 1; i--) older.Add(ArchivePath(i));
+
+                AppendProblemSummary(report, older);
+
+                // And the recent detail in full, because a summary cannot show sequence, and
+                // sequence is what says whether the crash came before or after the thing that
+                // caused it.
+                AppendRecent(report, LogPath, "log (current)");
 
                 if (File.Exists(SessionStatePath))
                 {
@@ -315,6 +335,132 @@ public static class LogService
             return null;
         }
     }
+
+    /// <summary>
+    /// How much of the active log is reproduced word for word in an export.
+    /// </summary>
+    /// <remarks>
+    /// Enough to hold several sessions, small enough to attach to an email without thinking
+    /// about it. Anything older is counted instead, by AppendProblemSummary.
+    /// </remarks>
+    private const int ExportTailBytes = 256 * 1024;
+
+    /// How many distinct problems the summary lists before it stops.
+    private const int MaxSummaryLines = 30;
+
+    /// <summary>
+    /// Appends the end of a log file, and says so when it had to cut.
+    /// </summary>
+    private static void AppendRecent(StringBuilder report, string path, string label)
+    {
+        try
+        {
+            if (!File.Exists(path)) return;
+
+            var text = File.ReadAllText(path);
+            bool trimmed = text.Length > ExportTailBytes;
+
+            if (trimmed)
+            {
+                text = text[^ExportTailBytes..];
+
+                // From a line boundary, so the export never opens mid-sentence.
+                int newline = text.IndexOf('\n');
+                if (newline >= 0 && newline < text.Length - 1) text = text[(newline + 1)..];
+            }
+
+            report.AppendLine(trimmed
+                ? $"--- {label}, most recent {ExportTailBytes / 1024} KB; anything older is counted above ---"
+                : $"--- {label} ---");
+
+            report.AppendLine(text);
+        }
+        catch (Exception ex)
+        {
+            report.AppendLine($"--- {label} ---");
+            report.AppendLine($"(could not be read: {ex.GetType().Name}: {Redact(ex.Message)})");
+            report.AppendLine();
+        }
+    }
+
+    /// <summary>
+    /// Counts the warnings and errors in the older log files, grouped by what they say.
+    /// </summary>
+    /// <remarks>
+    /// Numbers are replaced with a # before grouping, so "stopped after 112s" and "stopped
+    /// after 2971s" are recognised as the same event happening twice rather than as two
+    /// separate curiosities. Timestamps, process ids and durations are exactly the parts that
+    /// differ every time and never change what the line means.
+    /// </remarks>
+    private static void AppendProblemSummary(StringBuilder report, List<string> paths)
+    {
+        var seen  = new Dictionary<string, (int Count, string First, string Last, string Text)>(StringComparer.Ordinal);
+        int files = 0;
+
+        foreach (var path in paths)
+        {
+            string[] lines;
+            try
+            {
+                if (!File.Exists(path)) continue;
+                lines = File.ReadAllLines(path);
+                files++;
+            }
+            catch
+            {
+                continue;   // an unreadable archive is not worth failing the export over
+            }
+
+            foreach (var line in lines)
+            {
+                if (line.Length < 26) continue;
+                if (line.IndexOf("  WARN ", StringComparison.Ordinal) < 0
+                 && line.IndexOf("  ERROR", StringComparison.Ordinal) < 0) continue;
+
+                var stamp = line[..Math.Min(19, line.Length)];
+                var rest  = line[Math.Min(25, line.Length)..].Trim();
+
+                var key = DigitRuns.Replace(rest, "#");
+                if (key.Length > 160) key = key[..160];
+
+                if (seen.TryGetValue(key, out var at))
+                    seen[key] = (at.Count + 1, at.First, stamp, at.Text);
+                else
+                    seen[key] = (1, stamp, stamp, rest.Length > 160 ? rest[..160] + "..." : rest);
+            }
+        }
+
+        if (files == 0) return;
+
+        report.AppendLine($"--- warnings and errors in the {files} older log file(s), counted ---");
+
+        if (seen.Count == 0)
+        {
+            report.AppendLine("(none)");
+            report.AppendLine();
+            return;
+        }
+
+        int shown = 0;
+        foreach (var entry in seen.Values.OrderByDescending(v => v.Count))
+        {
+            if (shown++ == MaxSummaryLines)
+            {
+                report.AppendLine($"... and {seen.Count - MaxSummaryLines} more kinds, each rarer than these");
+                break;
+            }
+
+            report.AppendLine($"{entry.Count,5} x  {entry.Text}");
+            if (entry.Count > 1) report.AppendLine($"         first {entry.First}, last {entry.Last}");
+        }
+
+        report.AppendLine();
+    }
+
+    /// Runs of digits, so two occurrences of the same event group together whatever the
+    /// duration, process id or exit code happened to be that time.
+    private static readonly System.Text.RegularExpressions.Regex DigitRuns =
+        new(@"\d+", System.Text.RegularExpressions.RegexOptions.Compiled);
 
     private static void AppendFile(StringBuilder report, string path, string label)
     {
