@@ -12,15 +12,17 @@ public class SensorTileDefinition
     public float DangerThreshold { get; set; }
 
     /// <summary>
-    /// What this reading actually is, shown as a tooltip in the settings list.
-    ///
-    /// Added for the frame rate tiles, where the name alone is not enough. "1% Low" is used by
-    /// different tools for two different statistics, and two overlays disagreeing looks like one
-    /// of them is broken when they are measuring different things. Saying which one this is, and
-    /// over what window, is what stops that.
+    /// What this reading is, in a sentence or two, shown as a tooltip in the settings list.
     /// </summary>
-    /// Null rather than empty for the tiles that do not need one, so the settings list can
-    /// fall back to its keyboard hint through TargetNullValue.
+    /// <remarks>
+    /// Every tile has one. They used to be optional, and the twelve without a description fell
+    /// back to showing a keyboard hint instead, so hovering most of the list explained nothing
+    /// about the reading under the cursor. The hint is said once, under the section, where the
+    /// other instructions already are.
+    ///
+    /// These describe what Pulse measures and nothing else. Naming other tools invites the
+    /// reader to go and compare, and the tooltip cannot keep up with what those tools do.
+    /// </remarks>
     public string? Description { get; set; }
 
     /// <summary>
@@ -62,9 +64,12 @@ public class SensorTileDefinition
     /// </summary>
     public static readonly List<SensorTileDefinition> All = new()
     {
-        new() { Id = "cpu_usage",    Label = "CPU Usage",     Unit = "%",    Category = SensorCategory.CPU,     HasBar = true,  BarMax = 100, WarnThreshold = 70,   DangerThreshold = 90 },
-        new() { Id = "cpu_temp",     Label = "CPU Temp",      Unit = "°C",   Category = SensorCategory.CPU,     HasBar = false, WarnThreshold = 75,  DangerThreshold = 90  },
-        new() { Id = "cpu_clock",    Label = "CPU Clock",     Unit = "GHz",  Category = SensorCategory.CPU,     HasBar = false, WarnThreshold = 0,   DangerThreshold = 0   },
+        new() { Id = "cpu_usage",    Label = "CPU Usage",     Unit = "%",    Category = SensorCategory.CPU,     HasBar = true,  BarMax = 100, WarnThreshold = 70,   DangerThreshold = 90,
+                Description = "How much of the processor is being used, across every core." },
+        new() { Id = "cpu_temp",     Label = "CPU Temp",      Unit = "°C",   Category = SensorCategory.CPU,     HasBar = false, WarnThreshold = 75,  DangerThreshold = 90,
+                Description = "The processor's temperature, from its own sensor." },
+        new() { Id = "cpu_clock",    Label = "CPU Clock",     Unit = "GHz",  Category = SensorCategory.CPU,     HasBar = false, WarnThreshold = 0,   DangerThreshold = 0,
+                Description = "The average speed the processor's cores are running at." },
         // Power tiles carry no warning thresholds, deliberately.
         //
         // They used to: 65/95W for the CPU, 80/115W for the GPU, 100/160W for the pair. Those
@@ -83,25 +88,30 @@ public class SensorTileDefinition
         // So the number is shown and no claim is made about it, the same as clocks and frame
         // rates. A colour we cannot justify is worse than no colour: it is the 6GB VRAM default
         // again, an invented figure presented as a judgement.
-        new() { Id = "cpu_power",    Label = "CPU Power",     Unit = "W",    Category = SensorCategory.CPU,     HasBar = false, WarnThreshold = 0,   DangerThreshold = 0   },
+        new() { Id = "cpu_power",    Label = "CPU Power",     Unit = "W",    Category = SensorCategory.CPU,     HasBar = false, WarnThreshold = 0,   DangerThreshold = 0,
+                Description = "How much power the processor is drawing right now." },
 
         new() { Id = "gpu_usage",    Label = "GPU Usage",     Unit = "%",    Category = SensorCategory.GPU,     HasBar = true,  BarMax = 100, WarnThreshold = 70,   DangerThreshold = 95,
-                Description = "How busy the graphics chip is, as MSI Afterburner and the NVIDIA "
-                            + "overlay report it. Task Manager measures this differently and will "
-                            + "read lower, often by a lot, because it counts how long the 3D engine "
-                            + "was executing work rather than how often the card was doing anything. "
-                            + "Integrated graphics publish no figure of their own, so there this is "
-                            + "Task Manager's number." },
-        new() { Id = "gpu_temp",     Label = "GPU Temp",      Unit = "°C",   Category = SensorCategory.GPU,     HasBar = false, WarnThreshold = 75,  DangerThreshold = 90  },
-        new() { Id = "gpu_clock",    Label = "GPU Clock",     Unit = "MHz",  Category = SensorCategory.GPU,     HasBar = false, WarnThreshold = 0,   DangerThreshold = 0   },
+                Description = "How busy the graphics chip is, as the graphics driver reports it." },
+        new() { Id = "gpu_temp",     Label = "GPU Temp",      Unit = "°C",   Category = SensorCategory.GPU,     HasBar = false, WarnThreshold = 75,  DangerThreshold = 90,
+                Description = "The graphics chip's temperature. Where the graphics are built into the "
+                            + "processor the two share one piece of silicon, and the tile is renamed to say "
+                            + "so." },
+        new() { Id = "gpu_clock",    Label = "GPU Clock",     Unit = "MHz",  Category = SensorCategory.GPU,     HasBar = false, WarnThreshold = 0,   DangerThreshold = 0,
+                Description = "The speed the graphics chip is running at." },
         // "GPU Power", not "GPU TDP". TDP is a fixed rating of the card; this sensor is what
         // it is drawing right now, which is a different thing and confused at least one user.
-        new() { Id = "gpu_power",    Label = "GPU Power",     Unit = "W",    Category = SensorCategory.GPU,     HasBar = false, WarnThreshold = 0,   DangerThreshold = 0   },
-        new() { Id = "gpu_vram",     Label = "VRAM Used",     Unit = "GB",   Category = SensorCategory.GPU,     HasBar = true,  BarMax = 6,   WarnThreshold = 4.5f, DangerThreshold = 5.5f, HasKnownMax = true },
-        new() { Id = "ram_used",     Label = "RAM Used",      Unit = "GB",   Category = SensorCategory.Memory,  HasBar = true,  BarMax = 16,  WarnThreshold = 12,   DangerThreshold = 14.5f, HasKnownMax = true },
+        new() { Id = "gpu_power",    Label = "GPU Power",     Unit = "W",    Category = SensorCategory.GPU,     HasBar = false, WarnThreshold = 0,   DangerThreshold = 0,
+                Description = "How much power the graphics card is drawing right now." },
+        new() { Id = "gpu_vram",     Label = "VRAM Used",     Unit = "GB",   Category = SensorCategory.GPU,     HasBar = true,  BarMax = 6,   WarnThreshold = 4.5f, DangerThreshold = 5.5f, HasKnownMax = true,
+                Description = "Video memory in use, out of what the card has. Graphics built into the "
+                            + "processor borrow system memory instead, and the tile is renamed to say so." },
+        new() { Id = "ram_used",     Label = "RAM Used",      Unit = "GB",   Category = SensorCategory.Memory,  HasBar = true,  BarMax = 16,  WarnThreshold = 12,   DangerThreshold = 14.5f, HasKnownMax = true,
+                Description = "System memory in use, out of what is installed." },
 
         new() { Id = "fps",          Label = "FPS",           Unit = "fps",  Category = SensorCategory.System,  HasBar = false, WarnThreshold = 0,   DangerThreshold = 0,
-                Description = "Frames your graphics card produced in the last second, for whichever app is in focus." },
+                Description = "Frames your graphics card produced in the last second, for whichever app is in "
+                            + "focus." },
 
         // One 1% low, computed the way the rest of the world computes it: the frame time at the
         // 99th percentile. Pulse briefly offered a second tile alongside this, the average of
@@ -110,15 +120,16 @@ public class SensorTileDefinition
         // to tell anyone which to believe. The id is unchanged from when this was the average,
         // so nobody loses a tile they had already turned on.
         new() { Id = "fps_1low",     Label = "1% Low",        Unit = "fps",  Category = SensorCategory.System,  HasBar = false, WarnThreshold = 0,   DangerThreshold = 0,
-                Description = "How fast your slowest frames are, over the last 2,000 frames: the 99th "
-                            + "percentile frame time. A number well below your FPS means stutter, "
-                            + "even when the average looks fine. Same method as MSI Afterburner "
-                            + "and RTSS, so an overlay measuring over a different window will differ." },
+                Description = "How fast your slowest frames are, measured over the last 2,000 frames. A "
+                            + "number well below your FPS means stutter, even when the average looks fine." },
 
-        new() { Id = "net_upload",   Label = "Net Upload",    Unit = "MB/s", Category = SensorCategory.Network, HasBar = false, WarnThreshold = 0,   DangerThreshold = 0   },
-        new() { Id = "net_download", Label = "Net Download",  Unit = "MB/s", Category = SensorCategory.Network, HasBar = false, WarnThreshold = 0,   DangerThreshold = 0   },
+        new() { Id = "net_upload",   Label = "Net Upload",    Unit = "MB/s", Category = SensorCategory.Network, HasBar = false, WarnThreshold = 0,   DangerThreshold = 0,
+                Description = "Data sent over your network connection each second." },
+        new() { Id = "net_download", Label = "Net Download",  Unit = "MB/s", Category = SensorCategory.Network, HasBar = false, WarnThreshold = 0,   DangerThreshold = 0,
+                Description = "Data received over your network connection each second." },
 
-        new() { Id = "disk_activity",Label = "Disk Activity", Unit = "%",    Category = SensorCategory.Storage, HasBar = true,  BarMax = 100, WarnThreshold = 70,   DangerThreshold = 90 },
+        new() { Id = "disk_activity",Label = "Disk Activity", Unit = "%",    Category = SensorCategory.Storage, HasBar = true,  BarMax = 100, WarnThreshold = 70,   DangerThreshold = 90,
+                Description = "How much of the time your drive is busy reading or writing." },
 
         // The one tile where a small number is the bad one, hence LowerIsWorse. Twenty percent
         // is the point Windows itself starts warning, and ten is where it suggests plugging in.
@@ -129,10 +140,9 @@ public class SensorTileDefinition
         // the machine is doing, so it would read two hours and then forty minutes a moment
         // later, which is the kind of confident wrong number this project keeps removing.
         new() { Id = "battery",      Label = "Battery",       Unit = "%",    Category = SensorCategory.System,  HasBar = true,  BarMax = 100, WarnThreshold = 20,   DangerThreshold = 10, LowerIsWorse = true,
-                Description = "How much charge is left. Amber under 20 percent and red under 10, "
-                            + "because for this one tile a small number is the bad one. A desktop "
-                            + "has no battery to report, so the tile stays empty there rather than "
-                            + "showing zero." },
-        new() { Id = "sys_power",    Label = "CPU+GPU Power", Unit = "W",    Category = SensorCategory.System,  HasBar = false, WarnThreshold = 0,   DangerThreshold = 0   },
+                Description = "Charge left in the battery. Amber below 20 percent and red below 10. A machine "
+                            + "with no battery leaves the tile empty." },
+        new() { Id = "sys_power",    Label = "CPU+GPU Power", Unit = "W",    Category = SensorCategory.System,  HasBar = false, WarnThreshold = 0,   DangerThreshold = 0,
+                Description = "The processor and graphics power added together." },
     };
 }
