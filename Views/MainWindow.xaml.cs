@@ -770,15 +770,22 @@ public partial class MainWindow : Window
         // had just changed.
         GpuSourceSection.Visibility = System.Windows.Visibility.Visible;
 
-        bool choosable = _vm.HasMultipleGpus;
+        // Three states, not two. Nothing is known about the graphics until the sensor host has
+        // started and enumerated them, which is a few seconds after the panel opens, and during
+        // those seconds this card used to be empty and then suddenly contained a dropdown.
+        bool known     = _vm.AvailableGpus.Count > 0;
+        bool choosable = known && _vm.HasMultipleGpus;
 
-        if (GpuCombo != null)
-            GpuCombo.Visibility = choosable ? System.Windows.Visibility.Visible
-                                            : System.Windows.Visibility.Collapsed;
+        Show(GpuPending, !known);
+        Show(GpuCombo,   choosable);
+        Show(GpuSingle,  known && !choosable);
 
-        if (GpuSingle != null)
-            GpuSingle.Visibility = choosable ? System.Windows.Visibility.Collapsed
-                                             : System.Windows.Visibility.Visible;
+        static void Show(System.Windows.UIElement? element, bool visible)
+        {
+            if (element != null)
+                element.Visibility = visible ? System.Windows.Visibility.Visible
+                                             : System.Windows.Visibility.Collapsed;
+        }
     }
 
     private void Monitor_Click(object sender, RoutedEventArgs e)

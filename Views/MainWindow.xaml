@@ -1104,7 +1104,7 @@
                                                       IsChecked="{Binding IsSelected, Mode=TwoWay}"
                                                       AutomationProperties.Name="{Binding Definition.Label, Mode=OneWay}"
                                                       AutomationProperties.HelpText="Space toggles this tile. Alt with an arrow key moves it."
-                                                      ToolTip="{Binding Definition.Description, Mode=OneWay, TargetNullValue='Alt + arrow keys move this tile'}">
+                                                      ToolTip="{Binding Definition.Description, Mode=OneWay}">
                                                 <TextBlock FontSize="11.5" Margin="0,0,14,0">
                                                     <Run Text="{Binding Definition.Label, Mode=OneWay}"
                                                          Foreground="#DBD7F2" FontWeight="Medium"/>
@@ -1133,7 +1133,7 @@
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
                     </Border>
-                    <TextBlock Text="Select sensors to display, and drag the handle on a tile to reorder. The overlay uses this order."
+                    <TextBlock Text="Select sensors to display, and drag the handle on a tile to reorder. The overlay uses this order. With a tile focused, Alt and an arrow key moves it."
                                FontSize="10.5" Foreground="#8B86B4" FontWeight="Medium"
                                Margin="0,0,0,22" TextWrapping="Wrap"/>
 
@@ -1157,13 +1157,27 @@
                                      A two way binding would write that straight back and turn
                                      a deliberate choice into a permanent one. Real choices
                                      come through SelectionChanged instead. -->
-                                <ComboBox x:Name="GpuCombo"
+                                <ComboBox x:Name="GpuCombo" Visibility="Collapsed"
                                           Style="{StaticResource DarkCombo}"
                                           ItemsSource="{Binding GpuChoices}"
                                           SelectedItem="{Binding SelectedGpuChoice, Mode=OneWay}"
                                           PreviewMouseWheel="GpuCombo_PreviewMouseWheel"
                                           SelectionChanged="GpuCombo_SelectionChanged"
                                           DropDownClosed="GpuCombo_DropDownClosed"/>
+
+                                <!-- Shown until the first reading arrives, which takes a few
+                                     seconds while the sensor host starts and enumerates the
+                                     hardware. Without it the card sat empty and then a dropdown
+                                     appeared out of nowhere. Same shape and colours as the
+                                     dropdown it stands in for, so the panel does not move when
+                                     the real thing replaces it. -->
+                                <Border x:Name="GpuPending" Height="38" CornerRadius="9"
+                                        Background="#0A0918" BorderBrush="#181530"
+                                        BorderThickness="1" Padding="12,0">
+                                    <TextBlock Text="Looking for graphics adapters…"
+                                               FontSize="12" Foreground="#5A5580"
+                                               VerticalAlignment="Center"/>
+                                </Border>
 
                                 <!-- Shown in the dropdown's place on a machine with one
                                      graphics adapter. There is nothing to choose between, but
