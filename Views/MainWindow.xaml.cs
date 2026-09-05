@@ -28,6 +28,10 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
 
+        // Not in the markup: a decode that fails there is a XamlParseException, and this
+        // window is built during startup. See App.ApplyIcon.
+        App.ApplyIcon(this);
+
         try
         {
             _vm = SettingsViewModel.Instance;

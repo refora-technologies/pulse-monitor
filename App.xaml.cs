@@ -407,6 +407,56 @@ public partial class App : WinApplication
     }
 
     /// <summary>
+    /// Puts the application icon on a window, and carries on without one if it cannot.
+    /// </summary>
+    /// <remarks>
+    /// Set here rather than in the markup, where it was <c>Icon="pack://..."</c>. That form goes
+    /// through ImageSourceConverter while the XAML is being parsed, which decodes the file there
+    /// and then, and a failure to decode is not survivable: it surfaces as a XamlParseException
+    /// that takes the window with it, and the window is being built during startup, so it takes
+    /// Pulse with it too.
+    ///
+    /// That is not a hypothetical. A user's log shows Pulse launched by the scheduled task at
+    /// logon, running for about a second, and dying with
+    ///
+    ///     XamlParseException: Provide value on 'TypeConverterMarkupExtension' threw an exception
+    ///
+    /// nine times across two versions, always within a second or two of starting and always
+    /// before the overlay was placed. At that point the only converted values in our markup that
+    /// can fail are this icon and the bundled font, and the font is resolved lazily at render
+    /// time while an icon is decoded immediately. Logon is also exactly when the imaging
+    /// components that decode depends on may not yet be ready, which fits a failure that comes
+    /// and goes with no pattern anyone could find.
+    ///
+    /// A window without its icon is a cosmetic loss, and the overlay has no title bar to show
+    /// one on at all. Neither is worth losing the application over.
+    /// </remarks>
+    public static void ApplyIcon(Window window)
+    {
+        try
+        {
+            var resource = GetResourceStream(new Uri("pack://application:,,,/Resources/Icons/pulse.ico"));
+            if (resource is null) return;
+
+            using var stream = resource.Stream;
+
+            var decoder = System.Windows.Media.Imaging.BitmapDecoder.Create(
+                stream,
+                System.Windows.Media.Imaging.BitmapCreateOptions.PreservePixelFormat,
+                System.Windows.Media.Imaging.BitmapCacheOption.OnLoad);
+
+            if (decoder.Frames.Count > 0) window.Icon = decoder.Frames[0];
+        }
+        catch (Exception ex)
+        {
+            // Said out loud, because if this is what was killing Pulse at logon then this line
+            // is the proof, and it now costs an icon instead of the application.
+            LogService.Warn(nameof(App),
+                $"The window icon could not be loaded: {ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    /// <summary>
     /// True once Pulse is genuinely quitting, so windows know to close rather than hide.
     /// Without it, honouring "minimize to tray" in OnClosing would cancel the close that
     /// Shutdown itself performs, and Exit would do nothing.

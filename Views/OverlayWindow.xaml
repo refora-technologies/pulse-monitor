@@ -10,7 +10,6 @@
         Topmost="True"
         ShowInTaskbar="False"
         ResizeMode="NoResize"
-        Icon="pack://application:,,,/Resources/Icons/pulse.ico"
         SizeToContent="WidthAndHeight"
         Opacity="{Binding OverlayOpacity}"
         TextOptions.TextFormattingMode="Ideal"

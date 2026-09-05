@@ -150,6 +150,11 @@ public partial class OverlayWindow : Window
     public OverlayWindow()
     {
         InitializeComponent();
+
+        // Not in the markup: a decode that fails there is a XamlParseException, and this is the
+        // first window built at startup. See App.ApplyIcon.
+        App.ApplyIcon(this);
+
         _vm = OverlayViewModel.Instance;
         DataContext = _vm;
 
