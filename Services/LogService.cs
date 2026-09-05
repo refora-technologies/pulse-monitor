@@ -395,7 +395,9 @@ public static class LogService
     private static void AppendProblemSummary(StringBuilder report, List<string> paths)
     {
         var seen  = new Dictionary<string, (int Count, string First, string Last, string Text)>(StringComparer.Ordinal);
+        var runs  = new Dictionary<string, int>(StringComparer.Ordinal);
         int files = 0;
+        string earliest = "", latest = "";
 
         foreach (var path in paths)
         {
@@ -414,10 +416,32 @@ public static class LogService
             foreach (var line in lines)
             {
                 if (line.Length < 26) continue;
+
+                var when = line[..Math.Min(19, line.Length)];
+                if (when.Length == 19 && when[4] == '-' && when[7] == '-')
+                {
+                    if (earliest.Length == 0) earliest = when;
+                    latest = when;
+                }
+
+                // Which versions ran, and how many times. This is INFO rather than a problem
+                // and it is worth keeping anyway: a report covering an upgrade needs to say so,
+                // and a fault that only appears in one version is only visible if the versions
+                // are visible. One user's history spanned 1.1.3 and 1.2.0 and that mattered.
+                int marker = line.IndexOf("Session started. Pulse ", StringComparison.Ordinal);
+                if (marker >= 0)
+                {
+                    var tail    = line[(marker + 23)..];
+                    int space   = tail.IndexOf(' ');
+                    var version = space > 0 ? tail[..space] : tail;
+
+                    runs[version] = runs.TryGetValue(version, out var n) ? n + 1 : 1;
+                }
+
                 if (line.IndexOf("  WARN ", StringComparison.Ordinal) < 0
                  && line.IndexOf("  ERROR", StringComparison.Ordinal) < 0) continue;
 
-                var stamp = line[..Math.Min(19, line.Length)];
+                var stamp = when;
                 var rest  = line[Math.Min(25, line.Length)..].Trim();
 
                 var key = DigitRuns.Replace(rest, "#");
@@ -432,14 +456,25 @@ public static class LogService
 
         if (files == 0) return;
 
-        report.AppendLine($"--- warnings and errors in the {files} older log file(s), counted ---");
+        report.AppendLine(earliest.Length > 0
+            ? $"--- {files} older log file(s), {earliest} to {latest}, counted ---"
+            : $"--- {files} older log file(s), counted ---");
+
+        if (runs.Count > 0)
+        {
+            var versions = string.Join(", ", runs.OrderByDescending(r => r.Value)
+                                                 .Select(r => $"{r.Key} x {r.Value}"));
+            report.AppendLine($"sessions: {runs.Values.Sum()} ({versions})");
+        }
 
         if (seen.Count == 0)
         {
-            report.AppendLine("(none)");
+            report.AppendLine("warnings and errors: none");
             report.AppendLine();
             return;
         }
+
+        report.AppendLine("warnings and errors:");
 
         int shown = 0;
         foreach (var entry in seen.Values.OrderByDescending(v => v.Count))
