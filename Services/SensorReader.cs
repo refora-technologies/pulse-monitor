@@ -326,19 +326,11 @@ public sealed class SensorReader : IDisposable
         // CpuPower came back as 0.0 and the total was published as 6.302 W, which was the
         // graphics figure alone wearing a label claiming to be both. Nothing that is running
         // draws no power.
-        if (data.CpuPower is > 0 and { } cpuW)
-        {
-            data.SysPower = chosenIsDiscrete
+        data.SysPower = data.CpuPower is > 0 and { } cpuW
+            ? chosenIsDiscrete
                 ? data.GpuPower is > 0 and { } gpuW ? cpuW + gpuW : null
-                : cpuW;
-
-            data.SysPowerIsPackage = !chosenIsDiscrete && data.SysPower is not null;
-        }
-        else
-        {
-            data.SysPower          = null;
-            data.SysPowerIsPackage = false;
-        }
+                : cpuW
+            : null;
 
         return snapshot;
     }
