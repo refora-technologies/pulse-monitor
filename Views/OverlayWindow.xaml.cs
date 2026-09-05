@@ -929,6 +929,18 @@ public partial class OverlayWindow : Window
         settings.OverlayPosition  = "Custom";
         settings.OverlayMonitorId     = screen.DeviceName;
         settings.OverlayMonitorBounds = BoundsKey(screen);
+
+        // The display the overlay is actually on, recorded in the form the panel's buttons
+        // use. Dragging the overlay to another screen used to leave the old screen's button
+        // selected, which is both wrong and a dead end: clicking it did nothing, because the
+        // selection had not changed as far as the property was concerned.
+        var all = System.Windows.Forms.Screen.AllScreens;
+        for (int i = 0; i < all.Length; i++)
+        {
+            if (!string.Equals(all[i].DeviceName, screen.DeviceName, StringComparison.Ordinal)) continue;
+            settings.SelectedMonitorIndex = i;
+            break;
+        }
         settings.OverlayAnchorFx  = roomX > 0 ? Math.Clamp((bounds.Left - work.Left) / (double)roomX, 0, 1) : 0;
         settings.OverlayAnchorFy  = roomY > 0 ? Math.Clamp((bounds.Top  - work.Top)  / (double)roomY, 0, 1) : 0;
 
