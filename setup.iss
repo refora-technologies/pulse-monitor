@@ -115,6 +115,18 @@ Type: filesandordirs; Name: "{localappdata}\Temp\.net\Pulse"
 ; is elevated, so it is the only thing that can.
 Type: filesandordirs; Name: "{localappdata}\Temp\Pulse-update-*"
 
+; The logs, which nothing has ever removed.
+;
+; They live under %APPDATA% so that an upgrade cannot lose the history of a problem being
+; reported, which is right. Nothing cleared them on the way out though, so uninstalling and
+; reinstalling produced a log carrying sessions from versions that are no longer installed,
+; and a diagnostics file describing a Pulse that no longer exists. A user hit exactly that.
+;
+; settings.json is deliberately left alone. That is the tile layout, the position, the
+; shortcuts: work the user did, which they expect to find waiting if they install again.
+; A log is our evidence, not their property, and it goes when we do.
+Type: filesandordirs; Name: "{userappdata}\Refora\Pulse\logs"
+
 [Code]
 { True when the PulseMonitor scheduled task runs an exe from the folder being uninstalled.
 
