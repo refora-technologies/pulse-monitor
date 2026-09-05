@@ -32,7 +32,7 @@
 ## Key Features
 
 - **Real-Time Telemetry:** Instant readouts for CPU/GPU Temperatures, Clock Speeds, Usage, Power Draw, VRAM/RAM utilization, FPS, Network throughput (upload/download), and Disk Activity.
-- **FPS Monitoring:** Tracks the frame rate of whatever app or game currently has focus, powered by a bundled PresentMon capture — works with any GPU vendor. An optional **1% Low FPS** tile averages your slowest frames, showing stutter that an average frame rate hides.
+- **FPS Monitoring:** Tracks the frame rate of whatever app or game currently has focus, powered by a bundled PresentMon capture — works with any GPU vendor. An optional **1% Low FPS** tile reports the frame rate at the 99th percentile of recent frame times, measured over the last 2,000 frames or 30 seconds, whichever is shorter. That shows stutter an average frame rate hides.
 - **GPU Selection:** On laptops and multi-GPU systems, choose exactly which adapter the GPU tiles read from, or leave it on automatic.
 - **Dynamic Overlay:** A seamless glassmorphic HUD that sits unobtrusively on your screen, featuring a secondary "Compact Mode" designed specifically for distraction-free in-game monitoring. Right-click the overlay in free-drag mode for quick access to the control panel.
 - **Ultra-Fast Polling:** Customizable interval polling directly integrated with LibreHardwareMonitor, down to 0.5 seconds for instantaneous tracking.
@@ -57,13 +57,13 @@ Download the latest installer from our official distribution channels. Pulse fea
 
 1. Run `PulseSetup.exe`.
 2. Follow the on-screen instructions.
-3. Pulse will automatically launch and minimize to the system tray.
+3. Pulse launches when setup finishes and opens its control panel. It stays in the system tray after that.
 
 > **Note on Administrator Privileges:** Pulse requires elevated administrator privileges upon launch in order to securely read low-level hardware sensors directly from the kernel interface.
 
 ## Configuration & Usage
 
-Once launched, right-click the Pulse icon in the Windows system tray and select **Settings**. From the control panel, you can:
+Once launched, right-click the Pulse icon in the Windows system tray and choose **Open Control Panel**, or double-click the icon. From the control panel, you can:
 - Toggle the visibility of specific hardware tiles (e.g., *CPU Temp*, *GPU Power*, *FPS*).
 - Reorder tiles by dragging the handle on each one, or with **Alt + arrow keys**. The overlay follows the order you set here.
 - Choose which GPU the GPU tiles read from on multi-GPU systems.
@@ -73,6 +73,8 @@ Once launched, right-click the Pulse icon in the Windows system tray and select 
 - Place the overlay precisely with the **X and Y** sliders, or drag it where you want it.
 - Enable **Compact Mode** for a minimized, text-only HUD.
 - Adjust the hardware polling rate (0.5s, 1s, 2s, 5s).
+- Show network speeds in megabytes per second or megabits per second.
+- Show the battery charge level on a laptop.
 - Un-dock the overlay to manually drag it to any custom position on your desktop — right-click it in this mode for quick access to the control panel or to hide the overlay.
 - Save a diagnostics file from the **About** section if you need to report a problem.
 

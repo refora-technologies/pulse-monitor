@@ -308,9 +308,20 @@ public class UpdateService
 
         try
         {
-            await using var verifyStream = File.OpenRead(target);
-            var hashBytes    = await SHA256.HashDataAsync(verifyStream);
-            var actualSha256 = Convert.ToHexString(hashBytes).ToLowerInvariant();
+            string actualSha256;
+
+            // Scoped so the file is closed before anything tries to remove it.
+            //
+            // The delete used to happen with this stream still open. File.OpenRead shares the
+            // file for reading and not for deleting, so the delete threw, the throw was
+            // swallowed, and a download that failed its checksum stayed on disk until some
+            // later launch tidied it. Small, but it is the one file in Pulse whose contents are
+            // known to be wrong, and it sits in a folder only administrators can clear.
+            await using (var verifyStream = File.OpenRead(target))
+            {
+                var hashBytes = await SHA256.HashDataAsync(verifyStream);
+                actualSha256  = Convert.ToHexString(hashBytes).ToLowerInvariant();
+            }
 
             if (!string.Equals(actualSha256, expectedSha256, StringComparison.OrdinalIgnoreCase))
             {
