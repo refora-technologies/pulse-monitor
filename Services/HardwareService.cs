@@ -224,6 +224,28 @@ public class HardwareService : IDisposable
     /// Without it a machine that faults once a day would eventually be waiting minutes.
     private static readonly TimeSpan Settled = TimeSpan.FromSeconds(60);
 
+    /// <summary>
+    /// The three deadlines above, but never shorter than the readings themselves are.
+    /// </summary>
+    /// <remarks>
+    /// Those figures were written for the default two second interval and applied whatever the
+    /// interval actually was. At five seconds, the fastest rate the panel offers, a poll that
+    /// arrives a moment late is already past the five second mark, so the graphics tiles blank
+    /// and refill on almost every cycle: a visible flicker caused by nothing being wrong. The
+    /// setting also accepts up to sixty seconds for anyone who edits it by hand, and there the
+    /// arithmetic is worse than a flicker. Every reading would be blanked at thirty seconds and
+    /// the host killed and replaced at forty five, over and over, so a machine set to poll once
+    /// a minute would never receive a single reading.
+    ///
+    /// Two intervals plus the original allowance. One late poll is ordinary; two in a row is
+    /// the thing these deadlines were written to notice.
+    /// </remarks>
+    private TimeSpan Deadline(TimeSpan baseline)
+    {
+        double interval = PollingIntervalSeconds > 0 ? PollingIntervalSeconds : 2;
+        return baseline + TimeSpan.FromSeconds(interval * 2);
+    }
+
     private readonly object _hostLock = new();
     private readonly Dispatcher? _dispatcher;
 
@@ -390,6 +412,11 @@ public class HardwareService : IDisposable
     {
         lock (_hostLock)
         {
+            // Whatever brought us here, this is the attempt it was waiting for. Cleared first
+            // so that every way out of this method, including the failures, leaves the
+            // watchdog free to try again later.
+            _relaunching = false;
+
             if (_disposed) return;
 
             var exe = Environment.ProcessPath;
@@ -438,6 +465,11 @@ public class HardwareService : IDisposable
                 _hostStartedAt  = Environment.TickCount64;
                 _lastSnapshotAt = Environment.TickCount64;
                 _replacing      = false;
+
+                // A host exists again, so the next launch failure starts its backoff afresh
+                // rather than inheriting a long wait from whatever went wrong earlier.
+                _launchAttempts      = 0;
+                _nextLaunchAttemptAt = 0;
 
                 Pump($"Pulse sensor readings",     () => ReadSnapshots(host));
                 Pump($"Pulse sensor diagnostics",  () => ReadDiagnostics(host));
@@ -584,6 +616,11 @@ public class HardwareService : IDisposable
 
             _host = null;
 
+            // Claimed before the backoff below, which happens outside the lock. The watchdog
+            // runs every two seconds and would otherwise see no host during that wait and
+            // start a second one beside the replacement this method is about to make.
+            _relaunching = true;
+
             // A host that stayed up long enough to be healthy earns a clean slate, so a
             // machine that faults occasionally never accumulates its way into a long wait.
             if (lived >= Settled) _restarts = 0;
@@ -602,6 +639,52 @@ public class HardwareService : IDisposable
 
         StartHost();
     }
+
+    /// <summary>
+    /// Starts a host when there is none, which nothing else is in a position to do.
+    /// </summary>
+    /// <remarks>
+    /// Every other route back from a dead host hangs off the child's Exited event, and a launch
+    /// that threw before it had a process never raises one. That path set _host to null, showed
+    /// "Sensors unavailable" and stopped: the watchdog's own remedy is ReplaceHost, which
+    /// returns immediately when there is nothing to replace. So a machine that could not start
+    /// the host once could not start it ever, for the rest of the session.
+    ///
+    /// The wait grows with the number of attempts and is capped, on the same reasoning as the
+    /// restart backoff: whatever prevents a launch is usually brief, occasionally permanent,
+    /// and worth retrying either way because the alternative is a dead Pulse.
+    /// </remarks>
+    private void RelaunchIfAbsent()
+    {
+        lock (_hostLock)
+        {
+            // _relaunching covers the gap in HostExited, which clears _host and then waits out
+            // its backoff before starting the replacement. Without it the watchdog would see no
+            // host during that wait and start a second one alongside.
+            if (_disposed || _host != null || _relaunching) return;
+
+            long now = Environment.TickCount64;
+            if (now < _nextLaunchAttemptAt) return;
+
+            _relaunching         = true;
+            _launchAttempts++;
+            _nextLaunchAttemptAt = now + (long)LaunchRetryWait(_launchAttempts).TotalMilliseconds;
+        }
+
+        LogService.Warn(nameof(HardwareService),
+            $"No sensor host is running; starting one (attempt {_launchAttempts}).");
+
+        StartHost();
+    }
+
+    /// Counted separately from _restarts, which means "the host keeps dying" and carries a
+    /// message about faulting drivers. A host that never started is a different problem.
+    private int  _launchAttempts;
+    private long _nextLaunchAttemptAt;
+    private bool _relaunching;
+
+    private static TimeSpan LaunchRetryWait(int attempt) =>
+        TimeSpan.FromSeconds(Math.Min(attempt * 5, 60));
 
     /// <summary>
     /// Ends the current host so a fresh one takes its place. Used when it has stopped
@@ -637,13 +720,13 @@ public class HardwareService : IDisposable
             // while being an hour old is how a user ends up reporting that their GPU sits at a
             // constant temperature. Taken away in two stages so that switching a graphics card
             // off does not blank the tiles that have nothing to do with graphics.
-            if (silent > GpuStaleAfter && !_gpuBlanked)
+            if (silent > Deadline(GpuStaleAfter) && !_gpuBlanked)
             {
                 _gpuBlanked = true;
                 Hold(alsoClearTheRest: false);
             }
 
-            if (silent > EverythingStaleAfter && !_blanked)
+            if (silent > Deadline(EverythingStaleAfter) && !_blanked)
             {
                 _blanked = true;
                 Hold(alsoClearTheRest: true);
@@ -651,11 +734,13 @@ public class HardwareService : IDisposable
 
             // Alive but not answering. Rarer than a crash and more confusing, because nothing
             // has ended and nothing is logged; the readings simply stop.
-            if (silent > SilentAfter)
+            if (silent > Deadline(SilentAfter))
             {
                 _lastSnapshotAt = Environment.TickCount64;   // don't re-trigger while it dies
                 ReplaceHost($"no readings for {silent.TotalSeconds:F0}s");
             }
+
+            RelaunchIfAbsent();
         }
         catch (Exception ex)
         {
@@ -786,7 +871,11 @@ public class HardwareService : IDisposable
                 stateChanged    = true;
             }
 
-            if (snapshot.Gpus.Count > 0 && !SameGpus(snapshot.Gpus))
+            // Judged on whether the host looked, not on whether it found anything. An empty
+            // list used to be discarded either way, so unplugging an external card and
+            // rescanning left it still listed in the picker, still selectable, and connected
+            // to nothing.
+            if (snapshot.GpusKnown && !SameGpus(snapshot.Gpus))
             {
                 AvailableGpus = snapshot.Gpus;
                 gpusChanged   = true;
