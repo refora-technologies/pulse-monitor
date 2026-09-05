@@ -88,7 +88,17 @@ public class SettingsService
         var task    = StartupTask.Query();
         var current = Environment.ProcessPath ?? "";
 
-        if (task.Exists && current.Length > 0)
+        // Windows did not answer. Everything below decides something from what it said, and
+        // deciding from a non-answer is how the toggle used to end up describing a state
+        // nobody was in. Leave it exactly as it is and try again next launch.
+        if (!task.Known)
+        {
+            LogService.Warn(nameof(SettingsService),
+                "Could not read the startup task, so the setting was left as it is.");
+            return false;
+        }
+
+        if (task.WillRun && current.Length > 0)
         {
             // Two reasons to rewrite an existing task. It may point at a build that is no
             // longer here — every version shares one task name and stores an absolute path,
@@ -112,9 +122,23 @@ public class SettingsService
 
         // Deliberately does not create a missing task. Absent means the user turned startup
         // off, or never turned it on; recreating it here would override that silently.
-        if (Settings.StartWithWindows == task.Exists) return false;
+        //
+        // Judged on whether the task will actually run rather than on whether it is there. A
+        // task somebody switched off in Task Scheduler exists and starts nothing, and Pulse
+        // used to count it as startup being on. The toggle then said Pulse starts with Windows
+        // while Windows had been told not to, which is the exact complaint this reconciliation
+        // was written to prevent. Not re-enabled from here either: disabling it was somebody's
+        // deliberate act, and the honest response is to report it rather than undo it.
+        if (task.Presence == StartupTask.TaskPresence.Disabled && Settings.StartWithWindows)
+        {
+            LogService.Warn(nameof(SettingsService),
+                "The startup task exists but is switched off in Task Scheduler, so Pulse will not "
+              + "start with Windows. The setting has been changed to match.");
+        }
 
-        Settings.StartWithWindows = task.Exists;
+        if (Settings.StartWithWindows == task.WillRun) return false;
+
+        Settings.StartWithWindows = task.WillRun;
         return true;
     }
 

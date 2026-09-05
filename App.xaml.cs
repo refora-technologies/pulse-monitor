@@ -104,7 +104,18 @@ public partial class App : WinApplication
                 // Saving is marshalled back because SettingsChanged subscribers touch
                 // bound collections.
                 if (SettingsService.Instance.ReconcileStartupTask())
-                    Dispatcher.Invoke(SettingsService.Instance.Save);
+                {
+                    Dispatcher.Invoke(() =>
+                    {
+                        SettingsService.Instance.Save();
+
+                        // The panel cached the old value on the way up, so without this it goes
+                        // on showing what settings.json said before the check. That is only
+                        // ever wrong on a machine where the two disagreed, which is exactly the
+                        // machine whose owner is asking why startup does not work.
+                        SettingsViewModel.Instance.RefreshStartWithWindows();
+                    });
+                }
             }
             catch (Exception ex)
             {
@@ -401,6 +412,18 @@ public partial class App : WinApplication
     /// Shutdown itself performs, and Exit would do nothing.
     /// </summary>
     public static bool IsExiting { get; private set; }
+
+    /// <summary>
+    /// The one way out, for every control that means "close Pulse".
+    /// </summary>
+    /// <remarks>
+    /// The tray menu went through here and the panel's close button called Shutdown directly,
+    /// which skipped flushing a setting changed a moment earlier and released the global
+    /// hotkeys later than it needed to. Alt+F4 did neither and closed only the window: the
+    /// overlay is a window too, so WPF had no reason to exit and Pulse carried on running with
+    /// no panel. Three controls that all mean the same thing did three different things.
+    /// </remarks>
+    public void RequestExit() => ExitApp();
 
     private void ExitApp()
     {
