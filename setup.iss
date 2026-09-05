@@ -39,7 +39,13 @@ CloseApplicationsFilter=Pulse.exe
 
 ; Everything shipped here is x64 (Pulse, PresentMon, the PawnIO driver), so refuse to run
 ; anywhere it cannot work rather than installing and failing later.
-ArchitecturesAllowed=x64compatible
+;
+; x64os, not x64compatible. They differ on exactly one machine: ARM64 Windows, which counts as
+; x64-compatible because it can emulate x64 programs. Pulse itself would indeed run there, and
+; PawnIO would not: it is a kernel driver, and a kernel does not emulate anything. The install
+; would finish, the driver would fail, and every tile would read "--" with no explanation. Inno
+; says the same thing in its own documentation, that driver installers want the OS identifiers.
+ArchitecturesAllowed=x64os
 MinVersion=10.0
 
 ; DisableDirPage defaults to "auto", which hides the folder page on an upgrade but shows it
@@ -85,13 +91,11 @@ Name: "{group}\Uninstall Pulse"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\Pulse"; Filename: "{app}\Pulse.exe"; IconFilename: "{app}\Pulse.exe"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\PawnIO_setup.exe"; Parameters: "-install -silent"; Flags: runhidden waituntilterminated; StatusMsg: "Installing sensor driver..."
-; Registered through Pulse rather than schtasks so there is one definition of this task.
-; The bare schtasks command line cannot express three settings that matter here, and it
-; silently defaults all three the wrong way for an app meant to run all day: the task will
-; not start on battery, Windows terminates it when the machine is unplugged, and Windows
-; terminates it again after 72 hours of uptime. See Services\StartupTask.cs.
-Filename: "{app}\Pulse.exe"; Parameters: "--install-startup-task"; Flags: runhidden waituntilterminated; Tasks: startupentry; StatusMsg: "Setting up startup..."
+; The sensor driver and the startup task are not here any more. [Run] ignores what a program
+; exits with: it reports only a failure to start one at all, so a driver installer that ran and
+; refused looked exactly like one that worked, and setup finished saying everything was fine
+; while every reading in Pulse would show "--". Both are run from [Code] instead, where the
+; exit code can be looked at and said out loud. See InstallStep below.
 Filename: "{app}\Pulse.exe"; Description: "Launch Pulse"; Flags: nowait postinstall skipifsilent runascurrentuser
 
 [UninstallRun]
@@ -123,7 +127,15 @@ var
   ResultCode: Integer;
 begin
   Result  := False;
-  AppPath := Uppercase(ExpandConstant('{app}'));
+
+  { The whole program, not the folder it sits in.
+
+    This used to look for the folder name anywhere in the listing, which says yes to more than
+    it means. An install at C:\Program Files\Pulse would match a task running
+    C:\Program Files\Pulse-old\Pulse.exe, because the second contains the first, so uninstalling
+    one copy could delete the startup task belonging to another. Matching the full path to the
+    executable removes the family of near misses in one go. }
+  AppPath := Uppercase(ExpandConstant('{app}\Pulse.exe'));
   TempFile := ExpandConstant('{tmp}\pulse_task_query.txt');
 
   if Exec(ExpandConstant('{cmd}'),
@@ -224,6 +236,83 @@ end;
 function SucceededOrNeedsReboot(Code: Integer): Boolean;
 begin
   Result := (Code = 0) or (Code = 3010);
+end;
+
+var
+  DriverFailed:  Boolean;
+  StartupFailed: Boolean;
+  RebootWanted:  Boolean;
+
+{ Runs one installation step and returns what it exited with, or -1 if it never ran.
+
+  The Run section cannot do this. It checks whether a program could be started and then discards
+  the exit code entirely, so a driver installer that started and refused was indistinguishable
+  from one that succeeded. That is the worst thing to be quiet about here: without the driver
+  there are no temperatures and no power readings, which is what most people install Pulse for,
+  and the first they would know of it is every tile reading "--". }
+function InstallStep(const Exe, Params, Message: String): Integer;
+var
+  Code: Integer;
+begin
+  WizardForm.StatusLabel.Caption := Message;
+
+  if Exec(Exe, Params, '', SW_HIDE, ewWaitUntilTerminated, Code) then
+    Result := Code
+  else
+    Result := -1;
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  Code: Integer;
+begin
+  if CurStep <> ssPostInstall then
+    exit;
+
+  Code := InstallStep(ExpandConstant('{app}\PawnIO_setup.exe'), '-install -silent',
+                      'Installing sensor driver...');
+
+  if Code = 3010 then
+    RebootWanted := True
+  else if Code <> 0 then
+    DriverFailed := True;
+
+  { Registered through Pulse rather than schtasks so there is one definition of this task.
+    The bare schtasks command line cannot express three settings that matter here, and it
+    silently defaults all three the wrong way for an app meant to run all day: the task will
+    not start on battery, Windows terminates it when the machine is unplugged, and Windows
+    terminates it again after 72 hours of uptime. See Services\StartupTask.cs. }
+  if WizardIsTaskSelected('startupentry') then
+  begin
+    Code := InstallStep(ExpandConstant('{app}\Pulse.exe'), '--install-startup-task',
+                        'Setting up startup...');
+    if Code <> 0 then
+      StartupFailed := True;
+  end;
+
+  { A MsgBox from [Code] appears even under /SILENT, so a quiet install would stop and wait for
+    somebody who is not there. The failure still reaches Pulse's own log either way. }
+  if WizardSilent() then
+    exit;
+
+  if DriverFailed then
+    MsgBox('Pulse is installed, but the sensor driver did not install correctly.' + #13#10 + #13#10 +
+           'Temperatures, power and fan readings will be unavailable until it does. You can try ' +
+           'again by running PawnIO_setup.exe from the Pulse folder.',
+           mbError, MB_OK);
+
+  if StartupFailed then
+    MsgBox('Pulse is installed, but starting with Windows could not be set up.' + #13#10 + #13#10 +
+           'You can switch it on at any time from Pulse''s settings.',
+           mbInformation, MB_OK);
+end;
+
+{ Asked by Inno at the end. The driver package says 3010 when it is in place but wants a
+  restart before it will load, and silently ignoring that leaves somebody with no sensor
+  readings and no idea that a reboot is all it needs. }
+function NeedRestart(): Boolean;
+begin
+  Result := RebootWanted;
 end;
 
 { Stops the frame capture trace session, which outlives every process that touched it.
