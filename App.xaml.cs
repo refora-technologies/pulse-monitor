@@ -89,6 +89,13 @@ public partial class App : WinApplication
             try { UpdateService.CleanupStaleDownloads(); } catch { }   // leftovers only
             try { CleanupStaleExtractDirectories();     } catch { }   // leftovers only
 
+            // The same idea, for something an earlier Pulse left outside its own folders: one
+            // trace session per launch, named after the process id, never released. Nothing
+            // that ships now knows those names, so upgrading alone would leave frame capture
+            // broken machine wide on exactly the machines that suffered it. Handles its own
+            // failures and says nothing when there is nothing to clear.
+            TraceSessionCleanup.Run();
+
             try
             {
                 // Settings.json can disagree with reality — the installer's "start with
