@@ -140,6 +140,19 @@ public class HotkeyService : IDisposable
                 $"Could not register {shortcut} for {action}: Win32 error {error}.");
         }
 
+        // What the bindings actually were at the moment Windows was asked. Written on every
+        // apply, which includes startup, so a diagnostic shows whether a combination survived
+        // the last restart or came back as something else.
+        LogService.Info(nameof(HotkeyService), "Shortcuts now: " + string.Join(", ",
+            AllActions.Select(action =>
+            {
+                var shortcut = settings.ShortcutFor(action);
+                var state = !shortcut.IsSet          ? "not set"
+                          : _failures.ContainsKey(action) ? $"{shortcut} REFUSED"
+                          : shortcut.ToString();
+                return $"{action}={state}";
+            })));
+
         FailuresChanged?.Invoke(this, EventArgs.Empty);
     }
 
