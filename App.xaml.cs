@@ -251,17 +251,98 @@ public partial class App : WinApplication
         }
     }
 
+    /// <summary>
+    /// Shows the overlay, and keeps trying for a while if it cannot be built yet.
+    /// </summary>
+    /// <remarks>
+    /// Building the window can fail at logon. Pulse ships single-file, so its native WPF
+    /// libraries are unpacked to %TEMP% and something touching one of them — a scanner
+    /// reaching a freshly extracted file first, a cold disk under logon load — makes WPF throw
+    /// while it is still parsing the markup. A reporter hit this on ten of twenty-seven boots.
+    ///
+    /// It used to be fatal, then 1.3.0 made unhandled interface exceptions survivable and it
+    /// became worse in a quieter way: Pulse carried on running with no overlay and no way to
+    /// know why, because the throw landed on the assignment below and skipped the two menu
+    /// refreshes underneath it. The tray then offered "Hide Overlay" over an empty screen.
+    ///
+    /// The condition clears in seconds, so retrying is the whole fix. Reproduced by holding
+    /// wpfgfx_cor3.dll open with no sharing while Pulse starts; see
+    /// _tests/overlay-startup-repro.
+    /// </remarks>
     public void ShowOverlay()
     {
         Dispatcher.Invoke(() =>
         {
-            if (_overlayWindow == null || !_overlayWindow.IsLoaded)
-                _overlayWindow = new OverlayWindow();
-            _overlayWindow.Show();
-            _overlayWindow.Topmost = true;
+            try
+            {
+                if (_overlayWindow == null || !_overlayWindow.IsLoaded)
+                    _overlayWindow = new OverlayWindow();
+                _overlayWindow.Show();
+                _overlayWindow.Topmost = true;
+                StopOverlayRetry();
+            }
+            catch (Exception ex)
+            {
+                // A half-built window is no use to the next attempt, and leaving it in the
+                // field would make IsOverlayVisible answer for something that cannot show.
+                _overlayWindow = null;
+
+                if (_overlayRetries == 0)
+                    Services.LogService.Error(nameof(App),
+                        "The overlay could not be built; retrying in the background", ex);
+
+                ScheduleOverlayRetry();
+            }
+
+            // Outside the try on purpose. Whether the overlay came up or not, the tray and the
+            // panel must describe what actually happened.
             UpdateMainWindowButton();
             UpdateTrayMenu();
         });
+    }
+
+    /// How many times ShowOverlay has failed in the current run of attempts.
+    private int _overlayRetries;
+
+    private System.Windows.Threading.DispatcherTimer? _overlayRetryTimer;
+
+    /// Long enough to outlast a scanner holding a freshly extracted DLL, short enough that a
+    /// machine which genuinely cannot render stops asking. Measured recovery was under three
+    /// seconds; this allows a minute.
+    private const int MaxOverlayRetries = 20;
+
+    private void ScheduleOverlayRetry()
+    {
+        if (_overlayRetries >= MaxOverlayRetries)
+        {
+            StopOverlayRetry();
+            Services.LogService.Warn(nameof(App),
+                $"The overlay still could not be built after {MaxOverlayRetries} attempts. " +
+                "Use Show Overlay in the tray menu to try again.");
+            return;
+        }
+
+        _overlayRetries++;
+
+        _overlayRetryTimer ??= new System.Windows.Threading.DispatcherTimer(
+            System.Windows.Threading.DispatcherPriority.Background)
+        {
+            Interval = TimeSpan.FromSeconds(3),
+        };
+
+        // Assigned rather than added to: this runs on every failure, and subscribing each time
+        // would fire one ShowOverlay per failure so far.
+        _overlayRetryTimer.Tick -= OnOverlayRetryTick;
+        _overlayRetryTimer.Tick += OnOverlayRetryTick;
+        _overlayRetryTimer.Start();
+    }
+
+    private void OnOverlayRetryTick(object? sender, EventArgs e) => ShowOverlay();
+
+    private void StopOverlayRetry()
+    {
+        _overlayRetries = 0;
+        _overlayRetryTimer?.Stop();
     }
 
     public void HideOverlay()
@@ -317,8 +398,12 @@ public partial class App : WinApplication
             _trayIcon.Icon = System.Drawing.SystemIcons.Application;
         }
 
-        _overlayToggleItem = new System.Windows.Forms.ToolStripMenuItem("Hide Overlay", null,
-            (_, _) => ToggleOverlay());
+        // Built from the real state rather than a fixed string. This runs before the overlay
+        // exists, so the honest label here is "Show Overlay"; UpdateTrayMenu corrects it the
+        // moment one appears. Hardcoding "Hide Overlay" meant that when the overlay failed to
+        // build, the label nobody had corrected was also the wrong one.
+        _overlayToggleItem = new System.Windows.Forms.ToolStripMenuItem(
+            IsOverlayVisible ? "Hide Overlay" : "Show Overlay", null, (_, _) => ToggleOverlay());
 
         var menu = new System.Windows.Forms.ContextMenuStrip
         {
