@@ -268,7 +268,9 @@ public static class LogService
         }
     }
 
-    private static readonly DateTime SessionStart = DateTime.Now;
+    /// Internal rather than private so the native library probe can say how far into the run a
+    /// failure happened, which is most of what tells a logon problem from any other kind.
+    internal static readonly DateTime SessionStart = DateTime.Now;
 
     // ── Export ──────────────────────────────────────────────────────────────────────
 
@@ -297,9 +299,12 @@ public static class LogService
                 .AppendLine($"Exported  : {DateTime.Now:yyyy-MM-dd HH:mm:ss}")
                 .AppendLine($"Running   : {Safe(() => (DateTime.Now - SessionStart).ToString(@"hh\:mm\:ss"))}");
 
+            report.AppendLine($"Booted    : {Safe(NativeLibraryProbe.MachineUptime)} ago");
+
             AppendHardware(report);
             AppendStartup(report);
             AppendShortcuts(report);
+            AppendNativeLibraries(report);
 
             report.AppendLine();
 
@@ -635,6 +640,30 @@ public static class LogService
         catch (Exception ex)
         {
             report.AppendLine($"Shortcuts : could not be read ({ex.GetType().Name})");
+        }
+    }
+
+    /// <summary>
+    /// Where the native WPF libraries are and whether they can be read right now.
+    /// </summary>
+    /// <remarks>
+    /// Here because one machine reports the overlay missing after a restart, and the exception
+    /// behind it names neither the library nor the reason. Recorded on every export, not only
+    /// on failure, so a machine that works gives us something to compare against.
+    /// </remarks>
+    private static void AppendNativeLibraries(StringBuilder report)
+    {
+        try
+        {
+            var lines = NativeLibraryProbe.Snapshot();
+            report.AppendLine($"Native    : {Redact(lines.Count > 0 ? lines[0] : "unknown")}");
+
+            for (int i = 1; i < lines.Count; i++)
+                report.AppendLine($"          - {Redact(lines[i])}");
+        }
+        catch (Exception ex)
+        {
+            report.AppendLine($"Native    : could not be read ({ex.GetType().Name})");
         }
     }
 

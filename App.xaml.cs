@@ -288,8 +288,14 @@ public partial class App : WinApplication
                 _overlayWindow = null;
 
                 if (_overlayRetries == 0)
+                {
                     Services.LogService.Error(nameof(App),
                         "The overlay could not be built; retrying in the background", ex);
+
+                    // The exception for this names neither the library nor the reason. Ask
+                    // Windows directly while the machine is still in the state that caused it.
+                    Services.NativeLibraryProbe.Record(nameof(App), ex);
+                }
 
                 ScheduleOverlayRetry();
             }
