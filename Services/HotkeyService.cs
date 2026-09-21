@@ -90,6 +90,7 @@ public class HotkeyService : IDisposable
 
         if (!settings.ShortcutsEnabled || _suspended)
         {
+            StopSinkRetry();
             FailuresChanged?.Invoke(this, EventArgs.Empty);
             return;
         }
@@ -101,9 +102,17 @@ public class HotkeyService : IDisposable
                 if (settings.ShortcutFor(action).IsSet)
                     _failures[action] = "Shortcuts could not be set up on this system.";
 
+            // Nearly always temporary, and it used to be permanent for the session. The
+            // listener is a WPF window, so it needs the same native library the overlay does,
+            // and at logon that library can be briefly unreadable — the same few seconds that
+            // left a reporter with no overlay also left every shortcut dead until the next
+            // restart. Same cause, same answer: ask again shortly.
+            ScheduleSinkRetry();
             FailuresChanged?.Invoke(this, EventArgs.Empty);
             return;
         }
+
+        StopSinkRetry();
 
         foreach (var action in AllActions)
         {
@@ -162,6 +171,45 @@ public class HotkeyService : IDisposable
         Apply();
     }
 
+    /// How many times the listener has failed to be created in the current run of attempts.
+    private int _sinkRetries;
+
+    private System.Windows.Threading.DispatcherTimer? _sinkRetryTimer;
+
+    /// Matches the overlay's retry budget in <see cref="App"/>: a minute of asking, then stop.
+    private const int MaxSinkRetries = 20;
+
+    private void ScheduleSinkRetry()
+    {
+        if (_sinkRetries >= MaxSinkRetries)
+        {
+            StopSinkRetry();
+            LogService.Warn(nameof(HotkeyService),
+                $"The shortcut listener could not be created after {MaxSinkRetries} attempts.");
+            return;
+        }
+
+        _sinkRetries++;
+
+        _sinkRetryTimer ??= new System.Windows.Threading.DispatcherTimer(
+            System.Windows.Threading.DispatcherPriority.Background)
+        {
+            Interval = TimeSpan.FromSeconds(3),
+        };
+
+        _sinkRetryTimer.Tick -= OnSinkRetryTick;
+        _sinkRetryTimer.Tick += OnSinkRetryTick;
+        _sinkRetryTimer.Start();
+    }
+
+    private void OnSinkRetryTick(object? sender, EventArgs e) => Apply();
+
+    private void StopSinkRetry()
+    {
+        _sinkRetries = 0;
+        _sinkRetryTimer?.Stop();
+    }
+
     private void EnsureSink()
     {
         if (_sink != null) return;
@@ -182,7 +230,11 @@ public class HotkeyService : IDisposable
         }
         catch (Exception ex)
         {
-            LogService.Error(nameof(HotkeyService), "Could not create the shortcut listener", ex);
+            // Only the first failure of a run. This is retried every few seconds, and twenty
+            // copies of the same line would bury the one that explains what happened.
+            if (_sinkRetries == 0)
+                LogService.Error(nameof(HotkeyService), "Could not create the shortcut listener", ex);
+
             _sink = null;
         }
     }
@@ -229,6 +281,7 @@ public class HotkeyService : IDisposable
 
     public void Dispose()
     {
+        StopSinkRetry();
         UnregisterAll();
 
         // Windows releases these when the process ends, but not before: an orderly exit that
