@@ -304,8 +304,17 @@ public class SettingsViewModel : BaseViewModel
             }
         }
 
+        var previous = SettingsService.Instance.Settings.ShortcutFor(action);
+
         SettingsService.Instance.Settings.SetShortcut(action, shortcut);
         SettingsService.Instance.Save();
+
+        // Every binding change leaves a trace, so a combination that is not what the user last
+        // chose can be told apart from one they changed and forgot. A reporter described custom
+        // shortcuts going back to the defaults on their own, and without this there is no way
+        // to know whether something rewrote them or the save never reached the disk.
+        LogService.Info(nameof(SettingsViewModel),
+            $"Shortcut for {action} changed from {Describe(previous)} to {Describe(shortcut)} (chosen in the panel).");
 
         foreach (var row in ShortcutRows)
             if (row.Action == action) row.Binding = shortcut;
@@ -314,14 +323,21 @@ public class SettingsViewModel : BaseViewModel
         return null;
     }
 
+    private static string Describe(Shortcut shortcut) => shortcut.IsSet ? shortcut.ToString() : "nothing";
+
     public void ClearShortcut(ShortcutAction action) => AssignShortcut(action, Shortcut.None);
 
     /// Puts the three suggested combinations back, including on rows that were cleared.
     public void ResetShortcuts()
     {
+        var changed = new List<string>();
+
         foreach (var action in HotkeyService.AllActions)
         {
             var fallback = Shortcut.Default(action);
+            var previous = SettingsService.Instance.Settings.ShortcutFor(action);
+            if (previous != fallback) changed.Add($"{action} was {Describe(previous)}");
+
             SettingsService.Instance.Settings.SetShortcut(action, fallback);
 
             foreach (var row in ShortcutRows)
@@ -329,6 +345,14 @@ public class SettingsViewModel : BaseViewModel
         }
 
         SettingsService.Instance.Save();
+
+        // The only route in the product that puts the defaults back, so if a diagnostic shows
+        // defaults and no line from here, they were never reset and something else is at fault.
+        LogService.Info(nameof(SettingsViewModel),
+            changed.Count == 0
+                ? "Shortcuts reset to the defaults from the panel; they were already the defaults."
+                : $"Shortcuts reset to the defaults from the panel. Replaced: {string.Join(", ", changed)}.");
+
         ApplyShortcuts();
     }
 

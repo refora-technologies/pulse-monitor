@@ -1,6 +1,10 @@
 ﻿using System.IO;
 using System.Text;
 
+// Named rather than importing the namespace: WinForms has a Shortcut of its own and this file
+// is compiled with it in scope.
+using Shortcut = Pulse.Models.Shortcut;
+
 namespace Pulse.Services;
 
 public enum LogLevel { Info, Warn, Error }
@@ -295,6 +299,7 @@ public static class LogService
 
             AppendHardware(report);
             AppendStartup(report);
+            AppendShortcuts(report);
 
             report.AppendLine();
 
@@ -591,6 +596,53 @@ public static class LogService
         }
     }
 
+
+    /// <summary>
+    /// What each shortcut is set to, whether that is the suggested default, and whether Windows
+    /// actually accepted it.
+    /// </summary>
+    /// <remarks>
+    /// Here because a reporter described custom combinations going back to the defaults on their
+    /// own after a few restarts, and nothing in a diagnostic said what the bindings were, so
+    /// there was no way to tell a setting that failed to save from one that something rewrote.
+    /// Read straight from settings.json rather than from the panel, which caches.
+    /// </remarks>
+    private static void AppendShortcuts(StringBuilder report)
+    {
+        try
+        {
+            var settings = SettingsService.Instance.Settings;
+            var failures = Safe2(() => HotkeyService.Instance.Failures);
+
+            report.AppendLine($"Shortcuts : {(settings.ShortcutsEnabled ? "enabled" : "off")}");
+
+            foreach (var action in HotkeyService.AllActions)
+            {
+                var binding = settings.ShortcutFor(action);
+                var fallback = Shortcut.Default(action);
+
+                var state = !binding.IsSet         ? "not set"
+                          : binding == fallback    ? $"{binding} (the suggested default)"
+                                                   : $"{binding} (custom)";
+
+                var problem = failures != null && failures.TryGetValue(action, out var reason)
+                    ? $"  <- {reason}"
+                    : "";
+
+                report.AppendLine($"          - {action}: {state}{problem}");
+            }
+        }
+        catch (Exception ex)
+        {
+            report.AppendLine($"Shortcuts : could not be read ({ex.GetType().Name})");
+        }
+    }
+
+    /// Safe() for anything that is not a string.
+    private static T? Safe2<T>(Func<T> read) where T : class
+    {
+        try { return read(); } catch { return null; }
+    }
 
     /// Each graphics adapter Windows knows about, with the dedicated video memory it reports.
     private static string DescribeAdapters()
