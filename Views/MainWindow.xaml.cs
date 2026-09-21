@@ -66,11 +66,16 @@ public partial class MainWindow : Window
             // once. Without this the position sliders would keep whatever they read the first
             // time, however far the overlay had been dragged since, and the display buttons
             // would still list monitors that were unplugged while the panel was away.
+            //
+            // The overlay button belongs here for the same reason. It was refreshed only on
+            // Loaded and by App's show/hide, so any other route to the overlay disappearing
+            // left it reading "Hide Overlay" over an empty screen.
             IsVisibleChanged += (_, args) =>
             {
                 if (args.NewValue is not true) return;
                 _vm?.NotifyPositionChanged();
                 PopulateMonitorButtons();
+                UpdateOverlayButton();
             };
 
             // The corner and display buttons are painted in code rather than bound, so they
