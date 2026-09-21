@@ -246,7 +246,13 @@ public class HotkeyService : IDisposable
             // Only the first failure of a run. This is retried every few seconds, and twenty
             // copies of the same line would bury the one that explains what happened.
             if (_sinkRetries == 0)
+            {
                 LogService.Error(nameof(HotkeyService), "Could not create the shortcut listener", ex);
+
+                // This fails a fraction of a second before the overlay does, on the same
+                // libraries, so it is the earliest look we get at the machine in that state.
+                NativeLibraryProbe.Record(nameof(HotkeyService), ex);
+            }
 
             _sink = null;
         }
