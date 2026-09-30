@@ -58,9 +58,17 @@ public class HotkeyService : IDisposable
     /// unique within this window.
     private readonly Dictionary<int, ShortcutAction> _registered = new();
 
+    /// <summary>
     /// Why a shortcut is not working, per action. Empty when all is well.
+    /// </summary>
+    /// <remarks>
+    /// Replaced whole on every Apply, never changed in place. The diagnostics export reads this
+    /// from its own thread while Apply runs on the interface thread, and handing out the live
+    /// dictionary meant the export could read it halfway through being cleared and refilled.
+    /// Swapping a finished one in means a reader sees the old set or the new one, nothing between.
+    /// </remarks>
     public IReadOnlyDictionary<ShortcutAction, string> Failures => _failures;
-    private readonly Dictionary<ShortcutAction, string> _failures = new();
+    private volatile IReadOnlyDictionary<ShortcutAction, string> _failures = new Dictionary<ShortcutAction, string>();
 
     /// Raised on the interface thread when the user presses one of the combinations.
     public event EventHandler<ShortcutAction>? Pressed;
@@ -86,11 +94,12 @@ public class HotkeyService : IDisposable
         var settings = SettingsService.Instance.Settings;
 
         UnregisterAll();
-        _failures.Clear();
+        var failures = new Dictionary<ShortcutAction, string>();
 
         if (!settings.ShortcutsEnabled || _suspended)
         {
             StopSinkRetry();
+            _failures = failures;
             FailuresChanged?.Invoke(this, EventArgs.Empty);
             return;
         }
@@ -100,7 +109,7 @@ public class HotkeyService : IDisposable
         {
             foreach (var action in AllActions)
                 if (settings.ShortcutFor(action).IsSet)
-                    _failures[action] = "Shortcuts could not be set up on this system.";
+                    failures[action] = "Shortcuts could not be set up on this system.";
 
             // Nearly always temporary, and it used to be permanent for the session. The
             // listener is a WPF window, so it needs the same native library the overlay does,
@@ -108,6 +117,7 @@ public class HotkeyService : IDisposable
             // left a reporter with no overlay also left every shortcut dead until the next
             // restart. Same cause, same answer: ask again shortly.
             ScheduleSinkRetry();
+            _failures = failures;
             FailuresChanged?.Invoke(this, EventArgs.Empty);
             return;
         }
@@ -132,7 +142,7 @@ public class HotkeyService : IDisposable
             // there first. Reported against the row rather than logged and forgotten, because
             // a shortcut that silently does nothing is the reason people distrust this feature.
             int error = Marshal.GetLastWin32Error();
-            _failures[action] = error == 1409
+            failures[action] = error == 1409
                 ? $"{shortcut} is already used by another program."
                 : $"Windows would not accept {shortcut} (error {error}).";
 
@@ -148,11 +158,12 @@ public class HotkeyService : IDisposable
             {
                 var shortcut = settings.ShortcutFor(action);
                 var state = !shortcut.IsSet          ? "not set"
-                          : _failures.ContainsKey(action) ? $"{shortcut} REFUSED"
+                          : failures.ContainsKey(action) ? $"{shortcut} REFUSED"
                           : shortcut.ToString();
                 return $"{action}={state}";
             })));
 
+        _failures = failures;
         FailuresChanged?.Invoke(this, EventArgs.Empty);
     }
 
