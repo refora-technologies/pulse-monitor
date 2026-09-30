@@ -153,31 +153,94 @@ public class AppSettings
 
     private static string BackupPath => SettingsPath + ".bak";
 
+    /// <summary>
+    /// True when a settings file exists but could not be read, so these are defaults standing
+    /// in for it. Such settings are never written to disk; see Load.
+    /// </summary>
+    [JsonIgnore]
+    public bool ReadFailed { get; private set; }
+
+    /// <summary>
+    /// Reads the saved settings, falling back to the backup, then to defaults.
+    /// </summary>
+    /// <remarks>
+    /// Three different reasons for having no settings, and only two of them are safe to write
+    /// over. A missing file is a first run. A file that is there but is not valid JSON has
+    /// nothing in it to protect. But a file that is there and could not be read right now, which
+    /// is most likely at logon when a scanner or a slow disk has it, still holds everything the
+    /// user set up. Pulse used to treat that the same as a first run: the startup task check
+    /// then saved, which moved the real file to the backup and wrote defaults in its place, and
+    /// the next save overwrote the backup too.
+    ///
+    /// So an unreadable file is asked again a couple of times, briefly. If it still cannot be
+    /// read, Pulse runs on defaults with ReadFailed set, and SettingsService refuses to save
+    /// them. Losing this session's changes is recoverable; losing the saved ones is not.
+    /// </remarks>
     public static AppSettings Load()
     {
         // The backup is only reached if the main file is missing or unreadable, which is
         // what an interrupted write leaves behind.
-        return TryLoad(SettingsPath) ?? TryLoad(BackupPath) ?? new AppSettings();
+        var (main, mainState) = TryLoadPatiently(SettingsPath);
+        if (main != null) return main;
+
+        var (backup, backupState) = TryLoadPatiently(BackupPath);
+        if (backup != null) return backup;
+
+        var defaults = new AppSettings
+        {
+            ReadFailed = mainState == ReadState.Unreadable || backupState == ReadState.Unreadable,
+        };
+
+        if (defaults.ReadFailed)
+            Services.LogService.Warn(nameof(AppSettings),
+                "Saved settings exist but could not be read. Running on defaults, which will not be saved over them.");
+
+        return defaults;
     }
 
-    private static AppSettings? TryLoad(string path)
+    internal enum ReadState { Missing, Read, Corrupt, Unreadable }
+
+    private static (AppSettings? Settings, ReadState State) TryLoadPatiently(string path)
     {
+        for (int attempt = 1; ; attempt++)
+        {
+            var result = TryLoad(path);
+            if (result.State != ReadState.Unreadable || attempt == 3) return result;
+
+            // Short, because this is on the way to the first window. At logon a file held by a
+            // scanner is usually released in well under a second.
+            Thread.Sleep(250 * attempt);
+        }
+    }
+
+    internal static (AppSettings? Settings, ReadState State) TryLoad(string path)
+    {
+        string text;
         try
         {
-            if (!File.Exists(path)) return null;
-
-            var settings = JsonConvert.DeserializeObject<AppSettings>(File.ReadAllText(path), LoadSettings);
-            if (settings is null) return null;
-
-            settings.Sanitise();
-            return settings;
+            if (!File.Exists(path)) return (null, ReadState.Missing);
+            text = File.ReadAllText(path);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             // Worth recording: this is the path where a user silently loses every
             // preference, and without a trace it looks like Pulse simply forgot them.
             Services.LogService.Error(nameof(AppSettings), $"Could not read settings from {path}", ex);
-            return null;
+            return (null, ReadState.Unreadable);
+        }
+
+        try
+        {
+            var settings = JsonConvert.DeserializeObject<AppSettings>(text, LoadSettings);
+            if (settings is null) return (null, ReadState.Corrupt);
+
+            settings.Sanitise();
+            return (settings, ReadState.Read);
+        }
+        catch (Exception ex)
+        {
+            Services.LogService.Error(nameof(AppSettings), $"Settings in {path} could not be understood", ex);
+            return (null, ReadState.Corrupt);
         }
     }
 

@@ -1023,11 +1023,13 @@ public class SettingsViewModel : BaseViewModel
     /// Shown rather than only logged, because the symptom is otherwise invisible until the next
     /// launch and looks like Pulse forgetting things at random.
     /// </summary>
-    public bool HasSaveWarning => SettingsService.Instance.LastSaveFailed;
+    public bool HasSaveWarning => SettingsService.Instance.LastSaveFailed || SettingsService.Instance.Settings.ReadFailed;
 
-    public string SaveWarning =>
-        "Your preferences can't be saved to disk, so changes will be lost when Pulse closes. "
-      + "Check that there is free space and that Pulse is allowed to write to your AppData folder.";
+    public string SaveWarning => SettingsService.Instance.Settings.ReadFailed
+        ? "Pulse couldn't read your saved preferences when it started, so it's using the defaults "
+        + "for now and won't write over the saved ones. Restart Pulse to get them back."
+        : "Your preferences can't be saved to disk, so changes will be lost when Pulse closes. "
+        + "Check that there is free space and that Pulse is allowed to write to your AppData folder.";
 
     public UpdateInfo? PendingUpdate => _pendingUpdate;
 

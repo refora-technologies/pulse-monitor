@@ -35,7 +35,10 @@ public class SettingsService
 
     public bool Save()
     {
-        bool saved = Settings.Save();
+        // Defaults standing in for a file that could not be read are never written over it.
+        // See AppSettings.Load. The change still applies for this session, as any other
+        // failed save does, and the panel says why it will not last.
+        bool saved = Settings.ReadFailed ? RefuseToOverwrite() : Settings.Save();
 
         // Only raised on a change of state, so the panel is not re-notified on every write.
         bool changed = LastSaveFailed == saved;
@@ -49,6 +52,19 @@ public class SettingsService
 
     /// Raised when saving starts failing, or starts working again.
     public event EventHandler? SaveStateChanged;
+
+    private bool _refusalLogged;
+
+    private bool RefuseToOverwrite()
+    {
+        if (!_refusalLogged)
+        {
+            _refusalLogged = true;
+            LogService.Warn(nameof(SettingsService),
+                "Not saving: these are defaults, and the saved settings they stand in for could not be read at startup.");
+        }
+        return false;
+    }
 
     /// <summary>
     /// Returns whether the change actually took effect. The stored setting now reflects what
