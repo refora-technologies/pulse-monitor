@@ -102,7 +102,9 @@ Filename: "{app}\Pulse.exe"; Description: "Launch Pulse"; Flags: nowait postinst
 ; Only remove the startup task if it actually points at *this* install. Every version shares
 ; the one task name, so deleting it unconditionally meant uninstalling an old copy silently
 ; broke "start with Windows" for the copy the user kept.
-Filename: "schtasks.exe"; Parameters: "/Delete /TN ""PulseMonitor"" /F"; Flags: runhidden; RunOnceId: "DelPulseTask"; Check: TaskTargetsThisInstall
+; The full path, not the name. The uninstaller runs elevated, and a bare name is looked up
+; through a search path it does not control. Same reasoning as StartupTask.SchTasks.
+Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /TN ""PulseMonitor"" /F"; Flags: runhidden; RunOnceId: "DelPulseTask"; Check: TaskTargetsThisInstall
 
 [UninstallDelete]
 ; Pulse is a single-file app, so .NET unpacks its native libraries here, into a differently
@@ -150,8 +152,10 @@ begin
   AppPath := Uppercase(ExpandConstant('{app}\Pulse.exe'));
   TempFile := ExpandConstant('{tmp}\pulse_task_query.txt');
 
+  { The whole line is wrapped in one more pair of quotes because cmd strips the outer pair
+    when the command itself starts with a quoted path. }
   if Exec(ExpandConstant('{cmd}'),
-          '/C schtasks /Query /TN "PulseMonitor" /V /FO LIST > "' + TempFile + '" 2>&1',
+          '/C ""' + ExpandConstant('{sys}\schtasks.exe') + '" /Query /TN "PulseMonitor" /V /FO LIST > "' + TempFile + '" 2>&1"',
           '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
   begin
     if (ResultCode = 0) and LoadStringFromFile(TempFile, Content) then
@@ -161,22 +165,6 @@ begin
   DeleteFile(TempFile);
 end;
 
-{ Closes a running Pulse before anything is removed.
-
-  CloseApplications handles this during installation through the Restart Manager, but not
-  during uninstallation — so uninstalling while Pulse was running left its files locked
-  ("some elements could not be removed") and, worse, left the sensor driver in use, which
-  made removing PawnIO fail silently even when the user had asked for it.
-
-  Politely first, so Pulse can finish writing settings and release the driver handle;
-  forcefully only if it is still there. Settings are written as they change, so nothing is
-  lost either way. }
-{ Kills a frame capture process left behind by an older Pulse.
-
-  From 1.1.0 the capture is tied to Pulse's lifetime and cannot outlive it, but a version
-  being upgraded or removed may predate that. Its capture process holds
-  Resources\PresentMon\PresentMon-2.5.1-x64.exe open, which is what made installs stall on a
-  "the file is in use, try again" prompt and left the Resources folder behind afterwards. }
 { Builds a taskkill filter for one image name, owned by the account running this installer.
 
   The account name has to be substituted here rather than written as %USERNAME%. Exec calls
@@ -199,6 +187,12 @@ begin
     Result := Result + ' /FI "USERNAME eq ' + User + '"';
 end;
 
+{ Kills a frame capture process left behind by an older Pulse.
+
+  From 1.1.0 the capture is tied to Pulse's lifetime and cannot outlive it, but a version
+  being upgraded or removed may predate that. Its capture process holds
+  Resources\PresentMon\PresentMon-2.5.1-x64.exe open, which is what made installs stall on a
+  "the file is in use, try again" prompt and left the Resources folder behind afterwards. }
 procedure CloseOrphanedCapture();
 var
   ResultCode: Integer;
@@ -211,6 +205,16 @@ begin
   Sleep(400);
 end;
 
+{ Closes a running Pulse before anything is removed.
+
+  CloseApplications handles this during installation through the Restart Manager, but not
+  during uninstallation — so uninstalling while Pulse was running left its files locked
+  ("some elements could not be removed") and, worse, left the sensor driver in use, which
+  made removing PawnIO fail silently even when the user had asked for it.
+
+  Politely first, so Pulse can finish writing settings and release the driver handle;
+  forcefully only if it is still there. Settings are written as they change, so nothing is
+  lost either way. }
 procedure CloseRunningPulse();
 var
   ResultCode: Integer;
@@ -277,7 +281,7 @@ begin
     Result := -1;
 end;
 
-{ Whether the sensor driver is actually registered with Windows.
+{ Whether the sensor driver is actually on this machine.
 
   This is the question that matters, and it is not the same question as what its installer
   returned. PawnIO's setup reports success in its own words and still exits non-zero, so
@@ -285,26 +289,40 @@ end;
   failed. That is worse than not checking at all: the whole point of looking was to stop
   setup being quiet about a real failure, and instead it invented one.
 
-  The service key is where Windows records a kernel driver, so its presence is the outcome
-  itself rather than a report about the outcome. Read from the 64-bit view explicitly; this
-  key is not redirected, but saying so costs nothing and removes the question. }
+  Judged by its device, or failing that its Installed apps entry, and not by its service key.
+  Measured on 1 October 2026: PawnIO's own uninstaller removes the files, the Installed apps
+  entry and the device, and leaves the service key behind until the next restart, so the key
+  said "installed" about a driver that had been removed. Windows lists the devices a driver is
+  serving under the service's Enum key, one when it is installed and none after that removal.
+  Pulse itself decides the same way; see Services\SensorDriver.cs. Both read from the 64-bit
+  view explicitly; neither key is redirected, but saying so removes the question. }
 function DriverIsInstalled(): Boolean;
+var
+  Devices: Cardinal;
 begin
-  Result := RegKeyExists(HKEY_LOCAL_MACHINE_64, 'SYSTEM\CurrentControlSet\Services\PawnIO');
+  Result := RegKeyExists(HKEY_LOCAL_MACHINE_64, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\PawnIO');
+
+  if not Result then
+    if RegQueryDWordValue(HKEY_LOCAL_MACHINE_64, 'SYSTEM\CurrentControlSet\Services\PawnIO\Enum', 'Count', Devices) then
+      Result := Devices > 0;
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   Code: Integer;
+  DriverCode: Integer;
 begin
   if CurStep <> ssPostInstall then
     exit;
 
-  Code := InstallStep(ExpandConstant('{app}\PawnIO_setup.exe'), '-install -silent',
-                      'Installing sensor driver...');
+  { Its own variable. This used to share Code with the startup task step below, which ran in
+    between, so the failure message reported the startup task's exit code, usually 0, as the
+    driver's. }
+  DriverCode := InstallStep(ExpandConstant('{app}\PawnIO_setup.exe'), '-install -silent',
+                            'Installing sensor driver...');
 
   { 3010 still means "in place, but not until you restart", which is worth passing on. }
-  if Code = 3010 then
+  if DriverCode = 3010 then
     RebootWanted := True;
 
   { Judged on what is on the machine afterwards, not on what the installer said about it. }
@@ -329,10 +347,11 @@ begin
     exit;
 
   if DriverFailed then
-    MsgBox('Pulse is installed, but the sensor driver is not registered on this computer.' + #13#10 + #13#10 +
-           'Temperatures, power and fan readings will be unavailable until it is. You can try ' +
-           'again by running PawnIO_setup.exe from the Pulse folder.' + #13#10 + #13#10 +
-           'Its installer exited with code ' + IntToStr(Code) + '.',
+    MsgBox('Pulse is installed, but the sensor driver is not on this computer.' + #13#10 + #13#10 +
+           'CPU temperature, CPU power, CPU clock and CPU+GPU power will be unavailable until ' +
+           'it is. Everything else works. You can install it later from Pulse by clicking one ' +
+           'of those tiles.' + #13#10 + #13#10 +
+           'Its installer exited with code ' + IntToStr(DriverCode) + '.',
            mbError, MB_OK);
 
   if StartupFailed then
