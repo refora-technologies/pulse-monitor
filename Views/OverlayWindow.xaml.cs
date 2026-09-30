@@ -1133,6 +1133,20 @@ public partial class OverlayWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
+        Release();
+        base.OnClosed(e);
+    }
+
+    /// <summary>
+    /// Lets go of everything this window subscribed to or started. Safe to call more than once.
+    /// </summary>
+    /// <remarks>
+    /// Public for the one caller that cannot rely on OnClosed: App, when this window was built
+    /// and then failed to show. The constructor has already subscribed to a static Windows event
+    /// by then, which pins the window for the life of the process, and each retry built another.
+    /// </remarks>
+    public void Release()
+    {
         _topmostTimer?.Stop();
         _topmostTimer = null;
         StopMenuMouseHook();
@@ -1152,6 +1166,5 @@ public partial class OverlayWindow : Window
 
         SettingsService.Instance.SettingsChanged -= OnSettingsChanged;
         _vm.PropertyChanged -= OnViewModelPropertyChanged;
-        base.OnClosed(e);
     }
 }
