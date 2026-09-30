@@ -305,6 +305,10 @@ public class HardwareService : IDisposable
 
     private readonly System.Threading.Timer _watchdog;
 
+    /// The watchdog ticks every two seconds, so fifteen without a tick is Pulse having been
+    /// paused, not a slow callback. See PauseDetector.
+    private readonly PauseDetector _paused = new(TimeSpan.FromSeconds(15));
+
     /// UTF-8 on every stream, explicitly on both sides. The default is the console's OEM
     /// codepage, which mangles anything outside ASCII — and adapter names are not ours.
     private static readonly Encoding Utf8 = new UTF8Encoding(false);
@@ -831,6 +835,23 @@ public class HardwareService : IDisposable
 
         try
         {
+            // Pulse was not running, and nor was the host. Whatever it did not send in that time
+            // is not silence. What is on screen is as old as the pause, though, so it goes, and
+            // comes back with the first reading.
+            var pause = _paused.Check();
+            if (pause > TimeSpan.Zero)
+            {
+                lock (_hostLock) _lastSnapshotAt = AwakeClock.Milliseconds;
+
+                LogService.Info(nameof(HardwareService),
+                    $"Pulse did not run for {pause.TotalSeconds:F0}s, which is the machine sleeping or being "
+                  + "suspended. The sensor host is given a fresh allowance rather than treated as hung.");
+
+                _gpuBlanked = true;
+                _blanked    = true;
+                Hold(alsoClearTheRest: true);
+            }
+
             TimeSpan silent;
 
             // Decided and acted on under the lock, against the host that was actually measured.
