@@ -970,9 +970,13 @@ public class SettingsViewModel : BaseViewModel
     private string _bannerVersion = "";
     public string BannerVersion { get => _bannerVersion; private set => Set(ref _bannerVersion, value); }
 
-    public async Task CheckForUpdatesAsync(bool manual)
+    /// <summary>
+    /// Asks GitHub for the latest release. Returns whether GitHub answered, which is not the
+    /// same as whether there is an update, or null when a check was already running.
+    /// </summary>
+    public async Task<bool?> CheckForUpdatesAsync(bool manual)
     {
-        if (_isCheckingUpdate) return;
+        if (_isCheckingUpdate) return null;
 
         IsCheckingUpdate = true;
         if (manual) UpdateStatus = "Checking for updates…";
@@ -983,18 +987,33 @@ public class SettingsViewModel : BaseViewModel
 
         if (info != null)
         {
+            // Only a newer release brings the banner back. Pulse checks again every day now,
+            // and without this a banner somebody dismissed returned every morning for the same
+            // version they had already decided about.
+            if (_pendingUpdate?.Version != info.Version) _bannerDismissed = false;
+
             _pendingUpdate     = info;
-            _bannerDismissed   = false;
             BannerVersion      = info.DisplayVersion;
             IsUpdateAvailable  = true;
             UpdateStatus       = $"{info.DisplayVersion} is available";
+            OnPropertyChanged(nameof(ShowUpdateBanner));
         }
-        else
+        else if (success)
         {
             IsUpdateAvailable = false;
             OnPropertyChanged(nameof(ShowUpdateBanner));
-            if (manual) UpdateStatus = success ? "You're on the latest version" : "Couldn't check for updates — try again later";
+            if (manual) UpdateStatus = "You're on the latest version";
         }
+        else
+        {
+            // A check that failed knows nothing, so it changes nothing. It used to clear the
+            // update flag as if GitHub had said there was none, which with one check per launch
+            // was harmless and with retries would hide an update a later failed attempt had no
+            // right to take back.
+            if (manual) UpdateStatus = "Couldn't check for updates — try again later";
+        }
+
+        return success;
     }
 
     /// The update currently offered, so the caller can show its release notes.

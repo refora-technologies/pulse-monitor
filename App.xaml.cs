@@ -151,7 +151,24 @@ public partial class App : WinApplication
         if (!e.Args.Contains("--startup"))
             ShowControlPanel();
 
-        CheckForUpdatesOnStartup();
+        StartUpdateChecks();
+
+        // Written down, because every "sensors went quiet" or "frame rate stopped" report needs
+        // to be read against it. Before this a wake had to be inferred from gaps in the log.
+        Microsoft.Win32.SystemEvents.PowerModeChanged += OnPowerModeChanged;
+    }
+
+    private static void OnPowerModeChanged(object? sender, Microsoft.Win32.PowerModeChangedEventArgs e)
+    {
+        switch (e.Mode)
+        {
+            case Microsoft.Win32.PowerModes.Suspend:
+                Services.LogService.Info(nameof(App), "Windows is going to sleep.");
+                break;
+            case Microsoft.Win32.PowerModes.Resume:
+                Services.LogService.Info(nameof(App), "Windows has woken up.");
+                break;
+        }
     }
 
     /// <summary>
@@ -230,13 +247,65 @@ public partial class App : WinApplication
         }.Start();
     }
 
-    private async void CheckForUpdatesOnStartup()
+    // ── Update checks ───────────────────────────────────────────────────────────────
+
+    private System.Windows.Threading.DispatcherTimer? _updateTimer;
+    private int _updateFailures;
+    private bool _updateCheckRunning;
+
+    /// The version the tray has already announced, so a daily check does not announce it daily.
+    private string? _announcedVersion;
+
+    /// <summary>
+    /// Checks for an update now, again soon if that fails, and once a day after it works.
+    /// </summary>
+    /// <remarks>
+    /// This was a single check a few seconds after launch. Started by the logon task, that is
+    /// usually before the network is up, and it failed on 33 of one reporter's 69 sessions;
+    /// Pulse is also often left running for days. The two together meant the people most likely
+    /// to be on an old version were the ones never told there was a new one. The timings are
+    /// UpdateService.NextCheckIn. A network coming back also prompts a check, but only while
+    /// they are failing, so an ordinary Wi-Fi reconnect does not cost a request.
+    /// </remarks>
+    private void StartUpdateChecks()
     {
+        _updateTimer = new System.Windows.Threading.DispatcherTimer(System.Windows.Threading.DispatcherPriority.Background);
+        _updateTimer.Tick += (_, _) => RunUpdateCheck();
+
+        System.Net.NetworkInformation.NetworkChange.NetworkAvailabilityChanged += OnNetworkAvailabilityChanged;
+
+        RunUpdateCheck();
+    }
+
+    private void OnNetworkAvailabilityChanged(object? sender, System.Net.NetworkInformation.NetworkAvailabilityEventArgs e)
+    {
+        // Raised on a pool thread. The failure count and the timer belong to the interface one.
+        if (!e.IsAvailable) return;
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (_updateFailures > 0) RunUpdateCheck();
+        });
+    }
+
+    private async void RunUpdateCheck()
+    {
+        if (_updateCheckRunning) return;
+        _updateCheckRunning = true;
+
         try
         {
-            await SettingsViewModel.Instance.CheckForUpdatesAsync(false);
-            if (SettingsViewModel.Instance.IsUpdateAvailable)
+            _updateTimer?.Stop();
+
+            var answered = await SettingsViewModel.Instance.CheckForUpdatesAsync(false);
+
+            // Null is the panel's own check already running, which is neither.
+            if (answered == true)       _updateFailures = 0;
+            else if (answered == false) _updateFailures++;
+
+            if (SettingsViewModel.Instance.IsUpdateAvailable
+                && SettingsViewModel.Instance.BannerVersion != _announcedVersion)
             {
+                _announcedVersion = SettingsViewModel.Instance.BannerVersion;
                 _trayIcon?.ShowBalloonTip(6000, "Pulse update available",
                     $"{SettingsViewModel.Instance.BannerVersion} is ready to download. Open the control panel to update.",
                     System.Windows.Forms.ToolTipIcon.Info);
@@ -244,10 +313,20 @@ public partial class App : WinApplication
         }
         catch (Exception ex)
         {
-            // Silently not checking for updates is worse than not checking: nobody would ever
-            // find out. Deliberately not shown to the user, since a failed background check on
-            // startup is not something to interrupt anyone about.
-            Services.LogService.Error(nameof(App), "The startup update check failed", ex);
+            // async void: anything escaping would reach the dispatcher. Counted as a failure so
+            // the next attempt comes soon rather than tomorrow.
+            _updateFailures++;
+            Services.LogService.Error(nameof(App), "The automatic update check failed", ex);
+        }
+        finally
+        {
+            _updateCheckRunning = false;
+
+            if (_updateTimer != null)
+            {
+                _updateTimer.Interval = UpdateService.NextCheckIn(_updateFailures);
+                _updateTimer.Start();
+            }
         }
     }
 
@@ -653,6 +732,10 @@ public partial class App : WinApplication
     protected override void OnExit(ExitEventArgs e)
     {
         _trayIcon?.Dispose();
+
+        Microsoft.Win32.SystemEvents.PowerModeChanged -= OnPowerModeChanged;
+        System.Net.NetworkInformation.NetworkChange.NetworkAvailabilityChanged -= OnNetworkAvailabilityChanged;
+        _updateTimer?.Stop();
 
         // Only touch the services if this instance actually started them. They are lazy
         // singletons, so a rejected second instance would otherwise *construct* them here on

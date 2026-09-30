@@ -167,13 +167,51 @@ public class UpdateService
                 Notes         = root.Value<string>("body") ?? "",
             });
         }
+        catch (Exception ex) when (IsNetworkFailure(ex))
+        {
+            // One line, not an error with a stack. No network is the ordinary state of a machine
+            // that has just logged on, and it was 44 of the error lines in one reporter's log,
+            // which buried the ones that meant something. Still written, because "Pulse never
+            // tells me about updates" needs this line to be answered.
+            LogService.Warn(nameof(UpdateService), $"Update check could not reach GitHub: {ex.GetType().Name}: {ex.Message}");
+            return (false, null);
+        }
         catch (Exception ex)
         {
-            // Distinguishes "no network" from "you are up to date" after the fact.
+            // Anything else is ours: a reply we could not read, a change in GitHub's format.
             LogService.Error(nameof(UpdateService), "Update check failed", ex);
             return (false, null);
         }
     }
+
+    /// Failures that mean the network was not there or not answering, as opposed to a fault in
+    /// Pulse or in the reply. The client's own timeout arrives as a cancellation.
+    internal static bool IsNetworkFailure(Exception ex) =>
+        ex is HttpRequestException or TaskCanceledException or System.Net.Sockets.SocketException or IOException;
+
+    /// <summary>
+    /// How long to wait before the next automatic check, given how many in a row have failed.
+    /// </summary>
+    /// <remarks>
+    /// There used to be one check, a few seconds after launch, and nothing after it. Launched by
+    /// the startup task that is usually before the network is up, so it failed on 33 of one
+    /// reporter's 69 sessions, and Pulse is often left running for days, so the people most
+    /// likely to be out of date were the ones never told.
+    ///
+    /// So: soon and then less often while it is failing, and once a day once it has worked.
+    /// Hourly at worst, which keeps a machine that is offline for a week to a couple of dozen
+    /// attempts a day, far inside GitHub's limit of sixty an hour for an address.
+    /// </remarks>
+    internal static TimeSpan NextCheckIn(int failuresInARow) => failuresInARow switch
+    {
+        <= 0 => TimeSpan.FromHours(24),
+        1    => TimeSpan.FromSeconds(30),
+        2    => TimeSpan.FromMinutes(1),
+        3    => TimeSpan.FromMinutes(2),
+        4    => TimeSpan.FromMinutes(5),
+        5    => TimeSpan.FromMinutes(15),
+        _    => TimeSpan.FromHours(1),
+    };
 
     private static string? ParseSha256(string content)
     {
