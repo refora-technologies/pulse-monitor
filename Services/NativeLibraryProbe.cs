@@ -51,6 +51,26 @@ internal static class NativeLibraryProbe
     /// during startup is not a risk worth taking for a diagnostic.
     private const uint LoadLibraryAsDataFile = 0x00000002;
 
+    /// <summary>
+    /// Maps the file as executable code, the way a real load does, without running its entry
+    /// point or loading anything it depends on.
+    /// </summary>
+    /// <remarks>
+    /// Added because "map=ok" from the data mapping was not evidence the library could load, and
+    /// was reported as if it were on 22 September. Measured on 1 October against a copy of
+    /// wpfgfx_cor3.dll with execute denied and read allowed: the data mapping and the image
+    /// resource mapping (0x20) both succeeded, and only this one failed, with 5, access denied.
+    /// A lock held with no sharing failed all three with 32, so this reports that case too.
+    ///
+    /// Microsoft discourages the flag for general use, because a normal load of the same library
+    /// made while this mapping exists would receive it uninitialised. So it is only tried when
+    /// a window has just failed to build, on the interface thread, which is the thread that
+    /// loads these libraries, and the mapping is released before the probe returns. The
+    /// diagnostics export runs on a background thread and some of these libraries load lazily,
+    /// so it does not try.
+    /// </remarks>
+    private const uint DontResolveDllReferences = 0x00000001;
+
     public static void Record(string source, Exception error)
     {
         try
@@ -78,7 +98,7 @@ internal static class NativeLibraryProbe
             report.Append(" Directory ").Append(directory).Append(':');
 
             foreach (var name in Expected)
-                report.Append(' ').Append(Describe(Path.Combine(directory, name), name)).Append(';');
+                report.Append(' ').Append(Describe(Path.Combine(directory, name), name, mapAsCode: true)).Append(';');
 
             LogService.Warn(nameof(NativeLibraryProbe), report.ToString());
         }
@@ -99,7 +119,10 @@ internal static class NativeLibraryProbe
     /// process is holding it open, which is what a scanner reaching a file first looks like.
     /// 5 (access denied) points at permissions or policy. Those are three different fixes.
     /// </remarks>
-    private static string Describe(string path, string name)
+    /// <param name="mapAsCode">Whether to try the executable mapping. Only on the failure path,
+    /// which runs on the interface thread; see DontResolveDllReferences for why the export, which
+    /// runs on a background thread, must not.</param>
+    private static string Describe(string path, string name, bool mapAsCode)
     {
         if (!File.Exists(path)) return $"{name}=MISSING";
 
@@ -136,6 +159,17 @@ internal static class NativeLibraryProbe
         var module = LoadLibraryExW(path, IntPtr.Zero, LoadLibraryAsDataFile);
         if (module == IntPtr.Zero) state.Append(" map=FAILED(").Append(Marshal.GetLastWin32Error()).Append(')');
         else { state.Append(" map=ok"); FreeLibrary(module); }
+
+        if (!mapAsCode)
+        {
+            state.Append(" exec=not tried");
+        }
+        else
+        {
+            var code = LoadLibraryExW(path, IntPtr.Zero, DontResolveDllReferences);
+            if (code == IntPtr.Zero) state.Append(" exec=FAILED(").Append(Marshal.GetLastWin32Error()).Append(')');
+            else { state.Append(" exec=ok"); FreeLibrary(code); }
+        }
 
         return state.ToString();
     }
@@ -197,7 +231,7 @@ internal static class NativeLibraryProbe
 
             lines.Add(directory);
             foreach (var name in Expected)
-                lines.Add(Describe(Path.Combine(directory, name), name));
+                lines.Add(Describe(Path.Combine(directory, name), name, mapAsCode: false));
         }
         catch (Exception ex)
         {
