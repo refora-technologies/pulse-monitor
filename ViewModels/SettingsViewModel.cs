@@ -505,6 +505,13 @@ public class SettingsViewModel : BaseViewModel
                 var s = SettingsService.Instance.Settings;
                 s.SelectedMonitorIndex = value;
 
+                // Which display, by where it is as well as by its place in Windows' list. See
+                // AppSettings.PresetMonitorBounds.
+                var screens = System.Windows.Forms.Screen.AllScreens;
+                s.PresetMonitorBounds = value >= 0 && value < screens.Length
+                    ? Views.OverlayWindow.BoundsKey(screens[value])
+                    : "";
+
                 // A saved position belongs to the monitor it was set on, so moving to a
                 // different monitor retires it rather than carrying the offsets across.
                 s.OverlayCustomX   = -1;

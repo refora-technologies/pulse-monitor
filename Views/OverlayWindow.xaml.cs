@@ -842,12 +842,6 @@ public partial class OverlayWindow : Window
     }
 
     /// <summary>
-    /// The monitor the overlay belongs on. A custom position remembers its exact monitor by
-    /// device name; corner presets follow whichever monitor is selected in settings. Falls
-    /// back to wherever the window currently is, then the primary, so unplugging a display
-    /// cannot strand the overlay off-screen.
-    /// </summary>
-    /// <summary>
     /// A display's geometry, used to recognise it when its device name has been renumbered.
     ///
     /// Not a perfect identity: two identical monitors arranged symmetrically could in principle
@@ -856,12 +850,36 @@ public partial class OverlayWindow : Window
     /// than the previous behaviour, which was to give up and use whichever display the window
     /// happened to be on.
     /// </summary>
-    private static string BoundsKey(System.Windows.Forms.Screen screen)
+    internal static string BoundsKey(System.Windows.Forms.Screen screen)
     {
         var b = screen.Bounds;
         return $"{b.Left},{b.Top},{b.Width},{b.Height}";
     }
 
+    /// <summary>
+    /// Which display a corner position belongs on: the one with the recorded bounds, then the
+    /// recorded index, or -1 for neither.
+    /// </summary>
+    /// <remarks>
+    /// Kept apart from the Screen objects so it can be tested without a second monitor.
+    /// </remarks>
+    internal static int PickPresetScreen(IReadOnlyList<string> screenBounds, string savedBounds, int savedIndex)
+    {
+        if (!string.IsNullOrEmpty(savedBounds))
+        {
+            for (int i = 0; i < screenBounds.Count; i++)
+                if (string.Equals(screenBounds[i], savedBounds, StringComparison.Ordinal)) return i;
+        }
+
+        return savedIndex >= 0 && savedIndex < screenBounds.Count ? savedIndex : -1;
+    }
+
+    /// <summary>
+    /// The monitor the overlay belongs on. A custom position remembers its exact monitor by
+    /// device name, then by bounds; corner presets follow the monitor selected in settings, by
+    /// bounds and then by index. Falls back to wherever the window currently is, then the
+    /// primary, so unplugging a display cannot strand the overlay off-screen.
+    /// </summary>
     private static System.Windows.Forms.Screen ResolveTargetScreen(IntPtr hwnd)
     {
         var settings = SettingsService.Instance.Settings;
@@ -883,8 +901,16 @@ public partial class OverlayWindow : Window
         }
         else
         {
-            int index = settings.SelectedMonitorIndex;
-            if (index >= 0 && index < screens.Length) return screens[index];
+            int index = PickPresetScreen(screens.Select(BoundsKey).ToList(),
+                                         settings.PresetMonitorBounds, settings.SelectedMonitorIndex);
+            if (index >= 0)
+            {
+                // Kept in step, so the panel highlights the display actually in use. Not saved
+                // here, since nothing the user chose has changed, only Windows' numbering; the
+                // next save of any setting records the corrected number, which is the true one.
+                settings.SelectedMonitorIndex = index;
+                return screens[index];
+            }
         }
 
         try
@@ -944,6 +970,7 @@ public partial class OverlayWindow : Window
         {
             if (!string.Equals(all[i].DeviceName, screen.DeviceName, StringComparison.Ordinal)) continue;
             settings.SelectedMonitorIndex = i;
+            settings.PresetMonitorBounds  = BoundsKey(all[i]);
             break;
         }
         settings.OverlayAnchorFx  = roomX > 0 ? Math.Clamp((bounds.Left - work.Left) / (double)roomX, 0, 1) : 0;
