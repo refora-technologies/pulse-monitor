@@ -164,15 +164,6 @@ internal static class TraceSessionCleanup
     }
 
     /// <summary>
-    /// Runs logman and returns its output, or null when it failed.
-    /// </summary>
-    /// <remarks>
-    /// The pipe handling is deliberate and is the same shape as StartupTask.RunCapture, for the
-    /// same reason: reading a pipe to the end before the process is known to have exited waits
-    /// forever on a child that hangs, and the timeout below never gets evaluated. Both pipes are
-    /// started asynchronously, the wait is bounded, and a child that outlives it is killed.
-    /// </remarks>
-    /// <summary>
     /// What came back from logman: whether it ran, what it exited with, and what it said.
     /// </summary>
     /// <remarks>
@@ -185,6 +176,15 @@ internal static class TraceSessionCleanup
         public static Reply Failed => new(false, -1, "");
     }
 
+    /// <summary>
+    /// Runs logman and returns what came back.
+    /// </summary>
+    /// <remarks>
+    /// The pipe handling is deliberate and is the same shape as StartupTask.RunCapture, for the
+    /// same reason: reading a pipe to the end before the process is known to have exited waits
+    /// forever on a child that hangs, and the timeout below never gets evaluated. Both pipes are
+    /// started asynchronously, the wait is bounded, and a child that outlives it is killed.
+    /// </remarks>
     private static Reply Capture(string arguments)
     {
         var info = new ProcessStartInfo

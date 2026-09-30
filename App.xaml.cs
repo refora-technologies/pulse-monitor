@@ -179,8 +179,9 @@ public partial class App : WinApplication
     /// release, so these accumulate — and to anyone searching their disk for "Pulse" they
     /// look exactly like several installations, which is what prompted this.
     ///
-    /// The folder in use is protected twice over: its libraries are loaded and therefore
-    /// locked, and it was written at launch so the age check skips it anyway.
+    /// The folder in use is protected by its libraries being loaded and therefore locked. This
+    /// used to say the age check protected it too, because it is written at launch; that was
+    /// checked on 21 September and found not to hold, so the lock is the only protection.
     /// </summary>
     private static void CleanupStaleExtractDirectories()
     {
@@ -344,8 +345,10 @@ public partial class App : WinApplication
     /// know why, because the throw landed on the assignment below and skipped the two menu
     /// refreshes underneath it. The tray then offered "Hide Overlay" over an empty screen.
     ///
-    /// The condition clears in seconds, so retrying is the whole fix. Reproduced by holding
-    /// wpfgfx_cor3.dll open with no sharing while Pulse starts; see
+    /// The condition has always cleared on its own, so retrying is how Pulse recovers. It is a
+    /// fallback, not a fix: why the library is briefly unreadable is still not known, and
+    /// NativeLibraryProbe records what Windows says about it when it happens. The failure was
+    /// reproduced by holding wpfgfx_cor3.dll open with no sharing while Pulse starts; see
     /// _tests/overlay-startup-repro.
     /// </remarks>
     public void ShowOverlay()
@@ -399,8 +402,8 @@ public partial class App : WinApplication
     private System.Windows.Threading.DispatcherTimer? _overlayRetryTimer;
 
     /// Long enough to outlast a scanner holding a freshly extracted DLL, short enough that a
-    /// machine which genuinely cannot render stops asking. Measured recovery was under three
-    /// seconds; this allows a minute.
+    /// machine which genuinely cannot render stops asking. This allows a minute. The longest
+    /// failure seen so far lasted at least nine seconds, at logon on 22 September.
     private const int MaxOverlayRetries = 20;
 
     private void ScheduleOverlayRetry()

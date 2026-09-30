@@ -583,11 +583,11 @@ public partial class MainWindow : Window
     private void OnGpuListChanged(object? sender, EventArgs e)
         => Dispatcher.BeginInvoke(PopulateGpuButtons);
 
-    /// True while the entries are being replaced, so the resulting selection changes are
-    /// recognised as ours rather than the user's.
     /// Guards against a second export starting while one is still gathering.
     private bool _exportingDiagnostics;
 
+    /// True while the entries are being replaced, so the resulting selection changes are
+    /// recognised as ours rather than the user's.
     private bool _rebuildingGpuList;
 
     /// <summary>
@@ -1091,9 +1091,9 @@ public partial class MainWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
-        // HardwareService is a singleton and this window is recreated every time the
-        // control panel is reopened, so leaving this attached would pin every closed
-        // instance in memory for the lifetime of the app.
+        // HardwareService is a singleton that outlives this window. The panel is hidden
+        // rather than closed in normal use, so this runs when Pulse exits, but detaching is
+        // still right: a window left attached would be kept alive by the singleton.
         Pulse.Services.HardwareService.Instance.GpuListChanged -= OnGpuListChanged;
 
         // SystemEvents is static and lives as long as the process, so this one leaks harder

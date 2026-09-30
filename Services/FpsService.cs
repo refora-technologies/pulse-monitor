@@ -727,10 +727,6 @@ public class FpsService : IDisposable
     }
 
     /// <summary>
-    /// Recalculates FPS from the busiest swap chain inside the time window. Caller holds
-    /// <see cref="_lock"/>.
-    /// </summary>
-    /// <summary>
     /// Recalculates the current frame rate from the busiest swap chain. Caller holds
     /// <see cref="_lock"/>.
     /// </summary>
