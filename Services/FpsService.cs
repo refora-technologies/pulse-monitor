@@ -142,7 +142,8 @@ public class FpsService : IDisposable
 
     /// When the last frame reached us, as opposed to when it happened. Used only to notice
     /// that frames have stopped arriving, which is a property of the reader rather than the
-    /// capture, so it is the one thing that still belongs on the local clock.
+    /// capture, so it is the one thing that still belongs on the local clock. That clock is
+    /// AwakeClock, so a machine that slept is not mistaken for a capture that went quiet.
     private long _lastFrameArrival;
 
     private int _headerTimeIndex = -1;
@@ -336,7 +337,7 @@ public class FpsService : IDisposable
 
         // A capture that ran for a good while was working, so whatever ended it is a fresh
         // problem rather than a continuing one. Without this the backoff only ever grows.
-        var lived = TimeSpan.FromMilliseconds(Environment.TickCount64 - _captureStartedAt);
+        var lived = TimeSpan.FromMilliseconds(AwakeClock.Milliseconds - _captureStartedAt);
         if (lived >= CaptureSettled) _restartCount = 0;
 
         int generation = ++_captureGeneration;
@@ -392,7 +393,7 @@ public class FpsService : IDisposable
         // because a machine sitting on an empty desktop is also silent and that is not a fault
         // worth repeating in the log.
         long last  = Interlocked.Read(ref _lastRowAt);
-        long since = Environment.TickCount64 - (last == 0 ? _captureStartedAt : last);
+        long since = AwakeClock.Milliseconds - (last == 0 ? _captureStartedAt : last);
 
         if (since < SilentCaptureAfter.TotalMilliseconds) return;
 
@@ -446,8 +447,8 @@ public class FpsService : IDisposable
     /// than only the foreground one, so this measures the capture rather than the target.
     private long _rowsSeen;
 
-    /// When the last row arrived, on the local clock. Separate from a frame's own timestamp,
-    /// which is relative to the capture and says nothing about whether one is still flowing.
+    /// When the last row arrived, on AwakeClock. Separate from a frame's own timestamp, which
+    /// is relative to the capture and says nothing about whether one is still flowing.
     private long _lastRowAt;
 
     private bool _reportedSilence;
@@ -527,7 +528,7 @@ public class FpsService : IDisposable
             if (!ChildProcessJob.Adopt(_process))
                 LogService.Warn(nameof(FpsService), "Frame capture could not be tied to Pulse's lifetime.");
 
-            _captureStartedAt = Environment.TickCount64;
+            _captureStartedAt = AwakeClock.Milliseconds;
             _rowsSeen         = 0;
             _lastRowAt        = 0;
             _reportedSilence  = false;
@@ -636,7 +637,7 @@ public class FpsService : IDisposable
         // Counted before the foreground filter, so this says whether the capture is receiving
         // anything at all rather than whether the app being watched is presenting.
         Interlocked.Increment(ref _rowsSeen);
-        Interlocked.Exchange(ref _lastRowAt, Environment.TickCount64);
+        Interlocked.Exchange(ref _lastRowAt, AwakeClock.Milliseconds);
 
 
         // Invariant culture, not the machine's. PresentMon always writes a dot decimal
@@ -695,7 +696,7 @@ public class FpsService : IDisposable
             // Nothing is recalculated here any more. Recompute averaged the whole window on
             // every single frame, which at high frame rates is quadratic work for a number
             // nobody can read that fast. The timer does it instead, a few times a second.
-            _lastFrameArrival = Environment.TickCount64;
+            _lastFrameArrival = AwakeClock.Milliseconds;
 
             // Only the chain actually being played feeds the 1% low, so a menu or video
             // layer presenting slowly alongside the game cannot masquerade as stutter.
@@ -870,7 +871,7 @@ public class FpsService : IDisposable
             // stopping is a property of the capture, and their timestamps are relative to
             // when PresentMon started, so the two clocks are not comparable.
             bool anyRecent = _lastFrameArrival != 0
-                          && Environment.TickCount64 - _lastFrameArrival <= StaleAfterMs;
+                          && AwakeClock.Milliseconds - _lastFrameArrival <= StaleAfterMs;
 
             if (!anyRecent)
             {
