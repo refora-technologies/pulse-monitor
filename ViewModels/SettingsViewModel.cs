@@ -14,7 +14,70 @@ public class TileSelectionItem : BaseViewModel
 {
     public SensorTileDefinition Definition { get; }
     private bool _isSelected;
-    public bool IsSelected { get => _isSelected; set => Set(ref _isSelected, value); }
+    public bool IsSelected
+    {
+        get => _isSelected;
+        set { if (Set(ref _isSelected, value)) { OnPropertyChanged(nameof(IsPaused)); OnPropertyChanged(nameof(PausedTag)); } }
+    }
+
+    private TileStatus _status;
+
+    /// <summary>
+    /// Whether this tile can show a real reading here, decided from facts about the machine.
+    /// </summary>
+    /// <remarks>
+    /// A tile that cannot is not offered as a switch at all. It used to be, and switching it on
+    /// put a tile on the overlay that read "--" forever, or in the case of processor power a
+    /// confident 0 W. Now it explains itself when clicked and offers whatever would fix it.
+    /// </remarks>
+    public TileStatus Status
+    {
+        get => _status;
+        set
+        {
+            if (!Set(ref _status, value)) return;
+            OnPropertyChanged(nameof(IsAvailable));
+            OnPropertyChanged(nameof(IsPaused));
+            OnPropertyChanged(nameof(PausedTag));
+            OnPropertyChanged(nameof(CanBeFixed));
+            OnPropertyChanged(nameof(StatusGlyph));
+            OnPropertyChanged(nameof(AccessibleName));
+            OnPropertyChanged(nameof(StatusHint));
+        }
+    }
+
+    public bool IsAvailable => Status == TileStatus.Ready;
+
+    /// Chosen by the user, but not readable right now. Kept chosen, so it comes back by itself
+    /// when whatever it needs is back, and left off the overlay until then.
+    public bool IsPaused => IsSelected && !IsAvailable;
+
+    /// Said on the chip, because a chosen tile missing from the overlay otherwise looks lost.
+    public string PausedTag => IsPaused ? "   PAUSED" : "";
+
+    public bool CanBeFixed => Status is TileStatus.NeedsDriver or TileStatus.DriverNotLoading;
+
+    /// A wrench for something that can be set up, an information mark for hardware that is not
+    /// there and only has an explanation to offer. Deliberately not a padlock: Pulse is free, and
+    /// a padlock reads as a price. Both are in the Windows 10 icon font as well as 11; a no-entry
+    /// sign looked better and could not be confirmed there.
+    public string StatusGlyph => CanBeFixed ? "\uE90F" : "\uE946";
+
+    public string StatusHint => Status switch
+    {
+        TileStatus.NeedsDriver      => "Needs the sensor driver. Click to see how to turn it on.",
+        TileStatus.DriverNotLoading => "The sensor driver is installed but not running. Click for details.",
+        TileStatus.NotOnThisPc      => "Not available on this PC. Click for details.",
+        _                           => Definition.Description ?? "",
+    };
+
+    public string AccessibleName => Status switch
+    {
+        TileStatus.NeedsDriver      => $"{Definition.Label}, needs the sensor driver",
+        TileStatus.DriverNotLoading => $"{Definition.Label}, sensor driver not running",
+        TileStatus.NotOnThisPc      => $"{Definition.Label}, not available on this PC",
+        _                           => Definition.Label,
+    };
 
     /// <summary>
     /// The unit shown on the chip, which for network speed is the user's choice.
@@ -32,6 +95,7 @@ public class TileSelectionItem : BaseViewModel
     {
         Definition = def;
         _isSelected = selected;
+        _status     = SensorDriver.Instance.StatusOf(def.Id);
     }
 }
 
@@ -864,6 +928,7 @@ public class SettingsViewModel : BaseViewModel
     }
 
     public int SelectedCount  => AllTiles.Count(t => t.IsSelected);
+    public int PausedCount    => AllTiles.Count(t => t.IsPaused);
     public int OpacityPercent => (int)Math.Round(_opacity * 100);
     public int BackgroundPercent => (int)Math.Round(_backgroundOpacity * 100);
 
@@ -1086,6 +1151,7 @@ public class SettingsViewModel : BaseViewModel
             {
                 if (e.PropertyName != nameof(TileSelectionItem.IsSelected)) return;
                 OnPropertyChanged(nameof(SelectedCount));
+                OnPropertyChanged(nameof(PausedCount));
                 ApplyTileSelection();
             };
             AllTiles.Add(item);
@@ -1112,6 +1178,8 @@ public class SettingsViewModel : BaseViewModel
             OnPropertyChanged(nameof(HasSensorFault));
         };
 
+        SensorDriver.Instance.Changed += (_, _) => RefreshTileStatuses();
+
         // Write the order back once at startup so the overlay always matches what the
         // settings list shows. Without this, an install upgrading from a version that
         // had no saved order would show the new arrangement in settings while the
@@ -1131,6 +1199,262 @@ public class SettingsViewModel : BaseViewModel
     public string? SensorFault => HardwareService.Instance.HardwareFault;
 
     public bool HasSensorFault => !string.IsNullOrWhiteSpace(SensorFault);
+
+    // ── Tiles this PC cannot read ───────────────────────────────────────────────────
+
+    /// <summary>
+    /// The unavailable tile whose explanation is open under the chooser, or null.
+    /// </summary>
+    /// <remarks>
+    /// One panel under the grid rather than a popup on the tile. A popup is a separate window in
+    /// WPF: it takes keyboard focus away from the panel it belongs to, screen readers lose their
+    /// place, and it can end up drawn over other programs. An inline panel has none of that and
+    /// stays where the user was looking.
+    /// </remarks>
+    private TileSelectionItem? _explainedTile;
+    public TileSelectionItem? ExplainedTile
+    {
+        get => _explainedTile;
+        private set
+        {
+            if (!Set(ref _explainedTile, value)) return;
+            _installOutcome = null;
+            _installDetail  = "";
+            RaiseExplanation();
+        }
+    }
+
+    public bool IsExplaining => ExplainedTile != null;
+
+    private bool _driverBusy;
+    public bool DriverBusy { get => _driverBusy; private set { if (Set(ref _driverBusy, value)) RaiseExplanation(); } }
+
+    private SensorDriver.InstallOutcome? _installOutcome;
+    private string _installDetail = "";
+
+    public bool FaceitInstalled => SensorDriver.Instance.FaceitInstalled;
+
+    public string ExplainTitle
+    {
+        get
+        {
+            var t = ExplainedTile;
+            if (t == null) return "";
+
+            return _installOutcome switch
+            {
+                SensorDriver.InstallOutcome.Working      => "Driver installed",
+                SensorDriver.InstallOutcome.NeedsRestart => "Restart Windows to finish",
+                SensorDriver.InstallOutcome.Failed       => "The driver didn't install",
+                _ => t.Status switch
+                {
+                    TileStatus.NeedsDriver      => $"{t.Definition.Label} needs the sensor driver",
+                    TileStatus.DriverNotLoading => "The sensor driver isn't running",
+                    TileStatus.NotOnThisPc      => $"{t.Definition.Label} isn't available on this PC",
+                    _                           => $"{t.Definition.Label} is ready",
+                },
+            };
+        }
+    }
+
+    public string ExplainBody
+    {
+        get
+        {
+            var t = ExplainedTile;
+            if (t == null) return "";
+
+            var label  = t.Definition.Label;
+            var others = OtherDriverTiles(t);
+
+            return _installOutcome switch
+            {
+                SensorDriver.InstallOutcome.Working =>
+                    $"{label} is on." + (others.Length > 0 ? $" {others} are ready too, whenever you want them." : ""),
+
+                SensorDriver.InstallOutcome.NeedsRestart =>
+                    $"The driver is installed, and Windows will start it after a restart. {label} will turn on by itself then.",
+
+                SensorDriver.InstallOutcome.Failed => _installDetail,
+
+                _ => t.Status switch
+                {
+                    TileStatus.NeedsDriver =>
+                        "Pulse reads this straight from the processor, which needs a small driver called PawnIO. "
+                      + "It isn't installed on this PC."
+                      + (others.Length > 0 ? $" Installing it also turns on {others}." : "")
+                      + (SensorDriver.Instance.CanInstall ? "" : " The driver's installer isn't in Pulse's folder. Reinstalling Pulse puts it back."),
+
+                    TileStatus.DriverNotLoading =>
+                        $"PawnIO is installed, but Windows isn't running it, so {label} has nothing to read. Restarting "
+                      + "Windows usually fixes this, especially straight after installing. If it keeps happening, "
+                      + "something on this PC is stopping it from loading. FACEIT's anti-cheat is known to do this.",
+
+                    TileStatus.NotOnThisPc =>
+                        "Windows reports no battery in this PC, so there's nothing to read. On a laptop this tile shows the charge left.",
+
+                    _ => "",
+                },
+            };
+        }
+    }
+
+    /// The FACEIT note, shown only while the user is deciding whether to install.
+    public bool ShowFaceitNote =>
+        ExplainedTile is { Status: TileStatus.NeedsDriver }
+        && _installOutcome is null or SensorDriver.InstallOutcome.Failed;
+
+    public string FaceitNote => FaceitInstalled
+        ? "FACEIT is installed on this PC. FACEIT's anti-cheat won't start while this driver is installed. "
+        + "You can remove the driver any time from Windows Settings, Apps, where it's listed as PawnIO."
+        : "FACEIT's anti-cheat won't start while this driver is installed. You can remove it any time "
+        + "from Windows Settings, Apps, where it's listed as PawnIO.";
+
+    public bool ShowPrimaryAction =>
+        !DriverBusy
+        && ExplainedTile is { CanBeFixed: true }
+        && SensorDriver.Instance.CanInstall
+        && _installOutcome is null or SensorDriver.InstallOutcome.Failed;
+
+    public string PrimaryActionText =>
+        _installOutcome == SensorDriver.InstallOutcome.Failed ? "Try again"
+      : ExplainedTile?.Status == TileStatus.DriverNotLoading  ? "Reinstall driver"
+      : "Install driver";
+
+    public string SecondaryActionText =>
+        _installOutcome is SensorDriver.InstallOutcome.Working or SensorDriver.InstallOutcome.NeedsRestart ? "Done"
+      : ExplainedTile is { CanBeFixed: true } ? "Not now"
+      : "Got it";
+
+    public bool InstallSucceeded => _installOutcome == SensorDriver.InstallOutcome.Working;
+
+    /// <summary>
+    /// Whether to offer turning a paused tile off.
+    /// </summary>
+    /// <remarks>
+    /// A paused tile is drawn as a button, not a switch, so without this the one thing the user
+    /// could not do was change their mind about it.
+    /// </remarks>
+    public bool ShowStopShowing => !DriverBusy && ExplainedTile is { IsPaused: true } && _installOutcome is null;
+
+    public void StopShowingExplainedTile()
+    {
+        if (ExplainedTile is not { } tile || DriverBusy) return;
+        tile.IsSelected = false;
+        ExplainedTile = null;
+    }
+
+    private void RaiseExplanation()
+    {
+        OnPropertyChanged(nameof(IsExplaining));
+        OnPropertyChanged(nameof(ExplainTitle));
+        OnPropertyChanged(nameof(ExplainBody));
+        OnPropertyChanged(nameof(ShowFaceitNote));
+        OnPropertyChanged(nameof(FaceitInstalled));
+        OnPropertyChanged(nameof(FaceitNote));
+        OnPropertyChanged(nameof(ShowPrimaryAction));
+        OnPropertyChanged(nameof(PrimaryActionText));
+        OnPropertyChanged(nameof(SecondaryActionText));
+        OnPropertyChanged(nameof(InstallSucceeded));
+        OnPropertyChanged(nameof(ShowStopShowing));
+    }
+
+    /// "CPU Power, CPU Clock and CPU+GPU Power": the rest of what the same install brings,
+    /// named so nobody installs it once per tile.
+    private string OtherDriverTiles(TileSelectionItem except)
+    {
+        var names = AllTiles.Where(t => t != except && TileAvailability.DriverTiles.Contains(t.Definition.Id))
+                            .Select(t => KeepTogether(t.Definition.Label))
+                            .ToList();
+
+        return names.Count switch
+        {
+            0 => "",
+            1 => names[0],
+            _ => string.Join(", ", names.Take(names.Count - 1)) + " and " + names[^1],
+        };
+    }
+
+    /// <summary>
+    /// A tile name that wraps as a whole.
+    /// </summary>
+    /// <remarks>
+    /// WPF will break a line at a plus sign, which split "CPU+GPU Power" into "CPU" at the end of
+    /// one line and "+GPU Power" at the start of the next. Word joiners either side stop that.
+    /// </remarks>
+    private static string KeepTogether(string label) => label.Replace("+", "\u2060+\u2060");
+
+    /// Opens the explanation for a tile, or closes it if that tile's is already open.
+    public void ExplainTile(TileSelectionItem tile)
+    {
+        if (DriverBusy) return;   // an install is running; its result belongs to the tile that started it
+
+        // Facts can change while the panel sits in the tray, so they are read again first.
+        SensorDriver.Instance.Refresh();
+
+        if (tile.IsAvailable)
+        {
+            // Fixed since the grid was drawn, for instance by a restart the panel did not see.
+            tile.IsSelected = true;
+            ExplainedTile = null;
+            return;
+        }
+
+        ExplainedTile = ReferenceEquals(ExplainedTile, tile) ? null : tile;
+    }
+
+    public void CloseExplanation()
+    {
+        if (DriverBusy) return;
+        ExplainedTile = null;
+    }
+
+    /// <summary>
+    /// Installs the driver for the tile being explained, and turns that tile on.
+    /// </summary>
+    /// <remarks>
+    /// The tile the user clicked is switched on whatever the outcome short of failure: they have
+    /// already said they want it. When Windows needs a restart first, it is left chosen and
+    /// paused, and comes on by itself once the driver is running.
+    /// </remarks>
+    public async Task InstallDriverAsync()
+    {
+        var tile = ExplainedTile;
+        if (tile == null || DriverBusy) return;
+
+        DriverBusy = true;
+        try
+        {
+            var (outcome, detail) = await SensorDriver.Instance.InstallAsync();
+
+            _installOutcome = outcome;
+            _installDetail  = detail;
+
+            if (outcome != SensorDriver.InstallOutcome.Failed)
+                tile.IsSelected = true;
+
+            // A fresh host, so the sensor library looks for the driver again rather than trusting
+            // whatever it found when it started.
+            if (outcome == SensorDriver.InstallOutcome.Working)
+                HardwareService.Instance.RestartHost("the sensor driver was just installed");
+        }
+        finally
+        {
+            DriverBusy = false;
+            RaiseExplanation();
+        }
+    }
+
+    /// Applies fresh facts to every tile, and to the overlay, which leaves out tiles that cannot read.
+    private void RefreshTileStatuses()
+    {
+        foreach (var tile in AllTiles)
+            tile.Status = SensorDriver.Instance.StatusOf(tile.Definition.Id);
+
+        OnPropertyChanged(nameof(PausedCount));
+        RaiseExplanation();
+        OverlayViewModel.Instance.LoadActiveTiles();
+    }
 
     /// <summary>
     /// Returns tile definitions in the user's saved order. Anything the saved order
@@ -1187,6 +1511,7 @@ public class SettingsViewModel : BaseViewModel
             {
                 if (e.PropertyName != nameof(TileSelectionItem.IsSelected)) return;
                 OnPropertyChanged(nameof(SelectedCount));
+                OnPropertyChanged(nameof(PausedCount));
                 ApplyTileSelection();
             };
             AllTiles.Add(item);

@@ -76,6 +76,10 @@ public partial class MainWindow : Window
                 _vm?.NotifyPositionChanged();
                 PopulateMonitorButtons();
                 UpdateOverlayButton();
+
+                // The driver can be installed, removed or blocked while the panel is away, and
+                // the tiles should say what is true now rather than what was true at startup.
+                SensorDriver.Instance.Refresh();
             };
 
             // The corner and display buttons are painted in code rather than bound, so they
@@ -768,6 +772,76 @@ public partial class MainWindow : Window
 
     private void BtnResetTileOrder_Click(object sender, RoutedEventArgs e)
         => _vm?.ResetTileOrder();
+
+    /// The tile whose explanation is open, so Escape can put focus back where it came from.
+    private WpfButton? _explainedTileButton;
+
+    private void UnavailableTile_Click(object sender, RoutedEventArgs e)
+    {
+        if (_vm == null || sender is not WpfButton { DataContext: TileSelectionItem tile } button) return;
+
+        _vm.ExplainTile(tile);
+
+        if (!_vm.IsExplaining) { _explainedTileButton = null; return; }
+
+        _explainedTileButton = button;
+
+        // Into the panel, so a keyboard user lands on the choice rather than having to find it.
+        // After layout, because the panel has only just become visible.
+        Dispatcher.InvokeAsync(() =>
+        {
+            if (BtnExplainPrimary.IsVisible) BtnExplainPrimary.Focus();
+            else                             BtnExplainSecondary.Focus();
+            TileExplanation.BringIntoView();
+        }, System.Windows.Threading.DispatcherPriority.Loaded);
+    }
+
+    private async void BtnExplainPrimary_Click(object sender, RoutedEventArgs e)
+    {
+        if (_vm == null) return;
+
+        try
+        {
+            await _vm.InstallDriverAsync();
+        }
+        catch (Exception ex)
+        {
+            // async void: anything escaping here would take Pulse down.
+            LogService.Error(nameof(MainWindow), "Installing the sensor driver from the tile chooser failed", ex);
+        }
+
+        // Wherever the result left the buttons, focus goes to one that is still there.
+        if (BtnExplainPrimary.IsVisible) BtnExplainPrimary.Focus();
+        else                             BtnExplainSecondary.Focus();
+    }
+
+    private void BtnExplainSecondary_Click(object sender, RoutedEventArgs e) => CloseTileExplanation();
+
+    private void BtnExplainStopShowing_Click(object sender, RoutedEventArgs e)
+    {
+        _vm?.StopShowingExplainedTile();
+        if (_explainedTileButton is { IsVisible: true } b) b.Focus();
+        _explainedTileButton = null;
+    }
+
+    private void TileExplanation_KeyDown(object sender, WpfKeyEventArgs e)
+    {
+        if (e.Key != Key.Escape) return;
+        e.Handled = true;
+        CloseTileExplanation();
+    }
+
+    private void CloseTileExplanation()
+    {
+        if (_vm == null || _vm.DriverBusy) return;
+
+        _vm.CloseExplanation();
+
+        // Back to the tile, if it is still a button. After a successful install it has turned
+        // into a switch and the button is hidden, so focus goes nowhere rather than somewhere odd.
+        if (_explainedTileButton is { IsVisible: true } b) b.Focus();
+        _explainedTileButton = null;
+    }
 
     /// <summary>
     /// Stops the mouse wheel changing the GPU selection.
