@@ -24,6 +24,18 @@ public class InverseBoolConverter : IValueConverter
         => value is bool b ? !b : System.Windows.DependencyProperty.UnsetValue;
 }
 
+/// Collapsed for true, visible for false. For the pairs of controls where one stands in for the
+/// other, such as a tile's switch and the explanation shown instead when it cannot read.
+public class InverseBoolToVisibilityConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        => value is bool b
+            ? (b ? System.Windows.Visibility.Collapsed : System.Windows.Visibility.Visible)
+            : System.Windows.DependencyProperty.UnsetValue;
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        => System.Windows.DependencyProperty.UnsetValue;
+}
+
 public class PercentToWidthConverter : IMultiValueConverter
 {
     public object Convert(object[] values, Type targetType, object parameter, CultureInfo culture)

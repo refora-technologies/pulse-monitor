@@ -16,6 +16,7 @@
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVis"/>
         <conv:InverseBoolConverter x:Key="InverseBool"/>
+        <conv:InverseBoolToVisibilityConverter x:Key="InverseBoolToVis"/>
         <FontFamily x:Key="Jakarta">pack://application:,,,/Resources/Fonts/#Plus Jakarta Sans</FontFamily>
         <conv:PercentToWidthConverter x:Key="BarWidthConv"/>
 
@@ -192,6 +193,46 @@
                             </Trigger>
                                                     <!-- Without this there is no way to tell which tile the keyboard
                                  is on, which made Alt+arrow reordering impossible to aim. -->
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="Pill" Property="BorderBrush" Value="#A78BFA"/>
+                                <Setter TargetName="Pill" Property="BorderThickness" Value="2"/>
+                                <Setter TargetName="Pill" Property="Padding" Value="9,7"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- ═══ UNAVAILABLE TILE ═══
+             Stands in for TileToggle when a tile cannot read on this PC. The same shape so the
+             grid does not jump, dimmer so it reads as not on offer, and a button rather than a
+             disabled switch: a disabled control in WPF takes no clicks, no focus and shows no
+             tooltip, so the user would press it, get nothing, and never learn why. -->
+        <Style x:Key="TileUnavailable" TargetType="Button">
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FontFamily" Value="{StaticResource Jakarta}"/>
+            <Setter Property="HorizontalContentAlignment" Value="Left"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Pill" CornerRadius="9" BorderThickness="1" Padding="10,8"
+                                Background="#0B0A16" BorderBrush="#18162A">
+                            <StackPanel Orientation="Horizontal">
+                                <Grid Width="28" Height="15" VerticalAlignment="Center" Margin="0,0,9,0">
+                                    <TextBlock x:Name="Glyph" Text="{Binding StatusGlyph}"
+                                               FontFamily="Segoe MDL2 Assets" FontSize="11"
+                                               Foreground="#6E6A96"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </Grid>
+                                <ContentPresenter VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Pill" Property="BorderBrush" Value="#2E2A4C"/>
+                                <Setter TargetName="Glyph" Property="Foreground" Value="#A78BFA"/>
+                            </Trigger>
                             <Trigger Property="IsKeyboardFocused" Value="True">
                                 <Setter TargetName="Pill" Property="BorderBrush" Value="#A78BFA"/>
                                 <Setter TargetName="Pill" Property="BorderThickness" Value="2"/>
@@ -1078,6 +1119,20 @@
                                 <Run Text="{Binding SelectedCount, Mode=OneWay}" Foreground="#A78BFA"/>
                                 <Run Text=" selected" Foreground="#8B86B4"/>
                             </TextBlock>
+                            <TextBlock FontSize="10.5" FontWeight="SemiBold" VerticalAlignment="Center"
+                                       Margin="8,0,0,0" Foreground="#B89A5A">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding PausedCount}" Value="0">
+                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                                <Run Text="{Binding PausedCount, Mode=OneWay}"/>
+                                <Run Text=" paused"/>
+                            </TextBlock>
                         </StackPanel>
                     </Grid>
                     <Border Background="#111020" CornerRadius="13" Padding="5"
@@ -1100,6 +1155,7 @@
                                             KeyDown="Tile_KeyDown">
                                         <Grid>
                                             <CheckBox Style="{StaticResource TileToggle}"
+                                                      Visibility="{Binding IsAvailable, Converter={StaticResource BoolToVis}}"
                                                       IsChecked="{Binding IsSelected, Mode=TwoWay}"
                                                       AutomationProperties.Name="{Binding Definition.Label, Mode=OneWay}"
                                                       AutomationProperties.HelpText="Space toggles this tile. Alt with an arrow key moves it."
@@ -1112,6 +1168,26 @@
                                                          Foreground="#8B86B4" FontSize="10"/>
                                                 </TextBlock>
                                             </CheckBox>
+
+                                            <!-- In place of the switch when this PC cannot read the
+                                                 tile. Clicking explains why and offers the fix. -->
+                                            <Button Style="{StaticResource TileUnavailable}"
+                                                    Visibility="{Binding IsAvailable, Converter={StaticResource InverseBoolToVis}}"
+                                                    Click="UnavailableTile_Click"
+                                                    AutomationProperties.Name="{Binding AccessibleName, Mode=OneWay}"
+                                                    AutomationProperties.HelpText="Enter explains what this tile needs. Alt with an arrow key moves it."
+                                                    ToolTip="{Binding StatusHint, Mode=OneWay}">
+                                                <TextBlock FontSize="11.5" Margin="0,0,14,0">
+                                                    <Run Text="{Binding Definition.Label, Mode=OneWay}"
+                                                         Foreground="#7D78A6" FontWeight="Medium"/>
+                                                    <Run Text=" "/>
+                                                    <Run Text="{Binding DisplayUnit, Mode=OneWay}"
+                                                         Foreground="#55517A" FontSize="10"/>
+                                                    <!-- Chosen, but held back until it can read. -->
+                                                    <Run Text="{Binding PausedTag, Mode=OneWay}"
+                                                         Foreground="#B89A5A" FontSize="9.5" FontWeight="SemiBold"/>
+                                                </TextBlock>
+                                            </Button>
 
                                             <!-- Drag handle. Kept separate from the checkbox so a
                                                  click still toggles and only the grip reorders. -->
@@ -1132,6 +1208,76 @@
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
                     </Border>
+                    <!-- Why a tile cannot read, and what would fix it. Opened by clicking a
+                         dimmed tile; one at a time, under the grid, so the user's eye has
+                         not far to travel and focus never leaves this window. -->
+                    <Border x:Name="TileExplanation" Background="#14122A" CornerRadius="11"
+                            BorderBrush="#2E2A4C" BorderThickness="1" Padding="15,13" Margin="0,0,0,8"
+                            Visibility="{Binding IsExplaining, Converter={StaticResource BoolToVis}}"
+                            KeyDown="TileExplanation_KeyDown"
+                            AutomationProperties.LiveSetting="Polite">
+                        <StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,5">
+                                <TextBlock Text="&#xE73E;" FontFamily="Segoe MDL2 Assets" FontSize="11"
+                                           Foreground="#34D399" VerticalAlignment="Center" Margin="0,0,7,0"
+                                           Visibility="{Binding InstallSucceeded, Converter={StaticResource BoolToVis}}"/>
+                                <TextBlock Text="{Binding ExplainTitle}" FontSize="12.5" FontWeight="SemiBold"
+                                           Foreground="#DBD7F2" TextWrapping="Wrap"/>
+                            </StackPanel>
+                            <TextBlock Text="{Binding ExplainBody}" FontSize="11" Foreground="#A9A4CE"
+                                       TextWrapping="Wrap" LineHeight="17"/>
+
+                            <!-- Always said before installing, louder when FACEIT is here. -->
+                            <Border Margin="0,10,0,0" CornerRadius="8" Padding="11,8"
+                                    Visibility="{Binding ShowFaceitNote, Converter={StaticResource BoolToVis}}">
+                                <Border.Style>
+                                    <Style TargetType="Border">
+                                        <Setter Property="Background" Value="Transparent"/>
+                                        <Setter Property="Padding" Value="0"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding FaceitInstalled}" Value="True">
+                                                <Setter Property="Background" Value="#2A2210"/>
+                                                <Setter Property="Padding" Value="11,8"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Border.Style>
+                                <TextBlock Text="{Binding FaceitNote}" FontSize="10.5" TextWrapping="Wrap">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Foreground" Value="#8B86B4"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding FaceitInstalled}" Value="True">
+                                                    <Setter Property="Foreground" Value="#F5C46B"/>
+                                                    <Setter Property="FontWeight" Value="Medium"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                            </Border>
+
+                            <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                                <Button x:Name="BtnExplainPrimary" Style="{StaticResource AccentBtn}"
+                                        Content="{Binding PrimaryActionText}" Padding="14,7" FontSize="11.5"
+                                        Margin="0,0,8,0" Click="BtnExplainPrimary_Click"
+                                        Visibility="{Binding ShowPrimaryAction, Converter={StaticResource BoolToVis}}"/>
+                                <TextBlock Text="Installing the driver…" FontSize="11" Foreground="#A9A4CE"
+                                           VerticalAlignment="Center" Margin="0,0,12,0"
+                                           Visibility="{Binding DriverBusy, Converter={StaticResource BoolToVis}}"/>
+                                <Button x:Name="BtnExplainSecondary" Style="{StaticResource LinkBtn}"
+                                        Content="{Binding SecondaryActionText}" Padding="12,6"
+                                        Click="BtnExplainSecondary_Click"
+                                        IsEnabled="{Binding DriverBusy, Converter={StaticResource InverseBool}}"/>
+                                <Button Style="{StaticResource LinkBtn}" Content="Turn tile off"
+                                        Padding="12,6" Margin="8,0,0,0"
+                                        ToolTip="Turn this tile off, so it does not come back on its own"
+                                        Click="BtnExplainStopShowing_Click"
+                                        Visibility="{Binding ShowStopShowing, Converter={StaticResource BoolToVis}}"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+
                     <TextBlock Text="Select sensors to display, and drag the handle on a tile to reorder. The overlay uses this order. With a tile focused, Alt and an arrow key moves it."
                                FontSize="10.5" Foreground="#8B86B4" FontWeight="Medium"
                                Margin="0,0,0,22" TextWrapping="Wrap"/>

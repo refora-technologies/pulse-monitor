@@ -384,6 +384,16 @@ public class HardwareService : IDisposable
         Send(SensorCommand.RescanHardware());
     }
 
+    /// <summary>
+    /// Starts a fresh sensor host on purpose, because something it only looks at once has changed.
+    /// </summary>
+    /// <remarks>
+    /// Installing the sensor driver is the case this exists for. A rescan builds a new Computer
+    /// inside the same process, and whether the library looks for the driver again at that point
+    /// or remembers what it found at startup is its own business. A new process settles it.
+    /// </remarks>
+    public void RestartHost(string why) => ReplaceHost(why, deliberate: true);
+
     private void Send(string command)
     {
         lock (_hostLock)
@@ -712,14 +722,15 @@ public class HardwareService : IDisposable
     /// Ends the current host so a fresh one takes its place. Used when it has stopped
     /// answering: there is nothing to ask a wedged process, and its replacement starts clean.
     /// </summary>
-    private void ReplaceHost(string why)
+    private void ReplaceHost(string why, bool deliberate = false)
     {
         lock (_hostLock)
         {
             var host = _host;
             if (host == null) return;
 
-            LogService.Warn(nameof(HardwareService), $"Replacing the sensor host: {why}");
+            if (deliberate) LogService.Info(nameof(HardwareService), $"Restarting the sensor host: {why}");
+            else            LogService.Warn(nameof(HardwareService), $"Replacing the sensor host: {why}");
             _replacing = true;
 
             try { if (!host.HasExited) host.Kill(entireProcessTree: true); } catch { }

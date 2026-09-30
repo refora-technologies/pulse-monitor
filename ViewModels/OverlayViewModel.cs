@@ -443,7 +443,14 @@ public class OverlayViewModel : BaseViewModel
         foreach (var id in settings.ActiveTileIds.Distinct())
         {
             var def = SensorTileDefinition.All.FirstOrDefault(d => d.Id == id);
-            if (def != null) ActiveTiles.Add(new TileViewModel(def));
+            if (def == null) continue;
+
+            // Chosen but unreadable on this machine, so it stays chosen and stays off screen.
+            // Showing it meant a tile that read "--" forever, or 0 W for processor power, which
+            // is a reading that looks real and is not.
+            if (SensorDriver.Instance.StatusOf(id) != TileStatus.Ready) continue;
+
+            ActiveTiles.Add(new TileViewModel(def));
         }
         OverlayOpacity = settings.OverlayOpacity;
 
