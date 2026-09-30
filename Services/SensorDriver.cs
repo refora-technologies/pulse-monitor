@@ -150,50 +150,82 @@ public sealed class SensorDriver
 
     private static MachineFacts Read() => new(ReadDriver(), ReadBattery());
 
+    /// <summary>
+    /// Whether the driver is on this machine and working, judged by its device rather than its service.
+    /// </summary>
+    /// <remarks>
+    /// The service entry is not the answer, which was measured the hard way on 1 October 2026.
+    /// PawnIO's own uninstaller removed its files, its entry under Installed apps and its device,
+    /// and left the service entry behind with the driver still loaded, so Windows went on
+    /// reporting it as running. Reading the service, Pulse would have called a removed driver
+    /// working, and after the next restart called it installed but blocked. Pulse's setup has the
+    /// same blind spot, for the same reason.
+    ///
+    /// The device is what the sensor library talks to, and Windows lists the devices a driver is
+    /// serving under the service's Enum key: one before that uninstall, none after. The Installed
+    /// apps entry is the second witness, for a driver that is installed but whose device did not
+    /// start, which is what a block by anti-cheat or the vulnerable driver list looks like.
+    /// </remarks>
     private static DriverState ReadDriver()
+    {
+        bool hasDevice = DeviceCount() > 0;
+        bool listed    = HasInstalledAppsEntry();
+
+        // What is left is Windows tidying up at the next restart, not a driver.
+        if (!hasDevice && !listed) return DriverState.NotInstalled;
+
+        return hasDevice && ServiceRunning() != false ? DriverState.Running : DriverState.NotRunning;
+    }
+
+    private static int DeviceCount()
+    {
+        try
+        {
+            using var key = Registry.LocalMachine.OpenSubKey($@"SYSTEM\CurrentControlSet\Services\{ServiceName}\Enum");
+            return key?.GetValue("Count") is int count ? count : 0;
+        }
+        catch (Exception ex)
+        {
+            LogService.Error(nameof(SensorDriver), "Reading the sensor driver's devices failed", ex);
+            return 0;
+        }
+    }
+
+    private static bool HasInstalledAppsEntry()
+    {
+        try
+        {
+            using var key = Registry.LocalMachine.OpenSubKey($@"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{ServiceName}");
+            return key != null;
+        }
+        catch { return false; }   // DeviceCount has already logged if the registry itself is failing
+    }
+
+    /// True or false from the service manager, or null when it would not say.
+    private static bool? ServiceRunning()
     {
         IntPtr scm = IntPtr.Zero, service = IntPtr.Zero;
         try
         {
             scm = OpenSCManager(null, null, SC_MANAGER_CONNECT);
-            if (scm == IntPtr.Zero)
-            {
-                // Should not happen for an administrator. Falls back to the registry, which
-                // answers whether it is installed though not whether it is running.
-                return RegistryHasService() ? DriverState.Running : DriverState.NotInstalled;
-            }
+            if (scm == IntPtr.Zero) return null;
 
             service = OpenService(scm, ServiceName, SERVICE_QUERY_STATUS);
             if (service == IntPtr.Zero)
-                return Marshal.GetLastWin32Error() == ERROR_SERVICE_DOES_NOT_EXIST
-                    ? DriverState.NotInstalled
-                    : RegistryHasService() ? DriverState.Running : DriverState.NotInstalled;
+                return Marshal.GetLastWin32Error() == ERROR_SERVICE_DOES_NOT_EXIST ? false : null;
 
-            if (!QueryServiceStatus(service, out var status))
-                return DriverState.Running;   // it exists; assume the ordinary case rather than switch tiles off
-
-            return status.dwCurrentState == SERVICE_RUNNING ? DriverState.Running : DriverState.NotRunning;
+            return QueryServiceStatus(service, out var status) ? status.dwCurrentState == SERVICE_RUNNING : null;
         }
         catch (Exception ex)
         {
-            LogService.Error(nameof(SensorDriver), "Reading the sensor driver's state failed", ex);
-            return RegistryHasService() ? DriverState.Running : DriverState.NotInstalled;
+            LogService.Error(nameof(SensorDriver), "Asking Windows whether the sensor driver is running failed", ex);
+            return null;
         }
         finally
         {
             if (service != IntPtr.Zero) CloseServiceHandle(service);
             if (scm     != IntPtr.Zero) CloseServiceHandle(scm);
         }
-    }
-
-    private static bool RegistryHasService()
-    {
-        try
-        {
-            using var key = Registry.LocalMachine.OpenSubKey($@"SYSTEM\CurrentControlSet\Services\{ServiceName}");
-            return key != null;
-        }
-        catch { return false; }   // unreadable is treated as absent; the caller logs the real failure
     }
 
     /// <summary>
