@@ -413,19 +413,6 @@ public class UpdateService
     private const string DownloadDirPrefix = "Pulse-update-";
 
     /// <summary>
-    /// Creates a private directory to download the installer into.
-    ///
-    /// The plain temp directory is writable by the logged-on user, and Pulse runs elevated.
-    /// Downloading there means anything else running as that (non-admin) user can swap the
-    /// installer in the window between our hash check and Process.Start, and the replacement
-    /// then inherits our elevation. Granting only Administrators and SYSTEM removes the
-    /// window: an unprivileged process cannot write into the directory at all.
-    ///
-    /// Throws if the ACL cannot be applied. Callers fail closed rather than running an
-    /// elevated installer out of a location they could not secure — the same stance as
-    /// refusing an installer whose checksum will not verify.
-    /// </summary>
-    /// <summary>
     /// The file name to save the installer under, reduced to something that can only ever be a
     /// file name.
     /// </summary>
@@ -457,6 +444,19 @@ public class UpdateService
         return name;
     }
 
+    /// <summary>
+    /// Creates a private directory to download the installer into.
+    ///
+    /// The plain temp directory is writable by the logged-on user, and Pulse runs elevated.
+    /// Downloading there means anything else running as that (non-admin) user can swap the
+    /// installer in the window between our hash check and Process.Start, and the replacement
+    /// then inherits our elevation. Granting only Administrators and SYSTEM removes the
+    /// window: an unprivileged process cannot write into the directory at all.
+    ///
+    /// Throws if the ACL cannot be applied. Callers fail closed rather than running an
+    /// elevated installer out of a location they could not secure — the same stance as
+    /// refusing an installer whose checksum will not verify.
+    /// </summary>
     private static string CreateSecureDownloadDirectory()
     {
         var path = Path.Combine(Path.GetTempPath(), DownloadDirPrefix + Guid.NewGuid().ToString("N"));
