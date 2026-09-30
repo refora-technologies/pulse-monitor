@@ -26,6 +26,19 @@ public static class SensorHost
     public const string ReadyBanner = "#pulse-sensor-host";
 
     /// <summary>
+    /// Sent once opening the sensors has finished, whether or not it worked.
+    /// </summary>
+    /// <remarks>
+    /// Opening is by far the slowest thing the host does, and on a machine under load it was
+    /// measured taking anything from eight to forty-two seconds. Pulse used to time the host's
+    /// silence from the moment it started, so a slow open used up the whole allowance and the
+    /// host was killed seconds before its first reading, and the replacement then had to open
+    /// everything again. One laptop went round that loop for fifteen minutes with no readings.
+    /// This tells Pulse the slow part is over, so the two can be given separate allowances.
+    /// </remarks>
+    public const string OpenedBanner = "#pulse-sensor-host-opened";
+
+    /// <summary>
     /// Runs until standard input closes. Returns the process exit code.
     ///
     /// Never throws: whatever goes wrong here, the useful thing is an orderly exit with a line
@@ -75,6 +88,16 @@ public static class SensorHost
         }
 
         reader.Open();
+
+        try
+        {
+            stdout.WriteLine(OpenedBanner);
+            stdout.Flush();
+        }
+        catch
+        {
+            // Same as the banner above. The first reading tells Pulse the same thing a moment later.
+        }
 
         // Commands arrive on their own thread. Reading them on the polling thread would mean
         // a command could only be noticed between polls, and a stalled poll would make Pulse

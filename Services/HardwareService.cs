@@ -178,13 +178,14 @@ public class HardwareService : IDisposable
             lock (_hostLock)
             {
                 var host = _host;
-                var age  = TimeSpan.FromMilliseconds(Environment.TickCount64 - _hostStartedAt);
-                var silence = TimeSpan.FromMilliseconds(Environment.TickCount64 - _lastSnapshotAt);
+                var age  = TimeSpan.FromMilliseconds(AwakeClock.Milliseconds - _hostStartedAt);
+                var silence = TimeSpan.FromMilliseconds(AwakeClock.Milliseconds - _lastSnapshotAt);
 
                 if (host == null) return $"not running, restarted {_restarts} time(s) this session";
 
                 return $"running {age.TotalMinutes:F0}m, last reading {silence.TotalSeconds:F0}s ago, "
-                     + $"restarted {_restarts} time(s) this session";
+                     + $"restarted {_restarts} time(s) this session, "
+                     + $"{_silentReplacements} silent replacement(s) in a row";
             }
         }
     }
@@ -220,6 +221,28 @@ public class HardwareService : IDisposable
     /// machine genuinely can take this long.
     private static readonly TimeSpan SilentAfter = TimeSpan.FromSeconds(45);
 
+    /// <summary>
+    /// How long a new host may take to open the sensors before it counts as stuck.
+    /// </summary>
+    /// <remarks>
+    /// Separate from SilentAfter because opening is a different job. It enumerates every
+    /// device and loads the vendor libraries, and on a laptop at 96 percent memory it was
+    /// measured at up to forty-two seconds. Timed together with the first reading, that left
+    /// the host a few seconds to produce it, so it was killed and its replacement had to open
+    /// everything again: fifteen minutes of that on one machine, with no readings at all.
+    /// </remarks>
+    private static readonly TimeSpan OpenAllowance = TimeSpan.FromSeconds(90);
+
+    /// <summary>
+    /// The most patience a host is given after its predecessors went silent.
+    /// </summary>
+    /// <remarks>
+    /// Each replacement that also goes quiet earns the next one more time, because a host that
+    /// is slow rather than wedged is only made slower by being restarted. Capped, so a host
+    /// that really is wedged is still replaced within a few minutes.
+    /// </remarks>
+    private static readonly TimeSpan MostPatience = TimeSpan.FromMinutes(5);
+
     /// A host that lasts this long is considered healthy, and the restart backoff resets.
     /// Without it a machine that faults once a day would eventually be waiting minutes.
     private static readonly TimeSpan Settled = TimeSpan.FromSeconds(60);
@@ -246,13 +269,33 @@ public class HardwareService : IDisposable
         return baseline + TimeSpan.FromSeconds(interval * 2);
     }
 
+    /// An allowance stretched by one more of itself for every host in a row that was replaced
+    /// for silence, up to MostPatience. See OpenAllowance for why.
+    private TimeSpan Patience(TimeSpan allowance) =>
+        Patience(allowance, _silentReplacements);
+
+    internal static TimeSpan Patience(TimeSpan allowance, int silentReplacements)
+    {
+        var stretched = allowance * (1 + Math.Max(0, silentReplacements));
+        return stretched < MostPatience ? stretched : (allowance > MostPatience ? allowance : MostPatience);
+    }
+
     private readonly object _hostLock = new();
     private readonly Dispatcher? _dispatcher;
 
     private Process? _host;
     private int _restarts;
+
+    /// Measured on AwakeClock, not Environment.TickCount64: time asleep is not silence.
     private long _hostStartedAt;
     private long _lastSnapshotAt;
+
+    /// Whether the current host has finished opening the sensors, which it says with
+    /// SensorHost.OpenedBanner or by sending a reading.
+    private bool _hostOpened;
+
+    /// How many hosts in a row were replaced for silence. Cleared by the first reading.
+    private int _silentReplacements;
     private bool _gpuBlanked;
     private bool _blanked;
     private bool _disposed;
@@ -472,8 +515,9 @@ public class HardwareService : IDisposable
                     LogService.Warn(nameof(HardwareService), "The sensor host could not be tied to Pulse's lifetime.");
 
                 _host           = host;
-                _hostStartedAt  = Environment.TickCount64;
-                _lastSnapshotAt = Environment.TickCount64;
+                _hostStartedAt  = AwakeClock.Milliseconds;
+                _lastSnapshotAt = _hostStartedAt;
+                _hostOpened     = false;
                 _replacing      = false;
 
                 // A host exists again, so the next launch failure starts its backoff afresh
@@ -554,10 +598,16 @@ public class HardwareService : IDisposable
         {
             while (host.StandardOutput.ReadLine() is { } line)
             {
+                if (line == SensorHost.OpenedBanner)
+                {
+                    NoteSignOfLife(host, reading: false);
+                    continue;
+                }
+
                 var snapshot = SensorProtocol.TryParse(line);
                 if (snapshot == null) continue;   // the ready banner, or a line we cannot use
 
-                _lastSnapshotAt = Environment.TickCount64;
+                NoteSignOfLife(host, reading: true);
                 Publish(snapshot);
             }
         }
@@ -567,6 +617,31 @@ public class HardwareService : IDisposable
         }
 
         OnHostEnded(host);
+    }
+
+    /// <summary>
+    /// Restarts the silence clock, for the host it came from and no other.
+    /// </summary>
+    /// <remarks>
+    /// Checked against the current host because a host being replaced can still deliver a last
+    /// line after its successor has started, and that line says nothing about the successor.
+    /// </remarks>
+    private void NoteSignOfLife(Process host, bool reading)
+    {
+        lock (_hostLock)
+        {
+            if (!ReferenceEquals(_host, host)) return;
+
+            _lastSnapshotAt = AwakeClock.Milliseconds;
+            _hostOpened     = true;
+
+            if (reading && _silentReplacements > 0)
+            {
+                LogService.Info(nameof(HardwareService),
+                    $"Readings arrived after {_silentReplacements} silent replacement(s); patience goes back to normal.");
+                _silentReplacements = 0;
+            }
+        }
     }
 
     /// The host's log lines, folded into ours. It deliberately does not write to the log file
@@ -616,6 +691,8 @@ public class HardwareService : IDisposable
     /// </summary>
     private void OnHostEnded(Process host)
     {
+        bool deliberate;
+
         lock (_hostLock)
         {
             if (_disposed) return;
@@ -625,7 +702,9 @@ public class HardwareService : IDisposable
             try   { host.WaitForExit(2000); code = host.HasExited ? host.ExitCode : -1; }
             catch { code = -1; }
 
-            var lived = TimeSpan.FromMilliseconds(Environment.TickCount64 - _hostStartedAt);
+            var lived = TimeSpan.FromMilliseconds(AwakeClock.Milliseconds - _hostStartedAt);
+
+            deliberate = _replacing;
 
             if (_replacing)
             {
@@ -655,17 +734,22 @@ public class HardwareService : IDisposable
 
             // A host that stayed up long enough to be healthy earns a clean slate, so a
             // machine that faults occasionally never accumulates its way into a long wait.
+            //
+            // Only crashes are counted. A host Pulse ended itself did not fault, and counting
+            // those is how a machine that was merely slow ended up told that a graphics driver
+            // was faulting, which it was not.
             if (lived >= Settled) _restarts = 0;
-            _restarts++;
+            if (!deliberate) _restarts++;
         }
 
         // Backoff, capped. Unlimited restarts on purpose: a driver being reinstalled can fault
         // repeatedly for a minute and then work perfectly, and giving up would leave Pulse
-        // showing "--" until someone restarted it by hand.
-        var wait = TimeSpan.FromSeconds(Math.Min(_restarts, 10));
+        // showing "--" until someone restarted it by hand. A replacement Pulse asked for is
+        // already spaced out by the silence that caused it, so it waits only a moment.
+        var wait = deliberate ? TimeSpan.FromSeconds(1) : TimeSpan.FromSeconds(Math.Min(_restarts, 10));
         Thread.Sleep(wait);
 
-        if (_restarts >= 4)
+        if (!deliberate && _restarts >= 4)
             Fail("Sensor readings keep stopping. A graphics driver on this machine may be faulting; "
                + "see the log for details.");
 
@@ -695,7 +779,7 @@ public class HardwareService : IDisposable
             // host during that wait and start a second one alongside.
             if (_disposed || _host != null || _relaunching) return;
 
-            long now = Environment.TickCount64;
+            long now = AwakeClock.Milliseconds;
             if (now < _nextLaunchAttemptAt) return;
 
             _relaunching         = true;
@@ -747,7 +831,36 @@ public class HardwareService : IDisposable
 
         try
         {
-            var silent = TimeSpan.FromMilliseconds(Environment.TickCount64 - _lastSnapshotAt);
+            TimeSpan silent;
+
+            // Decided and acted on under the lock, against the host that was actually measured.
+            //
+            // This used to read the silence, let go, and then act. On a wake another thread
+            // could start a new host and reset the clock in between, and the watchdog then
+            // killed that new host on the old figure: one was ended 26 ms after it started, for
+            // 5916 seconds of silence belonging to its predecessor.
+            lock (_hostLock)
+            {
+                long now = AwakeClock.Milliseconds;
+                silent = TimeSpan.FromMilliseconds(now - _lastSnapshotAt);
+
+                // Alive but not answering. Rarer than a crash and more confusing, because
+                // nothing has ended and nothing is logged; the readings simply stop.
+                var allowance = Patience(_hostOpened ? Deadline(SilentAfter) : OpenAllowance);
+
+                if (_host != null && silent > allowance)
+                {
+                    var what = _hostOpened
+                        ? $"no readings for {silent.TotalSeconds:F0}s"
+                        : $"still opening sensors after {silent.TotalSeconds:F0}s";
+
+                    _silentReplacements++;
+                    _lastSnapshotAt = now;   // don't re-trigger while it dies
+
+                    ReplaceHost($"{what}. Its replacement gets {Patience(Deadline(SilentAfter)).TotalSeconds:F0}s "
+                              + $"once it has opened the sensors");
+                }
+            }
 
             // Stale readings are worse than none. A frozen number looks live, and looking live
             // while being an hour old is how a user ends up reporting that their GPU sits at a
@@ -763,14 +876,6 @@ public class HardwareService : IDisposable
             {
                 _blanked = true;
                 Hold(alsoClearTheRest: true);
-            }
-
-            // Alive but not answering. Rarer than a crash and more confusing, because nothing
-            // has ended and nothing is logged; the readings simply stop.
-            if (silent > Deadline(SilentAfter))
-            {
-                _lastSnapshotAt = Environment.TickCount64;   // don't re-trigger while it dies
-                ReplaceHost($"no readings for {silent.TotalSeconds:F0}s");
             }
 
             RelaunchIfAbsent();
