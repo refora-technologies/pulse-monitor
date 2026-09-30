@@ -364,7 +364,14 @@ public partial class App : WinApplication
             {
                 // A half-built window is no use to the next attempt, and leaving it in the
                 // field would make IsOverlayVisible answer for something that cannot show.
+                //
+                // Released, not just dropped. If it was built and then failed to show, its
+                // constructor had already subscribed to a static Windows event, which would
+                // have kept it alive for good, and each retry would have built another.
+                var broken = _overlayWindow;
                 _overlayWindow = null;
+                try { broken?.Close(); } catch { }   // it may never have had a window to close
+                broken?.Release();
 
                 if (_overlayRetries == 0)
                 {
