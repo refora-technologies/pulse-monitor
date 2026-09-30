@@ -308,7 +308,40 @@ public static class LogService
 
             report.AppendLine();
 
+            // Read under the lock, worked through outside it.
+            //
+            // All of this used to happen inside the lock, including grouping up to five
+            // megabytes of older logs line by line. Every log call from anywhere in Pulse waits
+            // on that lock, the interface thread included, so pressing "Save diagnostics" could
+            // stall the panel and the overlay for as long as the parsing took. Reading the files
+            // is the only part that has to be consistent with the writer.
+            var olderFiles = new List<string[]>();
+            string? current = null;
+            Exception? currentError = null;
+            string? sessionState = null;
+
             lock (Gate)
+            {
+                for (int i = MaxArchives; i >= 1; i--)
+                {
+                    try
+                    {
+                        var path = ArchivePath(i);
+                        if (File.Exists(path)) olderFiles.Add(File.ReadAllLines(path));
+                    }
+                    catch
+                    {
+                        // an unreadable archive is not worth failing the export over
+                    }
+                }
+
+                try { if (File.Exists(LogPath)) current = File.ReadAllText(LogPath); }
+                catch (Exception ex) { currentError = ex; }
+
+                if (File.Exists(SessionStatePath))
+                    sessionState = Safe(() => File.ReadAllText(SessionStatePath));
+            }
+
             {
                 // Everything older than the recent detail, counted rather than reprinted.
                 //
@@ -320,20 +353,17 @@ public static class LogService
                 // Counting them is strictly better for finding a pattern. "9 x Unhandled
                 // exception on the UI thread, first 28 Aug, last 4 Sep" is the finding itself,
                 // where the same nine lines spread across a megabyte are a needle in a haystack.
-                var older = new List<string>();
-                for (int i = MaxArchives; i >= 1; i--) older.Add(ArchivePath(i));
-
-                AppendProblemSummary(report, older);
+                AppendProblemSummary(report, olderFiles);
 
                 // And the recent detail in full, because a summary cannot show sequence, and
                 // sequence is what says whether the crash came before or after the thing that
                 // caused it.
-                AppendRecent(report, LogPath, "log (current)");
+                AppendRecent(report, current, currentError, "log (current)");
 
-                if (File.Exists(SessionStatePath))
+                if (sessionState != null)
                 {
                     report.AppendLine("--- session in progress ---");
-                    report.AppendLine(Safe(() => File.ReadAllText(SessionStatePath)));
+                    report.AppendLine(sessionState);
                 }
             }
 
@@ -361,36 +391,36 @@ public static class LogService
     /// <summary>
     /// Appends the end of a log file, and says so when it had to cut.
     /// </summary>
-    private static void AppendRecent(StringBuilder report, string path, string label)
+    /// <param name="text">The file as read under the lock, or null if it does not exist.</param>
+    /// <param name="readError">Why it could not be read, if it could not.</param>
+    private static void AppendRecent(StringBuilder report, string? text, Exception? readError, string label)
     {
-        try
-        {
-            if (!File.Exists(path)) return;
-
-            var text = File.ReadAllText(path);
-            bool trimmed = text.Length > ExportTailBytes;
-
-            if (trimmed)
-            {
-                text = text[^ExportTailBytes..];
-
-                // From a line boundary, so the export never opens mid-sentence.
-                int newline = text.IndexOf('\n');
-                if (newline >= 0 && newline < text.Length - 1) text = text[(newline + 1)..];
-            }
-
-            report.AppendLine(trimmed
-                ? $"--- {label}, most recent {ExportTailBytes / 1024} KB; anything older is counted above ---"
-                : $"--- {label} ---");
-
-            report.AppendLine(text);
-        }
-        catch (Exception ex)
+        if (readError != null)
         {
             report.AppendLine($"--- {label} ---");
-            report.AppendLine($"(could not be read: {ex.GetType().Name}: {Redact(ex.Message)})");
+            report.AppendLine($"(could not be read: {readError.GetType().Name}: {Redact(readError.Message)})");
             report.AppendLine();
+            return;
         }
+
+        if (text == null) return;
+
+        bool trimmed = text.Length > ExportTailBytes;
+
+        if (trimmed)
+        {
+            text = text[^ExportTailBytes..];
+
+            // From a line boundary, so the export never opens mid-sentence.
+            int newline = text.IndexOf('\n');
+            if (newline >= 0 && newline < text.Length - 1) text = text[(newline + 1)..];
+        }
+
+        report.AppendLine(trimmed
+            ? $"--- {label}, most recent {ExportTailBytes / 1024} KB; anything older is counted above ---"
+            : $"--- {label} ---");
+
+        report.AppendLine(text);
     }
 
     /// <summary>
@@ -402,26 +432,16 @@ public static class LogService
     /// separate curiosities. Timestamps, process ids and durations are exactly the parts that
     /// differ every time and never change what the line means.
     /// </remarks>
-    private static void AppendProblemSummary(StringBuilder report, List<string> paths)
+    private static void AppendProblemSummary(StringBuilder report, List<string[]> olderFiles)
     {
         var seen  = new Dictionary<string, (int Count, string First, string Last, string Text)>(StringComparer.Ordinal);
         var runs  = new Dictionary<string, int>(StringComparer.Ordinal);
         int files = 0;
         string earliest = "", latest = "";
 
-        foreach (var path in paths)
+        foreach (var lines in olderFiles)
         {
-            string[] lines;
-            try
-            {
-                if (!File.Exists(path)) continue;
-                lines = File.ReadAllLines(path);
-                files++;
-            }
-            catch
-            {
-                continue;   // an unreadable archive is not worth failing the export over
-            }
+            files++;
 
             foreach (var line in lines)
             {
