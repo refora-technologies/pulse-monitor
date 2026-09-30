@@ -202,6 +202,10 @@ public class FpsService : IDisposable
         _targetTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
         _targetTimer.Tick += (_, _) =>
         {
+            // After a pause the capture has heard nothing because nothing ran, the capture
+            // included. That is neither a starved trace session nor a frame rate worth keeping.
+            if (_paused.Check() > TimeSpan.Zero) ForgetAcrossPause();
+
             RefreshForegroundTarget();
             ExpireIfStale();      // frames stopping is silent; nothing else would notice
             ReportSilentCapture();
@@ -420,6 +424,24 @@ public class FpsService : IDisposable
 
     private int  _captureGeneration;
     private long _captureStartedAt;
+
+    /// Ticks every 250 ms, so ten seconds without one is Pulse having been paused. See PauseDetector.
+    private readonly PauseDetector _paused = new(TimeSpan.FromSeconds(10));
+
+    /// <summary>
+    /// Starts the silence report's clock again and lets the last frame rate go.
+    /// </summary>
+    /// <remarks>
+    /// Without this, waking from Modern Standby, where the machine counts as awake while Pulse is
+    /// suspended, could report "no data in 3600s" and blame abandoned trace sessions, which is the
+    /// wrong diagnosis the sleep fix exists to remove.
+    /// </remarks>
+    private void ForgetAcrossPause()
+    {
+        Interlocked.Exchange(ref _lastRowAt, AwakeClock.Milliseconds);
+        _reportedSilence = false;
+        lock (_lock) _lastFrameArrival = 0;
+    }
 
     /// <summary>
     /// The name of the ETW trace session PresentMon runs under.
