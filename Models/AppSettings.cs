@@ -72,6 +72,19 @@ public class AppSettings
     public int SelectedMonitorIndex { get; set; } = 0;
 
     /// <summary>
+    /// The bounds of the display chosen for a corner position, as "left,top,width,height".
+    /// </summary>
+    /// <remarks>
+    /// Corner positions used to find their display by SelectedMonitorIndex alone, an index into
+    /// Screen.AllScreens. That list is in Windows' own order, and Windows renumbers displays
+    /// when the graphics adapters change, so the index can land on a different screen. Dragged
+    /// positions were already protected against this with OverlayMonitorBounds; this does the
+    /// same for corners. Empty in settings from before 1.3.2, which then behave as they always
+    /// did.
+    /// </remarks>
+    public string PresetMonitorBounds { get; set; } = "";
+
+    /// <summary>
     /// Whether Pulse registers its keyboard shortcuts with Windows.
     /// </summary>
     /// <remarks>
@@ -263,6 +276,7 @@ public class AppSettings
         TileOrder        = TileOrder?.Where(id => !string.IsNullOrWhiteSpace(id)).Distinct().ToList()     ?? new List<string>();
         SelectedGpuId  ??= "";
         OverlayMonitorId ??= "";
+        PresetMonitorBounds ??= "";
 
         // Anything outside 0..1 is not a fraction we wrote, so treat the position as unset
         // rather than trying to salvage it.
