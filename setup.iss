@@ -22,9 +22,32 @@ InfoBeforeFile=THIRD-PARTY-NOTICES.txt
 Compression=lzma2/ultra64
 SolidCompression=yes
 PrivilegesRequired=admin
-WizardStyle=modern
 DisableProgramGroupPage=yes
-UninstallDisplayName=Pulse — System Monitor by Refora Technologies
+
+; Shown. Modern Inno Setup hides the Welcome page by default, which skipped straight to the
+; licence: the first thing anyone saw of Pulse was the GPL, with no word of what it is.
+DisableWelcomePage=no
+UninstallDisplayName=Pulse
+
+; Dark, because Pulse is. Its panel, its overlay and its website are all near-black and violet,
+; and a white installer was the one place a user met something that did not look like Pulse.
+; Forced rather than following Windows: this is the first impression of a dark product.
+WizardStyle=modern dark
+
+; Drawn by Resources\Installer\make-images.py from the logo and the website's type, at every
+; size Inno Setup documents for the modern wizard. Setup picks the one that fits the screen,
+; so nothing is stretched or blurred on a high-DPI display.
+WizardImageFile=Resources\Installer\wizard-202x386.png,Resources\Installer\wizard-269x515.png,Resources\Installer\wizard-336x643.png,Resources\Installer\wizard-430x824.png,Resources\Installer\wizard-534x1022.png
+WizardSmallImageFile=Resources\Installer\small-58.png,Resources\Installer\small-77.png,Resources\Installer\small-97.png,Resources\Installer\small-124.png,Resources\Installer\small-159.png
+
+; What Windows shows for PulseSetup.exe under Properties > Details, and in the elevation
+; prompt. Without these it described itself as an anonymous setup program.
+VersionInfoVersion=1.3.2
+VersionInfoProductVersion=1.3.2
+VersionInfoProductName=Pulse
+VersionInfoCompany=Refora Technologies
+VersionInfoDescription=Pulse Setup
+VersionInfoCopyright=Copyright (C) 2025-2026 Refora Technologies
 ArchitecturesInstallIn64BitMode=x64compatible
 CloseApplications=yes
 RestartApplications=no
@@ -70,7 +93,15 @@ UsedUserAreasWarning=no
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
+[Messages]
+WelcomeLabel2=This will install [name/ver] on your computer.%n%nPulse shows your temperatures, usage, power and frame rate in a small overlay you can keep on screen while you play. It is free and open source.%n%nIt is recommended that you close other applications before continuing.
+
 [Tasks]
+; Ticked by default, because most people install Pulse for temperatures and those need it. A
+; choice, because FACEIT's anti-cheat will not start while it is installed, and Pulse works
+; without it: those tiles explain themselves and offer the install later. Unticked for them
+; when FACEIT is found; see CurPageChanged.
+Name: "sensordriver"; Description: "Install the sensor driver (PawnIO) for CPU temperature, power and clock"; GroupDescription: "Sensor driver:"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}";
 Name: "startupentry"; Description: "Start Pulse when Windows starts"; GroupDescription: "System Integration:";
 
