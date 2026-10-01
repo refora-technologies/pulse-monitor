@@ -1206,7 +1206,9 @@ public class SettingsViewModel : BaseViewModel
             OnPropertyChanged(nameof(HasSensorFault));
         };
 
+        _driverSeen = SensorDriver.Instance.Facts.Driver;
         SensorDriver.Instance.Changed += (_, _) => RefreshTileStatuses();
+        StartDriverWatch();
 
         // Write the order back once at startup so the overlay always matches what the
         // settings list shows. Without this, an install upgrading from a version that
@@ -1461,10 +1463,8 @@ public class SettingsViewModel : BaseViewModel
             if (outcome != SensorDriver.InstallOutcome.Failed)
                 tile.IsSelected = true;
 
-            // A fresh host, so the sensor library looks for the driver again rather than trusting
-            // whatever it found when it started.
-            if (outcome == SensorDriver.InstallOutcome.Working)
-                HardwareService.Instance.RestartHost("the sensor driver was just installed");
+            // No host restart here. InstallAsync reads the machine again, which reaches
+            // RefreshTileStatuses, and that restarts the host for a driver from any source.
         }
         finally
         {
@@ -1473,9 +1473,46 @@ public class SettingsViewModel : BaseViewModel
         }
     }
 
+    /// The driver state the tiles were last given, to notice it becoming available.
+    private DriverState _driverSeen;
+
+    private System.Windows.Threading.DispatcherTimer? _driverWatch;
+
+    /// <summary>
+    /// Reads the machine again every half minute, so the tiles follow the driver while Pulse runs.
+    /// </summary>
+    /// <remarks>
+    /// It used to be read at startup, when the panel opened and when a tile was clicked, and at no
+    /// other time. Removing the driver while Pulse ran, which the owner did on 1 October to see what
+    /// would happen, left the overlay unaware of it; installing it from another program left the
+    /// tiles paused and the sensor host blind to a driver it could now use. Two registry reads and
+    /// a service query, so half a minute costs nothing worth measuring.
+    /// </remarks>
+    private void StartDriverWatch()
+    {
+        var dispatcher = System.Windows.Application.Current?.Dispatcher
+                      ?? System.Windows.Threading.Dispatcher.CurrentDispatcher;
+
+        _driverWatch = new System.Windows.Threading.DispatcherTimer(
+            System.Windows.Threading.DispatcherPriority.Background, dispatcher)
+        {
+            Interval = TimeSpan.FromSeconds(30),
+        };
+        _driverWatch.Tick += (_, _) => SensorDriver.Instance.Refresh();
+        _driverWatch.Start();
+    }
+
     /// Applies fresh facts to every tile, and to the overlay, which leaves out tiles that cannot read.
     private void RefreshTileStatuses()
     {
+        // A driver that has just become usable, from the tile, from another program's installer or
+        // from a restart that finished loading it, means nothing until the sensor host looks for
+        // it again. A fresh host settles that, once, in one place.
+        var driver = SensorDriver.Instance.Facts.Driver;
+        if (driver == DriverState.Running && _driverSeen != DriverState.Running)
+            HardwareService.Instance.RestartHost("the sensor driver is now available");
+        _driverSeen = driver;
+
         foreach (var tile in AllTiles)
             tile.Status = SensorDriver.Instance.StatusOf(tile.Definition.Id);
 
