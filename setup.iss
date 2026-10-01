@@ -290,6 +290,28 @@ var
   StartupFailed: Boolean;
   RebootWanted:  Boolean;
 
+  { Whether the driver was already here before this install, so Pulse only takes credit for,
+    and later offers to remove, a driver it put there itself. }
+  DriverWasThere: Boolean;
+
+  DriverNote: TNewStaticText;
+  DriverChoiceMade: Boolean;
+  UntickedForFaceit: Boolean;
+
+const
+  { Where Pulse records that it installed the driver. Read by the uninstaller. }
+  PulseKey = 'SOFTWARE\Refora\Pulse';
+  InstalledDriverValue = 'InstalledSensorDriver';
+
+{ Whether FACEIT's anti-cheat is on this PC. FACEITService is the name FACEIT's own support
+  pages give; the install folder covers a client whose service was removed. The same test
+  Pulse uses in Services\SensorDriver.cs. }
+function FaceitInstalled(): Boolean;
+begin
+  Result := RegKeyExists(HKEY_LOCAL_MACHINE_64, 'SYSTEM\CurrentControlSet\Services\FACEITService')
+         or DirExists(ExpandConstant('{commonpf64}\FACEIT AC'));
+end;
+
 { Runs one installation step and returns what it exited with, or -1 if it never ran.
 
   The Run section cannot do this. It checks whether a program could be started and then discards
@@ -346,18 +368,28 @@ begin
   if CurStep <> ssPostInstall then
     exit;
 
-  { Its own variable. This used to share Code with the startup task step below, which ran in
-    between, so the failure message reported the startup task's exit code, usually 0, as the
-    driver's. }
-  DriverCode := InstallStep(ExpandConstant('{app}\PawnIO_setup.exe'), '-install -silent',
-                            'Installing sensor driver...');
+  { Only when chosen. Unticking it never removes a driver that is already here: another
+    program may be using it, and the uninstaller is where removal is offered. }
+  if WizardIsTaskSelected('sensordriver') then
+  begin
+    DriverWasThere := DriverIsInstalled();
 
-  { 3010 still means "in place, but not until you restart", which is worth passing on. }
-  if DriverCode = 3010 then
-    RebootWanted := True;
+    { Its own variable. This used to share Code with the startup task step below, which ran in
+      between, so the failure message reported the startup task's exit code, usually 0, as the
+      driver's. }
+    DriverCode := InstallStep(ExpandConstant('{app}\PawnIO_setup.exe'), '-install -silent',
+                              'Installing sensor driver...');
 
-  { Judged on what is on the machine afterwards, not on what the installer said about it. }
-  DriverFailed := not DriverIsInstalled();
+    { 3010 still means "in place, but not until you restart", which is worth passing on. }
+    if DriverCode = 3010 then
+      RebootWanted := True;
+
+    { Judged on what is on the machine afterwards, not on what the installer said about it. }
+    DriverFailed := not DriverIsInstalled();
+
+    if not DriverWasThere and not DriverFailed then
+      RegWriteDWordValue(HKEY_LOCAL_MACHINE_64, PulseKey, InstalledDriverValue, 1);
+  end;
 
   { Registered through Pulse rather than schtasks so there is one definition of this task.
     The bare schtasks command line cannot express three settings that matter here, and it
@@ -391,6 +423,61 @@ begin
            mbInformation, MB_OK);
 end;
 
+{ Puts a note under the task list on the tasks page, and unticks the driver for FACEIT players.
+
+  Unticked only once and only when the driver is not already here, so a choice the user makes
+  on this page is never undone by going Back and Next again, and a driver another program
+  installed is not treated as something to avoid. }
+procedure CurPageChanged(CurPageID: Integer);
+var
+  Faceit: Boolean;
+begin
+  if CurPageID <> wpSelectTasks then
+    exit;
+
+  Faceit := FaceitInstalled();
+
+  if not DriverChoiceMade then
+  begin
+    DriverChoiceMade := True;
+    if Faceit and not DriverIsInstalled() then
+    begin
+      WizardSelectTasks('!sensordriver');
+      UntickedForFaceit := True;
+    end;
+  end;
+
+  if DriverNote = nil then
+  begin
+    DriverNote := TNewStaticText.Create(WizardForm);
+    DriverNote.Parent := WizardForm.SelectTasksPage;
+    DriverNote.AutoSize := False;
+    DriverNote.WordWrap := True;
+    DriverNote.Left := WizardForm.TasksList.Left;
+    DriverNote.Width := WizardForm.TasksList.Width;
+    DriverNote.Height := ScaleY(56);
+    WizardForm.TasksList.Height := WizardForm.TasksList.Height - DriverNote.Height - ScaleY(8);
+    DriverNote.Top := WizardForm.TasksList.Top + WizardForm.TasksList.Height + ScaleY(8);
+  end;
+
+  { Says what actually happened to the box above it. With FACEIT and a driver that is already
+    here, the box stays ticked, because unticking it would not remove anything, and the honest
+    thing to say is where removal is. }
+  if UntickedForFaceit then
+    DriverNote.Caption := 'FACEIT is installed on this PC. Its anti-cheat will not start while the ' +
+                          'sensor driver is installed, so the driver is unticked. Pulse works ' +
+                          'without it, and you can install it later from Pulse.'
+  else if Faceit then
+    DriverNote.Caption := 'FACEIT is installed on this PC, and the sensor driver already is too. ' +
+                          'FACEIT''s anti-cheat will not start while the driver is installed. ' +
+                          'Unticking this does not remove it; to play on FACEIT, remove PawnIO ' +
+                          'from Installed apps in Windows Settings.'
+  else
+    DriverNote.Caption := 'FACEIT''s anti-cheat will not start while the sensor driver is installed. ' +
+                          'If you play on FACEIT, untick it. Pulse works without it, and you can ' +
+                          'install it later from Pulse.';
+end;
+
 { Asked by Inno at the end. The driver package says 3010 when it is in place but wants a
   restart before it will load, and silently ignoring that leaves somebody with no sensor
   readings and no idea that a reboot is all it needs. }
@@ -421,6 +508,7 @@ procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   ResultCode: Integer;
   RemoveDriver: Boolean;
+  Installed: Cardinal;
 begin
   if CurUninstallStep = usUninstall then
   begin
@@ -431,14 +519,30 @@ begin
       unattended uninstall would sit waiting for an answer nobody is there to give. Silent
       runs therefore skip the question and keep the driver, which is the safe default and
       matches what the visible dialog defaults to. }
-    if UninstallSilent() then
+    { Pulse installed it if this install recorded so. Then removal is the default, because
+      leaving behind a kernel driver nobody asked for is not tidy. Otherwise its origin is not
+      known, and the message does not pretend it is: every Pulse before 1.3.2 installed the
+      driver without recording it, so "it was here before Pulse" would be false for most of the
+      people reading it. Keeping it is the default then. Asked only when the driver is here. }
+    if not RegQueryDWordValue(HKEY_LOCAL_MACHINE_64, PulseKey, InstalledDriverValue, Installed) then
+      Installed := 0;
+
+    if UninstallSilent() or not DriverIsInstalled() then
       RemoveDriver := False
+    else if Installed = 1 then
+      RemoveDriver :=
+        MsgBox('Also remove the PawnIO sensor driver?' + #13#10 + #13#10 +
+               'Pulse installed it. Other hardware monitoring applications can use it too, so ' +
+               'choose No if one of them needs it.',
+               mbConfirmation, MB_YESNO or MB_DEFBUTTON1) = IDYES
     else
       RemoveDriver :=
         MsgBox('Also remove the PawnIO sensor driver?' + #13#10 + #13#10 +
                'Other hardware monitoring applications may use it, and removing it could stop ' +
                'them reading your sensors. Choose No if you are not sure.',
                mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES;
+
+    RegDeleteKeyIncludingSubkeys(HKEY_LOCAL_MACHINE_64, PulseKey);
 
     { Run here rather than from [UninstallRun] so the result can actually be checked. As an
       UninstallRun entry a failure was invisible, and the driver quietly stayed behind. }
