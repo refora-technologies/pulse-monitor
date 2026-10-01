@@ -1,14 +1,18 @@
 SENSOR DRIVER NOTICE
 ====================
 
-During installation, a kernel sensor driver (PawnIO) will be installed
-to enable hardware monitoring — CPU temperature, power, and clock speeds.
+Setup offers to install PawnIO, a small kernel driver that lets Pulse read
+CPU temperature, CPU power and CPU clock. It is ticked by default on the next
+page, and you can untick it. Everything else in Pulse works without it, and
+you can install it later from Pulse by clicking one of those tiles.
 
-  - PawnIO is used by LibreHardwareMonitor and other hardware monitoring tools
-  - It is digitally signed by Microsoft (WHQL)
-  - It does not connect to the internet or collect any data
-  - Uninstalling Pulse asks whether to remove it. It is kept by default,
-    because other monitoring software on your PC may rely on it.
+  - FACEIT's anti-cheat will not start while PawnIO is installed. If FACEIT
+    is on this PC, Setup unticks the driver for you.
+  - PawnIO is used by LibreHardwareMonitor and other hardware monitoring tools.
+  - It is signed through Microsoft's Windows Hardware Compatibility program.
+  - Uninstalling Pulse asks whether to remove it. If this version of Pulse
+    installed it, the answer defaults to Yes. Otherwise it defaults to No,
+    because another application may be using it.
 
 
 OPEN SOURCE ATTRIBUTIONS
@@ -21,8 +25,9 @@ LibreHardwareMonitorLib v0.9.6
   Source  : https://github.com/LibreHardwareMonitor/LibreHardwareMonitor
 
 PawnIO (kernel sensor driver)
-  License : GNU Lesser General Public License v2.1
-  Source  : https://github.com/LibreHardwareMonitor/LibreHardwareMonitor
+  License : GNU General Public License v2.0 or later, with an exception for
+            programs that talk to it through its device interface
+  Source  : https://github.com/namazso/PawnIO
 
 CommunityToolkit.Mvvm v8.3.2
   License : MIT License
@@ -40,7 +45,7 @@ PresentMon v2.5.1
   Copyright (C) 2017-2024 Intel Corporation
 
 Plus Jakarta Sans (embedded font)
-  License : SIL Open Font License v1.1 — full text in OFL.txt beside this file
+  License : SIL Open Font License v1.1, full text in OFL.txt beside this file
   Source  : https://github.com/tokotype/PlusJakartaSans
   Copyright 2020 The Plus Jakarta Sans Project Authors
 
