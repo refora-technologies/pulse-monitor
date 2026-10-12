@@ -167,6 +167,12 @@ public static class SensorProtocol
         d.Fps1Low      = Clean(d.Fps1Low);
         d.BatteryLevel = Clean(d.BatteryLevel);
 
+        // A sleeping card has no readings, only its memory figure, which Windows holds.
+        if (d.GpuAsleep)
+        {
+            d.GpuTemp = d.GpuPower = d.GpuClock = d.GpuUsage = null;
+        }
+
         if (float.IsNaN(d.TotalRamGb)  || float.IsInfinity(d.TotalRamGb))  d.TotalRamGb  = 0;
         if (float.IsNaN(d.TotalVramGb) || float.IsInfinity(d.TotalVramGb)) d.TotalVramGb = 0;
     }

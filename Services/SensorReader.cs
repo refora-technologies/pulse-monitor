@@ -233,8 +233,20 @@ public sealed class SensorReader : IDisposable
         {
             var gpus = new List<IHardware>();
 
+            var asleep = new HashSet<IHardware>();
+
             foreach (var hw in _computer.Hardware)
             {
+                // A sleeping graphics adapter is not touched at all, because touching it is what
+                // wakes it. Its name still goes on the list, so the picker keeps offering it and the
+                // tiles can say it is asleep rather than lose it.
+                if (IsGpu(hw.HardwareType) && IsAsleep(hw))
+                {
+                    asleep.Add(hw);
+                    gpus.Add(hw);
+                    continue;
+                }
+
                 // Accept recurses: UpdateVisitor.VisitHardware updates this device and then
                 // visits its children, so the children must not be Accept'ed again below or
                 // every subhardware sensor is read twice per poll.
@@ -264,7 +276,17 @@ public sealed class SensorReader : IDisposable
             // Read GPU fields from a single chosen device so temp/power/clock/usage never get
             // mixed across an iGPU and a dGPU on the same poll.
             var chosen = SelectGpu(gpus);
-            if (chosen != null)
+            if (chosen != null && asleep.Contains(chosen))
+            {
+                // Only what Windows already holds, which does not wake the card: how much of its
+                // memory is in use. Its own sensors would still hold whatever they read before it
+                // slept, and showing those would be an old number dressed as a live one.
+                snapshot.ActiveGpuName = chosen.Name;
+                chosenIsDiscrete = IsDiscrete(chosen);
+                data.GpuAsleep = true;
+                ApplyVideoMemory(chosen, data);
+            }
+            else if (chosen != null)
             {
                 snapshot.ActiveGpuName = chosen.Name;
                 ReadGpu(chosen, data);
@@ -515,6 +537,31 @@ public sealed class SensorReader : IDisposable
             HardwareType.GpuIntel  => 1,
             _                      => 0,
         };
+    }
+
+    /// Each adapter's last known sleep state, so a change is logged once rather than every poll.
+    private readonly Dictionary<string, bool> _sleepSeen = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Whether Windows says this graphics adapter is asleep. Unknown counts as awake.
+    /// </summary>
+    /// <remarks>
+    /// Awake is the safe side to be wrong on. A card wrongly read as asleep would stop updating
+    /// while it was working; one wrongly read as awake costs only what Pulse always cost.
+    /// </remarks>
+    private bool IsAsleep(IHardware gpu)
+    {
+        bool asleep = GpuPower.IsAsleep(gpu.Name) == true;
+
+        if (!_sleepSeen.TryGetValue(gpu.Name, out var was) || was != asleep)
+        {
+            _sleepSeen[gpu.Name] = asleep;
+            Log("info", asleep
+                ? $"{gpu.Name} is asleep; Pulse leaves it alone until something wakes it."
+                : $"{gpu.Name} is awake; reading it.");
+        }
+
+        return asleep;
     }
 
     private void ReadHardware(IHardware hw, SensorData data)

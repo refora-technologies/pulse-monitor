@@ -37,6 +37,27 @@ public class TileViewModel : BaseViewModel
 
     public bool HasValue => _value.HasValue;
 
+    private bool _isAsleep;
+
+    /// <summary>
+    /// True when this tile's graphics card is asleep and was left alone rather than read.
+    /// </summary>
+    /// <remarks>
+    /// Said in words. A dash reads as "Pulse could not get this", which would be wrong: Pulse chose
+    /// not to, because reading a sleeping laptop card wakes it and keeps it awake on battery.
+    /// </remarks>
+    public bool IsAsleep
+    {
+        get => _isAsleep;
+        set
+        {
+            if (!Set(ref _isAsleep, value)) return;
+            OnPropertyChanged(nameof(DisplayValue));
+            OnPropertyChanged(nameof(DisplayUnit));
+            OnPropertyChanged(nameof(CompactLine));
+        }
+    }
+
     /// Known hardware capacity for this tile (total RAM/VRAM), or 0 if none exists.
     private double KnownMax => Definition.Id switch
     {
@@ -84,7 +105,8 @@ public class TileViewModel : BaseViewModel
     /// value below is converted to match, so the two can never disagree.
     /// </remarks>
     public string DisplayUnit =>
-        Definition.IsNetworkSpeed
+        _isAsleep && !_value.HasValue ? ""
+      : Definition.IsNetworkSpeed
             ? NetworkUnits.Label(SettingsService.Instance.Settings.NetworkUnitBits)
             : Definition.Unit;
 
@@ -92,7 +114,7 @@ public class TileViewModel : BaseViewModel
     {
         get
         {
-            if (!_value.HasValue) return "--";
+            if (!_value.HasValue) return _isAsleep ? "asleep" : "--";
 
             // Megabits, when asked for. Written where the number is formatted rather than
             // where it is measured: the reading itself stays in one unit, so nothing that
@@ -492,6 +514,12 @@ public class OverlayViewModel : BaseViewModel
                 continue;
 
             tile.Value = data.GetById(tile.Definition.Id);
+
+            // Video memory is still read while the card sleeps, from Windows, so only the
+            // readings that come from the card itself say so.
+            tile.IsAsleep = data.GpuAsleep
+                         && tile.Definition.Category == SensorCategory.GPU
+                         && tile.Definition.Id != "gpu_vram";
         }
 
         UpdateStatus(data);
