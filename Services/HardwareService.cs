@@ -53,6 +53,17 @@ public class SensorData
     /// </remarks>
     public bool GpuTempIsDie { get; set; }
 
+    /// <summary>
+    /// True when the graphics being shown are asleep and were deliberately not read.
+    /// </summary>
+    /// <remarks>
+    /// Reading a sleeping laptop card wakes it, and Pulse doing that every couple of seconds kept
+    /// an RTX 3050 awake 92% of the time on battery where it otherwise slept. So a sleeping card is
+    /// left alone, and its tiles say so rather than showing a dash that looks like a fault or an
+    /// old number that looks live. See GpuPower.
+    /// </remarks>
+    public bool GpuAsleep { get; set; }
+
     public float? GetById(string id) => id switch
     {
         "cpu_temp"     => CpuTemp,
