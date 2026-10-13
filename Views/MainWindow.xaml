@@ -807,6 +807,66 @@
         </Style>
 
 
+        <!-- ═══ LIST ROW ═══
+             One row of a grouped list: icon, label, chevron. The row's corners come from
+             RowRadius so the hover fill follows the rounded card on the first and last rows. -->
+        <CornerRadius x:Key="RowRadius">0</CornerRadius>
+        <Style x:Key="ListRow" TargetType="Button">
+            <Setter Property="Foreground" Value="#C9C5E6"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontWeight" Value="Medium"/>
+            <Setter Property="FontFamily" Value="{StaticResource Jakarta}"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd" Background="Transparent" Padding="14,11"
+                                CornerRadius="{DynamicResource RowRadius}"
+                                BorderBrush="Transparent" BorderThickness="1">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <ContentPresenter VerticalAlignment="Center"/>
+                                <TextBlock x:Name="Chevron" Grid.Column="1" Text="&#xE76C;"
+                                           FontFamily="Segoe MDL2 Assets" FontSize="9"
+                                           Foreground="#5E5A80" VerticalAlignment="Center"/>
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#151230"/>
+                                <Setter TargetName="Chevron" Property="Foreground" Value="#A78BFA"/>
+                                <Setter Property="Foreground" Value="#EDEAFF"/>
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="#A78BFA"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="ListRowFirst" TargetType="Button" BasedOn="{StaticResource ListRow}">
+            <Style.Resources><CornerRadius x:Key="RowRadius">10,10,0,0</CornerRadius></Style.Resources>
+        </Style>
+        <Style x:Key="ListRowLast" TargetType="Button" BasedOn="{StaticResource ListRow}">
+            <Style.Resources><CornerRadius x:Key="RowRadius">0,0,10,10</CornerRadius></Style.Resources>
+        </Style>
+        <Style x:Key="ListRowOnly" TargetType="Button" BasedOn="{StaticResource ListRow}">
+            <Style.Resources><CornerRadius x:Key="RowRadius">10</CornerRadius></Style.Resources>
+        </Style>
+        <Style x:Key="ListIcon" TargetType="TextBlock">
+            <Setter Property="FontFamily" Value="Segoe MDL2 Assets"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Width" Value="16"/>
+            <Setter Property="Margin" Value="0,0,12,0"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="TextAlignment" Value="Center"/>
+        </Style>
+
         <!-- ═══ ACCENT BUTTON ═══ -->
         <Style x:Key="AccentBtn" TargetType="Button">
             <Setter Property="Foreground" Value="White"/>
@@ -1826,78 +1886,75 @@
                             <TextBlock Text="Pulse checks automatically on startup"
                                        FontSize="10.5" FontWeight="Medium" Foreground="#8B86B4"/>
 
-                            <TextBlock FontSize="10.5" FontWeight="Medium" Foreground="#8B86B4"
-                                       Margin="0,7,0,0">
-                                <Run Text="Windows"/>
-                                <Run Text="  ·  " Foreground="#2A2842"/>
-                                <Run Text="GPLv3"/>
-                                <Run Text="  ·  " Foreground="#2A2842"/>
-                                <Run Text="Refora Technologies"/>
-                            </TextBlock>
-
-                            <Border Height="1" Background="#1A1830" Margin="0,13,0,13"/>
-
-                            <!-- Three of these leave Pulse and one does something on this
-                                 machine, so they are grouped under separate headings.
-                                 Previously all four looked identical, and the odd one out sat
-                                 on its own row with different margins, which
-                                 made it read as unrelated rather than as a different kind of
-                                 action. -->
-                            <TextBlock Text="Links" FontSize="10.5" FontWeight="SemiBold"
-                                       Foreground="#8B86B4" Margin="0,0,0,7"/>
-                            <WrapPanel>
-                                <Button Style="{StaticResource LinkBtn}" Margin="0,0,7,7"
-                                        Tag="https://pulse.reforatech.com"
-                                        ToolTip="Open the Pulse website in your browser"
-                                        AutomationProperties.Name="Open the Pulse website in your browser"
-                                        Click="BtnExternalLink_Click">
-                                    <StackPanel Orientation="Horizontal">
-                                        <TextBlock Text="&#xE774;" FontFamily="Segoe MDL2 Assets"
-                                                   FontSize="10" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                                        <TextBlock Text="Website" VerticalAlignment="Center"/>
-                                    </StackPanel>
-                                </Button>
-                                <Button Style="{StaticResource LinkBtn}" Margin="0,0,7,7"
-                                        Tag="https://github.com/refora-technologies/pulse-monitor"
-                                        ToolTip="Open the source code on GitHub"
-                                        AutomationProperties.Name="Open the source code on GitHub"
-                                        Click="BtnExternalLink_Click">
-                                    <StackPanel Orientation="Horizontal">
-                                        <TextBlock Text="&#xE943;" FontFamily="Segoe MDL2 Assets"
-                                                   FontSize="10" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                                        <TextBlock Text="Source Code" VerticalAlignment="Center"/>
-                                    </StackPanel>
-                                </Button>
-                                <Button Style="{StaticResource LinkBtn}" Margin="0,0,0,7"
-                                        Tag="https://github.com/refora-technologies/pulse-monitor/issues/new"
-                                        ToolTip="Open a new issue report on GitHub"
-                                        AutomationProperties.Name="Open a new issue report on GitHub"
-                                        Click="BtnExternalLink_Click">
-                                    <StackPanel Orientation="Horizontal">
-                                        <TextBlock Text="&#xE7BA;" FontFamily="Segoe MDL2 Assets"
-                                                   FontSize="10" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                                        <TextBlock Text="Report a Problem" VerticalAlignment="Center"/>
-                                    </StackPanel>
-                                </Button>
-                            </WrapPanel>
-
-                            <TextBlock Text="Troubleshooting" FontSize="10.5" FontWeight="SemiBold"
-                                       Foreground="#8B86B4" Margin="0,11,0,7"/>
-                            <Button Style="{StaticResource ActionBtn}" HorizontalAlignment="Left"
-                                    ToolTip="Writes a log file to your desktop that you can attach to a bug report"
-                                    AutomationProperties.Name="Save a diagnostics file to your desktop"
-                                    Click="BtnExportDiagnostics_Click">
-                                <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="&#xE74E;" FontFamily="Segoe MDL2 Assets"
-                                               FontSize="10" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                                    <TextBlock x:Name="DiagnosticsLinkText" Text="Save Diagnostics to Desktop"
-                                               VerticalAlignment="Center"/>
+                            <!-- Places to go, as one grouped list: each row says where it leads
+                                 in full, so nothing needs a tooltip to be understood. -->
+                            <Border Background="#0D0C19" CornerRadius="11" BorderBrush="#1C1A30"
+                                    BorderThickness="1" Margin="0,16,0,0">
+                                <StackPanel>
+                                    <Button Style="{StaticResource ListRowFirst}"
+                                            Tag="https://pulse.reforatech.com"
+                                            AutomationProperties.Name="Open the Pulse website in your browser"
+                                            Click="BtnExternalLink_Click">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="&#xE774;" Style="{StaticResource ListIcon}"/>
+                                            <TextBlock Text="Website" VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                    </Button>
+                                    <Border Height="1" Background="#1C1A30"/>
+                                    <Button Style="{StaticResource ListRow}"
+                                            Tag="mailto:reforatech@gmail.com?subject=Pulse%20feedback"
+                                            AutomationProperties.Name="Send feedback by email"
+                                            Click="BtnExternalLink_Click">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="&#xE715;" Style="{StaticResource ListIcon}"/>
+                                            <TextBlock Text="Send feedback" VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                    </Button>
+                                    <Border Height="1" Background="#1C1A30"/>
+                                    <Button Style="{StaticResource ListRow}"
+                                            Tag="https://github.com/refora-technologies/pulse-monitor/issues/new"
+                                            AutomationProperties.Name="Report a problem on GitHub"
+                                            Click="BtnExternalLink_Click">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="&#xEBE8;" Style="{StaticResource ListIcon}"/>
+                                            <TextBlock Text="Report a problem on GitHub" VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                    </Button>
+                                    <Border Height="1" Background="#1C1A30"/>
+                                    <Button Style="{StaticResource ListRowLast}"
+                                            Tag="https://github.com/refora-technologies/pulse-monitor"
+                                            AutomationProperties.Name="Open the source code on GitHub"
+                                            Click="BtnExternalLink_Click">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="&#xE943;" Style="{StaticResource ListIcon}"/>
+                                            <TextBlock Text="Source code" VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                    </Button>
                                 </StackPanel>
-                            </Button>
+                            </Border>
+
+                            <!-- The one action that stays on this PC gets its own group, with
+                                 what it does written underneath. -->
+                            <Border Background="#0D0C19" CornerRadius="11" BorderBrush="#1C1A30"
+                                    BorderThickness="1" Margin="0,10,0,0">
+                                <Button Style="{StaticResource ListRowOnly}"
+                                        AutomationProperties.Name="Save a diagnostics file to your desktop"
+                                        Click="BtnExportDiagnostics_Click">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="&#xE74E;" Style="{StaticResource ListIcon}"/>
+                                        <TextBlock x:Name="DiagnosticsLinkText" Text="Save diagnostics to desktop"
+                                                   VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+                            </Border>
                             <TextBlock x:Name="DiagnosticsHint"
                                        Text="Creates a text file describing recent errors. Nothing is sent anywhere."
                                        FontSize="10" FontWeight="Medium" Foreground="#8B86B4"
-                                       TextWrapping="Wrap" Margin="0,6,0,0"/>
+                                       TextWrapping="Wrap" Margin="2,7,0,0"/>
+
+                            <TextBlock FontFamily="Cascadia Mono, Consolas" FontSize="10"
+                                       Foreground="#6E6A94" Margin="2,16,0,0"
+                                       Text="Windows · GPLv3 · Refora Technologies"/>
                         </StackPanel>
                     </Border>
 
