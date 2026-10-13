@@ -348,9 +348,16 @@ public sealed class SensorReader : IDisposable
         // CpuPower came back as 0.0 and the total was published as 6.302 W, which was the
         // graphics figure alone wearing a label claiming to be both. Nothing that is running
         // draws no power.
+        //
+        // A sleeping card is the exception, because it is not running. Windows only lets a
+        // laptop card sleep when nothing is using it, and asleep it is switched off, so the
+        // processor figure is the total. Without this the tile read "--" for as long as a laptop
+        // sat on battery, which looks like Pulse failing rather than the card resting.
         data.SysPower = data.CpuPower is > 0 and { } cpuW
             ? chosenIsDiscrete
-                ? data.GpuPower is > 0 and { } gpuW ? cpuW + gpuW : null
+                ? data.GpuPower is > 0 and { } gpuW ? cpuW + gpuW
+                : data.GpuAsleep ? cpuW
+                : null
                 : cpuW
             : null;
 
