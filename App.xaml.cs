@@ -174,10 +174,11 @@ public partial class App : WinApplication
     /// <summary>
     /// Removes .NET single-file extraction folders left behind by previous builds.
     ///
-    /// Pulse ships with IncludeNativeLibrariesForSelfExtract, so each build unpacks its
-    /// native libraries into %TEMP%\.net\Pulse\&lt;content-hash&gt;\. The hash changes every
-    /// release, so these accumulate — and to anyone searching their disk for "Pulse" they
-    /// look exactly like several installations, which is what prompted this.
+    /// Builds up to 1.3.3 shipped with IncludeNativeLibrariesForSelfExtract, so each unpacked
+    /// its native libraries into %TEMP%\.net\Pulse\&lt;content-hash&gt;\. The hash changed every
+    /// release, so these accumulated, and to anyone searching their disk for "Pulse" they
+    /// look exactly like several installations, which is what prompted this. Pulse no longer
+    /// unpacks anything there, so every folder left is an old build's, and this tidies them away.
     ///
     /// The folder in use is protected by its libraries being loaded and therefore locked. This
     /// used to say the age check protected it too, because it is written at launch; that was

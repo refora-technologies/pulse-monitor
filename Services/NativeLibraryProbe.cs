@@ -199,8 +199,16 @@ internal static class NativeLibraryProbe
         }
         catch { /* module enumeration can fail; the fallback below still answers */ }
 
-        // Nothing of ours is loaded yet. Fall back to the documented extraction location, newest
-        // first, which is this build's if several are present.
+        // Nothing of ours is loaded yet. Beside the executable is where they live now.
+        try
+        {
+            var beside = AppContext.BaseDirectory;
+            if (Expected.Any(name => File.Exists(Path.Combine(beside, name)))) return beside.TrimEnd('\\');
+        }
+        catch { /* the extraction location below is still worth a look */ }
+
+        // An older single-file build unpacked them here instead, newest first, which is that
+        // build's if several are present.
         try
         {
             var root = Path.Combine(Path.GetTempPath(), ".net", "Pulse");

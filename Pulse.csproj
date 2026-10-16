@@ -22,7 +22,14 @@
     <Company>Refora Technologies</Company>
     <Product>Pulse</Product>
     <Copyright>© 2025 Refora Technologies</Copyright>
-    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <!-- Off on purpose: the five native WPF libraries ship beside Pulse.exe in Program Files and
+         setup.iss installs them. Bundled, they were unpacked to %TEMP%\.net\Pulse\<hash> and
+         loaded from there, and that folder is not Pulse's to keep. On the owner's laptop four of
+         the five kept disappearing between sessions, eight times in four weeks to 16 Oct 2026,
+         and each time the overlay or the shortcuts failed to start until Pulse was restarted.
+         It was also a folder any program running as the user can write to, loaded by a process
+         running as administrator. Program Files is neither cleaned nor writable. -->
+    <IncludeNativeLibrariesForSelfExtract>false</IncludeNativeLibrariesForSelfExtract>
     <!-- Off on purpose. Compressed, every Pulse process unpacked the whole runtime into its own
          private memory: measured 13 Oct 2026, about 250 MB for the main process and 125 MB for
          the sensor host. Uncompressed, Windows maps the code from the file and shares it: 148 and
