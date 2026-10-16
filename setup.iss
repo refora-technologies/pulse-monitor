@@ -107,6 +107,10 @@ Name: "startupentry"; Description: "Start Pulse when Windows starts"; GroupDescr
 
 [Files]
 Source: "publish\Pulse.exe"; DestDir: "{app}"; Flags: ignoreversion
+; The native libraries Pulse loads, beside it rather than unpacked to %TEMP% at every launch,
+; where something kept deleting them and the overlay or shortcuts failed to start. Every .dll
+; the publish produced, so one added by a future dependency cannot be forgotten here.
+Source: "publish\*.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "THIRD-PARTY-NOTICES.txt"; DestDir: "{app}"; Flags: ignoreversion
 ; The font is embedded in Pulse.exe, so its licence has to travel with the install.
