@@ -656,6 +656,11 @@ public class HardwareService : IDisposable
                 Publish(snapshot);
             }
         }
+        catch (ObjectDisposedException) when (_disposed)
+        {
+            // Pulse closing its own end on the way out. Logged as a warning on every clean exit
+            // until 16 Oct 2026, which made each log look as though something had gone wrong.
+        }
         catch (Exception ex)
         {
             LogService.Warn(nameof(HardwareService), $"The reading channel closed: {ex.GetType().Name}");
