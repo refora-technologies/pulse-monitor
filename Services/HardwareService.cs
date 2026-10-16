@@ -359,20 +359,7 @@ public class HardwareService : IDisposable
         var needed = SensorSubsystems.None;
 
         foreach (var id in active)
-        {
-            needed |= id switch
-            {
-                "cpu_usage" or "cpu_temp" or "cpu_clock" or "cpu_power" => SensorSubsystems.Cpu,
-                "gpu_usage" or "gpu_temp" or "gpu_clock" or "gpu_power" or "gpu_vram" => SensorSubsystems.Gpu,
-                "ram_used"      => SensorSubsystems.Memory,
-                "disk_activity" => SensorSubsystems.Storage,
-                "battery"       => SensorSubsystems.Battery,
-                "net_upload" or "net_download" => SensorSubsystems.Network,
-                // Total power is derived from both chips, so it needs each of them.
-                "sys_power"     => SensorSubsystems.Cpu | SensorSubsystems.Gpu,
-                _               => SensorSubsystems.None,
-            };
-        }
+            needed |= SensorReader.SubsystemFor(id) ?? SensorSubsystems.None;
 
         // LibreHardwareMonitor only creates its Intel GPU group when CPU monitoring is on
         // (`if (_cpuEnabled) Add(new IntelGpuGroup(GetIntelCpus(), ...))`), because the
@@ -451,6 +438,43 @@ public class HardwareService : IDisposable
     /// or remembers what it found at startup is its own business. A new process settles it.
     /// </remarks>
     public void RestartHost(string why) => ReplaceHost(why, deliberate: true);
+
+    private volatile TaskCompletionSource<string>? _reportArrived;
+
+    /// <summary>
+    /// Asks the sensor host to describe every sensor it has and which one each tile is using,
+    /// for the diagnostics file. Waits at most <paramref name="timeout"/>.
+    /// </summary>
+    /// <remarks>
+    /// Never on the interface thread: it blocks. Returns a sentence saying why when there is no
+    /// report, because a diagnostics file that silently lacks this section would send whoever
+    /// reads it looking for a fault in the wrong place. The host answers on its next poll, which
+    /// it starts at once, so the wait is normally a fraction of a second; the limit covers a host
+    /// that is still opening sensors, which has been measured taking forty seconds.
+    /// </remarks>
+    public string RequestSensorReport(TimeSpan timeout)
+    {
+        var waiter = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _reportArrived = waiter;
+        try
+        {
+            lock (_hostLock)
+            {
+                if (_host == null || _host.HasExited)
+                    return "unavailable: the sensor host is not running.";
+            }
+
+            Send(SensorCommand.DescribeSensors());
+
+            return waiter.Task.Wait(timeout)
+                ? waiter.Task.Result
+                : $"unavailable: the sensor host did not answer within {timeout.TotalSeconds:0} s. Host: {SensorHostStatus}";
+        }
+        finally
+        {
+            _reportArrived = null;
+        }
+    }
 
     private void Send(string command)
     {
@@ -616,6 +640,12 @@ public class HardwareService : IDisposable
                 if (line == SensorHost.OpenedBanner)
                 {
                     NoteSignOfLife(host, reading: false);
+                    continue;
+                }
+
+                if (SensorCommand.TryParseReport(line) is { } report)
+                {
+                    _reportArrived?.TrySetResult(report);
                     continue;
                 }
 

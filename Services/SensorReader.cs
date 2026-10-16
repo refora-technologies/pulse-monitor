@@ -51,6 +51,121 @@ public sealed class SensorReader : IDisposable
         try { _log?.Invoke(level, message); } catch { }   // the logger itself; nowhere to say so
     }
 
+    // ── Where each reading came from ─────────────────────────────────────────────────
+
+    /// <summary>
+    /// For each tile, the sensor or rule its last reading came from. Rebuilt every poll.
+    /// </summary>
+    /// <remarks>
+    /// Pulse picks sensors by name, and those rules have been checked on three machines. When a
+    /// tile is wrong on a fourth, the question is always which sensor it took, and before this
+    /// the only way to find out was to ask someone to install a second monitoring tool and read
+    /// identifiers off its tree. Kept as text built at the moment of choosing, because that is
+    /// the only point where the reason is known.
+    /// </remarks>
+    private readonly Dictionary<string, string> _sources = new(StringComparer.Ordinal);
+
+    private void Source(string tile, string how) => _sources[tile] = how;
+
+    private static string Of(IHardware hw, ISensor s) =>
+        $"{hw.Name} > {s.Name} = {(s.Value is { } v ? v.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) : "-")} [{s.Identifier}]";
+
+    /// Network adapters counted in the last reading, so the report can show the rest briefly.
+    private readonly HashSet<string> _countedAdapters = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The sensor group a tile needs opened, or null for a tile the host does not read.
+    /// </summary>
+    /// <remarks>
+    /// One list, used both to decide what to open and to explain in diagnostics why a tile got
+    /// nothing, so the two cannot disagree.
+    /// </remarks>
+    public static SensorSubsystems? SubsystemFor(string tileId) => tileId switch
+    {
+        "cpu_usage" or "cpu_temp" or "cpu_clock" or "cpu_power" => SensorSubsystems.Cpu,
+        "gpu_usage" or "gpu_temp" or "gpu_clock" or "gpu_power" or "gpu_vram" => SensorSubsystems.Gpu,
+        "ram_used"      => SensorSubsystems.Memory,
+        "disk_activity" => SensorSubsystems.Storage,
+        "battery"       => SensorSubsystems.Battery,
+        "net_upload" or "net_download" => SensorSubsystems.Network,
+        // Total power is derived from both chips, so it needs each of them.
+        "sys_power"     => SensorSubsystems.Cpu | SensorSubsystems.Gpu,
+        _               => null,
+    };
+
+    /// <summary>
+    /// Everything the sensor library has found, and which of it each tile is using, as text for
+    /// the diagnostics file.
+    /// </summary>
+    /// <remarks>
+    /// Touches no hardware. It walks what the library already holds and prints the values from
+    /// the last poll, so asking for it cannot wake a sleeping graphics card, and a card that is
+    /// asleep is said to be, because its values are from before it slept. Called on the polling
+    /// thread, between polls, so it never sees a tree halfway through an update.
+    /// </remarks>
+    public string Describe()
+    {
+        var text = new System.Text.StringBuilder();
+        var library = typeof(Computer).Assembly.GetName().Version;
+        text.AppendLine($"Library    : LibreHardwareMonitor {library}");
+        text.AppendLine($"Opened     : {_subsystems}" + (IsReady ? "" : $" (not ready{(Fault is { Length: > 0 } f ? ": " + f : "")})"));
+        text.AppendLine("Tile sources, as of the last reading:");
+
+        // Every tile in the catalogue, so one that got nothing says so instead of being absent.
+        // Frame rate is captured in the main process, which adds its own line.
+        foreach (var tile in Pulse.Models.SensorTileDefinition.All)
+        {
+            if (tile.Id.StartsWith("fps", StringComparison.Ordinal)) continue;
+            var how = _sources.TryGetValue(tile.Id, out var h) ? h
+                    : SubsystemFor(tile.Id) is { } needed && !_subsystems.HasFlag(needed) ? "not asked for: no tile on screen needs this group"
+                    : "nothing this reading";
+            text.AppendLine($"  {tile.Id,-14} {how}");
+        }
+
+        text.AppendLine("Everything the library found (only the groups opened above):");
+        if (!IsReady) { text.AppendLine("  nothing, the sensors are not open"); return text.ToString(); }
+
+        void Walk(IHardware hw, int depth)
+        {
+            var pad = new string(' ', 2 + depth * 2);
+
+            // Every filter bound to a network card is listed by the library as an adapter of
+            // its own, which on one laptop was 72 entries for two cards. The ones not counted
+            // are named, because a doubled figure is explained by which of them should not have
+            // been, but their sensors are left out.
+            if (hw.HardwareType == HardwareType.Network && !_countedAdapters.Contains(hw.Name))
+            {
+                text.AppendLine($"{pad}[Network] {hw.Name}  (not counted)");
+                return;
+            }
+
+            var sleeping = IsGpu(hw.HardwareType) && _sleepSeen.TryGetValue(hw.Name, out var s) && s;
+            text.AppendLine($"{pad}[{hw.HardwareType}] {hw.Name}  {hw.Identifier}"
+                          + (sleeping ? "  ASLEEP, not read; values are from before it slept" : ""));
+
+            foreach (var sensor in hw.Sensors.OrderBy(x => x.SensorType).ThenBy(x => x.Index))
+            {
+                var value = sensor.Value is { } v ? v.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) : "-";
+                text.AppendLine($"{pad}  {sensor.SensorType,-12} {sensor.Name,-32} {value,12}  {sensor.Identifier}");
+            }
+
+            foreach (var sub in hw.SubHardware) Walk(sub, depth + 1);
+        }
+
+        try
+        {
+            foreach (var hw in _computer.Hardware) Walk(hw, 0);
+        }
+        catch (Exception ex)
+        {
+            // The tree is the library's, and a report about a broken machine is exactly when it
+            // may not walk cleanly. What was written so far is still worth having.
+            text.AppendLine($"  stopped part way: {ex.GetType().Name}: {ex.Message}");
+        }
+
+        return text.ToString();
+    }
+
     public void SetSubsystems(SensorSubsystems subsystems)
     {
         if (subsystems == _subsystems) return;
@@ -223,7 +338,10 @@ public sealed class SensorReader : IDisposable
         if (!IsReady) return snapshot;
 
         _vendorGpuLoad     = null;
+        _vendorGpuLoadFrom = null;
         _adaptersThisPoll  = null;
+        _sources.Clear();
+        _countedAdapters.Clear();
 
         // Whether the graphics being read are a card of their own, which decides below whether
         // the processor and graphics figures are two things or one thing counted twice.
@@ -237,7 +355,7 @@ public sealed class SensorReader : IDisposable
 
             foreach (var hw in _computer.Hardware)
             {
-                // A sleeping graphics adapter is not touched at all, because touching it is what
+                // A sleeping graphics card is not touched at all, because touching it is what
                 // wakes it. Its name still goes on the list, so the picker keeps offering it and the
                 // tiles can say it is asleep rather than lose it.
                 if (IsGpu(hw.HardwareType) && IsAsleep(hw))
@@ -276,6 +394,23 @@ public sealed class SensorReader : IDisposable
             // Read GPU fields from a single chosen device so temp/power/clock/usage never get
             // mixed across an iGPU and a dGPU on the same poll.
             var chosen = SelectGpu(gpus);
+
+            // Graphics built into the processor, when they are the ones on screen, are read even
+            // while Windows calls them asleep. They dip into that state for a fraction of a second
+            // at a time while the screen holds a still picture: measured 16 Oct 2026, an Intel UHD
+            // drawing the laptop screen was reported asleep 926 times in under four hours, waking
+            // by itself each time with nothing touching it. A tile reading "asleep" for the chip
+            // that is drawing the screen would be wrong, and it is what 1.3.2 always did.
+            //
+            // Only the chosen one. Built-in graphics nobody is looking at stay left alone while
+            // asleep, as a card does, because whether reading them cuts a dip short was not
+            // something that could be measured, and leaving them alone cannot cost anything.
+            if (chosen != null && asleep.Contains(chosen) && !IsDiscrete(chosen))
+            {
+                chosen.Accept(_visitor);
+                asleep.Remove(chosen);
+            }
+
             if (chosen != null && asleep.Contains(chosen))
             {
                 // Only what Windows already holds, which does not wake the card: how much of its
@@ -285,6 +420,9 @@ public sealed class SensorReader : IDisposable
                 chosenIsDiscrete = IsDiscrete(chosen);
                 data.GpuAsleep = true;
                 ApplyVideoMemory(chosen, data);
+
+                foreach (var tile in new[] { "gpu_temp", "gpu_power", "gpu_clock", "gpu_usage" })
+                    Source(tile, $"{chosen.Name} is asleep, so it was not read");
             }
             else if (chosen != null)
             {
@@ -360,6 +498,13 @@ public sealed class SensorReader : IDisposable
                 : null
                 : cpuW
             : null;
+
+        Source("sys_power",
+            data.CpuPower is not > 0 ? "nothing: the processor's power could not be read"
+          : !chosenIsDiscrete        ? "CPU Power alone: the graphics are part of the processor"
+          : data.GpuPower is > 0     ? "CPU Power + GPU Power: two chips"
+          : data.GpuAsleep           ? "CPU Power alone: the graphics card is asleep"
+          :                            "nothing: the graphics card's power could not be read");
 
         return snapshot;
     }
@@ -560,12 +705,18 @@ public sealed class SensorReader : IDisposable
     {
         bool asleep = GpuPower.IsAsleep(gpu.Name) == true;
 
+        // Remembered for every adapter, so the diagnostics report can say which are asleep, but
+        // logged only for a graphics card. Built-in graphics change state hundreds of times an
+        // hour as a matter of course, and 926 lines of that one morning buried everything else.
         if (!_sleepSeen.TryGetValue(gpu.Name, out var was) || was != asleep)
         {
             _sleepSeen[gpu.Name] = asleep;
-            Log("info", asleep
-                ? $"{gpu.Name} is asleep; Pulse leaves it alone until something wakes it."
-                : $"{gpu.Name} is awake; reading it.");
+            if (IsDiscrete(gpu))
+            {
+                Log("info", asleep
+                    ? $"{gpu.Name} is asleep; Pulse leaves it alone until something wakes it."
+                    : $"{gpu.Name} is awake; reading it.");
+            }
         }
 
         return asleep;
@@ -587,12 +738,16 @@ public sealed class SensorReader : IDisposable
     {
         float clockSum = 0; int clockCount = 0;
         float usageSum = 0; int usageCount = 0;
+        var clockNames = new List<string>();
+        ISensor? usageTotal = null;
 
         // Priority-based temp/power tracking for Intel + AMD compatibility
         // Intel: "CPU Package" (temp), "CPU Package" (power)
         // AMD:   "Core (Tctl/Tdie)" or "Tdie" (temp), "Package" or "PPT" (power)
-        float? tempPackage = null, tempTctl = null, tempFallback = null;
-        float? powerPackage = null, powerPpt = null, powerFallback = null;
+        // The sensors themselves are kept rather than their values, so the one chosen can be
+        // named in diagnostics. Their values do not change between here and the choice below.
+        ISensor? tempPackage = null, tempTctl = null, tempFallback = null;
+        ISensor? powerPackage = null, powerPpt = null, powerFallback = null;
 
         foreach (var s in hw.Sensors)
         {
@@ -611,21 +766,21 @@ public sealed class SensorReader : IDisposable
                         break;
 
                     if (s.Name.Contains("Package", StringComparison.OrdinalIgnoreCase))
-                        tempPackage = s.Value;
+                        tempPackage = s;
                     else if (s.Name.Contains("Tctl", StringComparison.OrdinalIgnoreCase)
                           || s.Name.Contains("Tdie", StringComparison.OrdinalIgnoreCase))
-                        tempTctl = s.Value;
+                        tempTctl = s;
                     else if (tempFallback is null && s.Name.Contains("Core", StringComparison.OrdinalIgnoreCase))
-                        tempFallback = s.Value;
+                        tempFallback = s;
                     break;
 
                 case SensorType.Power:
                     if (s.Name.Contains("Package", StringComparison.OrdinalIgnoreCase))
-                        powerPackage = s.Value;
+                        powerPackage = s;
                     else if (s.Name.Contains("PPT", StringComparison.OrdinalIgnoreCase))
-                        powerPpt = s.Value;
+                        powerPpt = s;
                     else if (powerFallback is null)
-                        powerFallback = s.Value;
+                        powerFallback = s;
                     break;
 
                 // Core clocks only, and only the real ones.
@@ -643,10 +798,12 @@ public sealed class SensorReader : IDisposable
                 // and the uncore, which contains the word "core" without being one.
                 case SensorType.Clock when IsCoreClock(s.Name):
                     clockSum += s.Value.Value; clockCount++;
+                    clockNames.Add(s.Name);
                     break;
 
                 case SensorType.Load when s.Name.Contains("Total", StringComparison.OrdinalIgnoreCase):
                     data.CpuUsage = s.Value;
+                    usageTotal = s;
                     break;
 
                 case SensorType.Load:
@@ -656,14 +813,27 @@ public sealed class SensorReader : IDisposable
         }
 
         // Apply priority: Package > Tctl/Tdie > any Core sensor
-        data.CpuTemp  = tempPackage  ?? tempTctl  ?? tempFallback;
-        data.CpuPower = powerPackage ?? powerPpt  ?? powerFallback;
+        var temp  = tempPackage  ?? tempTctl  ?? tempFallback;
+        var power = powerPackage ?? powerPpt  ?? powerFallback;
+        data.CpuTemp  = temp?.Value;
+        data.CpuPower = power?.Value;
+        if (temp  != null) Source("cpu_temp",  Of(hw, temp));
+        if (power != null) Source("cpu_power", Of(hw, power));
 
         if (clockCount > 0 && data.CpuClock is null)
+        {
             data.CpuClock = MathF.Round(clockSum / clockCount / 1000f, 2);
+            Source("cpu_clock", $"{hw.Name} > average of {clockCount} core clocks: {string.Join(", ", clockNames)}");
+        }
+
+        if (usageTotal != null)
+            Source("cpu_usage", Of(hw, usageTotal));
 
         if (data.CpuUsage is null && usageCount > 0)
+        {
             data.CpuUsage = usageSum / usageCount;
+            Source("cpu_usage", $"{hw.Name} > average of {usageCount} load sensors");
+        }
     }
 
     private void ReadGpu(IHardware hw, SensorData data)
@@ -700,6 +870,7 @@ public sealed class SensorReader : IDisposable
         // reporting a constant 100% on every AMD APU.
         float? d3dEngineLoad = null;
         float? coreLoad      = null;
+        ISensor? d3dEngineFrom = null, coreLoadFrom = null;
 
         foreach (var s in hw.Sensors)
         {
@@ -709,15 +880,19 @@ public sealed class SensorReader : IDisposable
                 case SensorType.Load when s.Name.Equals("D3D 3D", StringComparison.OrdinalIgnoreCase)
                                        && d3dEngineLoad is null:
                     d3dEngineLoad = s.Value;
+                    d3dEngineFrom = s;
                     break;
                 case SensorType.Temperature when data.GpuTemp is null:
                     data.GpuTemp = s.Value;
+                    Source("gpu_temp", Of(hw, s));
                     break;
                 case SensorType.Power when data.GpuPower is null:
                     data.GpuPower = s.Value;
+                    Source("gpu_power", Of(hw, s));
                     break;
                 case SensorType.Clock when s.Name.Contains("Core", StringComparison.OrdinalIgnoreCase) && data.GpuClock is null:
                     data.GpuClock = s.Value;
+                    Source("gpu_clock", Of(hw, s));
                     break;
                 // Dedicated memory only, and only the first match.
                 //
@@ -729,6 +904,7 @@ public sealed class SensorReader : IDisposable
                 case SensorType.SmallData when data.GpuVram is null
                                             && IsDedicatedMemorySensor(s.Name, "Used"):
                     data.GpuVram = MathF.Round(s.Value.Value / 1024f, 2);
+                    Source("gpu_vram", Of(hw, s));
                     break;
                 // Kept only as a fallback for an adapter Windows cannot tell us about; the
                 // preferred source is applied after this loop. Not rounded to whole gigabytes
@@ -740,12 +916,15 @@ public sealed class SensorReader : IDisposable
                     break;
                 case SensorType.Load when s.Name.Contains("Core", StringComparison.OrdinalIgnoreCase) && coreLoad is null:
                     coreLoad = s.Value;
+                    coreLoadFrom = s;
                     break;
             }
         }
 
         data.GpuUsage   = d3dEngineLoad ?? coreLoad;
         _vendorGpuLoad  = coreLoad;
+        _vendorGpuLoadFrom = coreLoadFrom is null ? null : Of(hw, coreLoadFrom);
+        if ((d3dEngineFrom ?? coreLoadFrom) is { } usageFrom) Source("gpu_usage", Of(hw, usageFrom));
 
         ApplyVideoMemory(hw, data);
     }
@@ -813,6 +992,9 @@ public sealed class SensorReader : IDisposable
 
         float bytes = useShared ? used.SharedBytes : used.DedicatedBytes;
         if (bytes >= 0) data.GpuVram = MathF.Round(bytes / (1024f * 1024f * 1024f), 2);
+        if (bytes >= 0)
+            Source("gpu_vram", $"Windows GPU memory counters for {hw.Name}, {(useShared ? "shared" : "dedicated")} pool "
+                             + $"(dedicated {dedicatedTotalMb:0} MB, shared {sharedTotalMb:0} MB)");
 
         // The capacity of whichever pool is being shown. Zero still means "not known" and is
         // never drawn, so an adapter Windows cannot describe leaves the tile without a total
@@ -864,8 +1046,13 @@ public sealed class SensorReader : IDisposable
         // reasoning above ReadGpu: on integrated graphics this figure is either absent or a
         // constant 100, so there the engine counter already in place is the right answer.
         if (discrete && _vendorGpuLoad is { } vendor) data.GpuUsage = vendor;
+        if (discrete && _vendorGpuLoad is not null && _vendorGpuLoadFrom is { } vendorFrom)
+            Source("gpu_usage", vendorFrom + " (the vendor's figure, preferred on a graphics card)");
 
+        bool hadOwnTemp = data.GpuTemp is not null;
         data.GpuTemp ??= DisplayAdapters.Temperature(adapter.Luid);
+        if (!hadOwnTemp && data.GpuTemp is not null)
+            Source("gpu_temp", $"Windows, from the display driver for {adapterName} (the card has no temperature sensor of its own)");
 
         // Said out loud so the tile can be named honestly, and only while there is something
         // to name. On graphics that are part of the processor this reading is the die's, which
@@ -879,6 +1066,9 @@ public sealed class SensorReader : IDisposable
     /// it is. Reset every poll: a figure held over from a previous cycle is a stale reading.
     /// </summary>
     private float? _vendorGpuLoad;
+
+    /// Where <see cref="_vendorGpuLoad"/> came from, for diagnostics. Reset with it.
+    private string? _vendorGpuLoadFrom;
 
     /// The adapter Windows knows by this name, or null. Preferring one that has performance
     /// counters, because a machine can list the same adapter twice and only one of the two
@@ -996,22 +1186,28 @@ public sealed class SensorReader : IDisposable
         && !name.Contains("Effective", StringComparison.OrdinalIgnoreCase)
         && !name.Contains("Average",   StringComparison.OrdinalIgnoreCase);
 
-    private static void ReadMemory(IHardware hw, SensorData data)
+    private void ReadMemory(IHardware hw, SensorData data)
     {
         float? used = null, available = null;
+        ISensor? usedFrom = null;
         foreach (var s in hw.Sensors)
         {
             if (s.Value is null || s.SensorType != SensorType.Data) continue;
             var name = s.Name;
             if (name.Contains("Used", StringComparison.OrdinalIgnoreCase)
                 && !name.Contains("Virtual", StringComparison.OrdinalIgnoreCase))
+            {
                 used = s.Value.Value;
+                usedFrom = s;
+            }
             else if (name.Contains("Available", StringComparison.OrdinalIgnoreCase)
                 && !name.Contains("Virtual", StringComparison.OrdinalIgnoreCase))
                 available = s.Value.Value;
         }
         if (used.HasValue)
             data.RamUsed = MathF.Round(used.Value, 2);
+        if (usedFrom != null)
+            Source("ram_used", Of(hw, usedFrom));
         if (used.HasValue && available.HasValue)
             data.TotalRamGb = MathF.Round(used.Value + available.Value, 0);
     }
@@ -1024,9 +1220,15 @@ public sealed class SensorReader : IDisposable
     /// display's network stack counted the same packets a second time — the tiles could
     /// report two or three times the traffic actually crossing the wire.
     /// </summary>
-    private static void ReadNetwork(IHardware hw, SensorData data)
+    private void ReadNetwork(IHardware hw, SensorData data)
     {
         if (!IsPhysicalAdapter(hw.Name)) return;
+
+        // Every adapter counted, by name, so a doubled figure can be traced to the adapter
+        // that should not have been in the sum.
+        _countedAdapters.Add(hw.Name);
+        foreach (var tile in new[] { "net_upload", "net_download" })
+            Source(tile, _sources.TryGetValue(tile, out var so) ? so + ", " + hw.Name : "sum of adapters: " + hw.Name);
 
         foreach (var s in hw.Sensors)
         {
@@ -1052,7 +1254,7 @@ public sealed class SensorReader : IDisposable
     /// A machine with no battery reports no battery device at all, so the tile shows nothing
     /// rather than zero. Zero percent is a reading a desktop must never appear to have.
     /// </remarks>
-    private static void ReadBattery(IHardware hw, SensorData data)
+    private void ReadBattery(IHardware hw, SensorData data)
     {
         foreach (var s in hw.Sensors)
         {
@@ -1063,6 +1265,7 @@ public sealed class SensorReader : IDisposable
                 && data.BatteryLevel is null)
             {
                 data.BatteryLevel = value;
+                Source("battery", Of(hw, s));
             }
         }
     }
@@ -1178,9 +1381,10 @@ public sealed class SensorReader : IDisposable
             VirtualAdapterMarkers.Any(m => text.Contains(m, StringComparison.OrdinalIgnoreCase));
     }
 
-    private static void ReadStorage(IHardware hw, SensorData data)
+    private void ReadStorage(IHardware hw, SensorData data)
     {
         float? activity = null;
+        ISensor? from = null;
         foreach (var s in hw.Sensors)
         {
             if (s.Value is null || s.SensorType != SensorType.Load) continue;
@@ -1188,12 +1392,17 @@ public sealed class SensorReader : IDisposable
             if (s.Name.Contains("Total", StringComparison.OrdinalIgnoreCase))
             {
                 activity = s.Value.Value;
+                from = s;
                 break;
             }
+            if (activity is null) from = s;
             activity ??= s.Value.Value;
         }
         if (activity.HasValue && activity > (data.DiskActivity ?? -1f))
+        {
             data.DiskActivity = activity;
+            if (from != null) Source("disk_activity", Of(hw, from) + " (the busiest disk)");
+        }
     }
 
     public void Dispose()

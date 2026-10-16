@@ -192,6 +192,47 @@ public static class SensorCommand
     public const string SelectGpu     = "gpu";
     public const string Rescan        = "rescan";
     public const string Quit          = "quit";
+    public const string Describe      = "describe";
+
+    /// <summary>
+    /// The start of the host's answer to <see cref="Describe"/>: this, a space, and the report
+    /// as one JSON string.
+    /// </summary>
+    /// <remarks>
+    /// Not JSON as a whole line, so the snapshot parser rejects it on its first character and a
+    /// Pulse that does not know about reports simply ignores one. JSON for the report itself so
+    /// its many lines travel as one, escaped like every snapshot.
+    /// </remarks>
+    public const string ReportPrefix  = "#pulse-sensor-report ";
+
+    public static string DescribeSensors() =>
+        Line(new { cmd = Describe });
+
+    /// The host's report as a single line, newline included, or null if it cannot be written.
+    public static string? ReportLine(string report)
+    {
+        try
+        {
+            var json = JsonConvert.SerializeObject(report, new JsonSerializerSettings
+            {
+                Culture              = CultureInfo.InvariantCulture,
+                StringEscapeHandling = StringEscapeHandling.EscapeNonAscii,
+            });
+            return json.IndexOfAny(new[] { '\n', '\r' }) >= 0 ? null : ReportPrefix + json + "\n";
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// The report carried by a line, or null if the line is not one.
+    public static string? TryParseReport(string? line)
+    {
+        if (line is null || !line.StartsWith(ReportPrefix, StringComparison.Ordinal)) return null;
+        try { return JsonConvert.DeserializeObject<string>(line[ReportPrefix.Length..]); }
+        catch { return null; }
+    }
 
     public static string Interval(double seconds) =>
         Line(new { cmd = SetInterval, seconds });

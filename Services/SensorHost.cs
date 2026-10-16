@@ -107,7 +107,12 @@ public static class SensorHost
         double? newInterval = null;
         SensorSubsystems? newSubsystems = null;
         string? newGpu = null;
-        bool gpuPending = false, rescanPending = false;
+        bool gpuPending = false, rescanPending = false, describePending = false;
+
+        // Ends the wait between polls early. Only a report request uses it: someone is looking
+        // at "Saving..." in the control panel, and at a one-minute refresh they would otherwise
+        // wait a minute for it.
+        var nudge = new AutoResetEvent(false);
 
         var commands = new Thread(() =>
         {
@@ -143,6 +148,11 @@ public static class SensorHost
 
                             case SensorCommand.Rescan:
                                 rescanPending = true;
+                                break;
+
+                            case SensorCommand.Describe:
+                                describePending = true;
+                                nudge.Set();
                                 break;
 
                             case SensorCommand.Quit:
@@ -232,12 +242,24 @@ public static class SensorHost
 
             var snapshot = reader.Read();
 
+            // Right after a reading, on this thread, so the report describes the tree exactly as
+            // that reading left it and never one the library is halfway through updating.
+            bool describe;
+            lock (pending) { describe = describePending; describePending = false; }
+            string? report = null;
+            if (describe)
+            {
+                try { report = SensorCommand.ReportLine(reader.Describe()); }
+                catch (Exception ex) { report = SensorCommand.ReportLine($"The report could not be built: {ex.GetType().Name}: {ex.Message}"); }
+            }
+
             var line = SensorProtocol.Serialize(snapshot);
-            if (line != null)
+            if (line != null || report != null)
             {
                 try
                 {
-                    stdout.Write(line);
+                    if (line != null)   stdout.Write(line);
+                    if (report != null) stdout.Write(report);
                     stdout.Flush();
                 }
                 catch (Exception ex)
@@ -259,9 +281,10 @@ public static class SensorHost
             var elapsed = Environment.TickCount64 - pollStarted;
             var remaining = (long)(interval * 1000) - elapsed;
 
-            // Interruptible, so a quit or a closed input does not have to wait out a poll.
-            if (remaining > 0 && stop.Wait(TimeSpan.FromMilliseconds(remaining))) break;
-            if (remaining <= 0 && stop.IsSet) break;
+            // Interruptible, so a quit or a closed input does not have to wait out a poll, and a
+            // report request is answered with a fresh reading straight away.
+            if (remaining > 0) WaitHandle.WaitAny(new[] { stop.WaitHandle, nudge }, TimeSpan.FromMilliseconds(remaining));
+            if (stop.IsSet) break;
         }
 
         Log("info", "Sensor host stopping.");
