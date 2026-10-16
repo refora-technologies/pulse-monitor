@@ -305,6 +305,7 @@ public static class LogService
             AppendStartup(report);
             AppendShortcuts(report);
             AppendNativeLibraries(report);
+            AppendSensors(report);
 
             report.AppendLine();
 
@@ -589,6 +590,36 @@ public static class LogService
             report.AppendLine($"Sensors   : could not be read ({ex.GetType().Name})");
             report.AppendLine("GPUs seen : unavailable, because the sensor layer could not be reached");
         }
+    }
+
+    /// <summary>
+    /// Every sensor the library found on this machine, and which one each tile is reading.
+    /// </summary>
+    /// <remarks>
+    /// The section that answers "why does this tile read wrong on my PC". Pulse chooses sensors
+    /// by name, those rules have been checked on three machines, and every hardware report from
+    /// anywhere else used to need a second round of questions to learn what the sensors were
+    /// called. Asked of the sensor host, which holds them; it builds the report without touching
+    /// any hardware. Indented under its own heading so the plain lines above stay easy to scan.
+    /// </remarks>
+    private static void AppendSensors(StringBuilder report)
+    {
+        report.AppendLine();
+        report.AppendLine("Sensors");
+        report.AppendLine("-------");
+
+        string text;
+        try
+        {
+            text = HardwareService.Instance.RequestSensorReport(TimeSpan.FromSeconds(5));
+        }
+        catch (Exception ex)
+        {
+            text = $"unavailable: {ex.GetType().Name}";
+        }
+
+        report.Append(Redact(text).TrimEnd()).AppendLine();
+        report.AppendLine("  fps, fps_1low   PresentMon, in the main process; its messages are in the log below");
     }
 
     /// The startup task as Windows actually has it, not as settings claim.
