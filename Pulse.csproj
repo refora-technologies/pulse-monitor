@@ -23,7 +23,13 @@
     <Product>Pulse</Product>
     <Copyright>© 2025 Refora Technologies</Copyright>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
-    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <!-- Off on purpose. Compressed, every Pulse process unpacked the whole runtime into its own
+         private memory: measured 13 Oct 2026, about 250 MB for the main process and 125 MB for
+         the sensor host. Uncompressed, Windows maps the code from the file and shares it: 148 and
+         73 MB, starting as fast or faster. The installer compresses everything anyway and does it
+         better on code that is not already compressed, so the download shrank from 77 to 57 MB.
+         The cost is the exe on disk, 79 MB to 181 MB. -->
+    <EnableCompressionInSingleFile>false</EnableCompressionInSingleFile>
 
     <!-- Pinned rather than left to the SDK.
          Pulse ships self-contained, so whatever runtime is bundled here is the runtime our

@@ -2,7 +2,7 @@
 #
 # Written down because it was not. The publish that produces a shippable Pulse is not the
 # obvious one: it is self-contained and single-file, which is what makes the executable about
-# 79 MB rather than 200 KB, and nothing in the repository recorded that. Anyone rebuilding
+# 180 MB rather than 200 KB, and nothing in the repository recorded that. Anyone rebuilding
 # from a clean checkout, including us in six months, had to work it out from the size of the
 # file already installed.
 #
