@@ -109,8 +109,15 @@ class Program
         foreach (var a in list)
             Console.WriteLine($"        {Name(a),-42} {Mb(a),8:F0} MB");
 
+        // A machine with no graphics driver at all, such as GitHub's build machines, has only
+        // Windows' software renderer, and that has no memory of its own to report. Zero is the
+        // right answer there, so it is only a failure where a real graphics driver is present.
+        bool softwareOnly = list.All(a => Name(a).StartsWith("Microsoft Basic", StringComparison.OrdinalIgnoreCase));
         var real = list.FirstOrDefault(a => Mb(a) > 0);
-        Check("at least one adapter reports real dedicated memory", real != null);
+        if (softwareOnly)
+            Console.WriteLine("        only Windows' software renderer here, so there is no video memory to find");
+        else
+            Check("at least one adapter reports real dedicated memory", real != null);
 
         if (real != null)
         {
@@ -1084,6 +1091,13 @@ class Program
               duplicated.Count == 0
                   ? $"{counted.Count} of {live.Length} interfaces counted"
                   : "counted twice: " + string.Join(", ", duplicated.Select(g => $"{g.Key} x{g.Count()}")));
+
+        // What the machine has, so a failure on hardware nobody here owns can be explained
+        // from its report alone.
+        if (duplicated.Count > 0)
+            foreach (var n in live)
+                Console.WriteLine($"        {(Counts(n.Name) ? "counted" : "skipped"),-8} {n.GetPhysicalAddress(),-13} "
+                                + $"{n.NetworkInterfaceType,-18} {n.OperationalStatus,-5} {n.Name}  [{n.Description}]");
 
         // The specific shape of the bug: an adapter and a filter bound to it.
         var withAddress = live.Where(n => !string.IsNullOrEmpty(n.GetPhysicalAddress().ToString()))
