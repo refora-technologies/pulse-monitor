@@ -1912,7 +1912,7 @@
                                     </Button>
                                     <Border Height="1" Background="#1C1A30"/>
                                     <Button Style="{StaticResource ListRow}"
-                                            Tag="https://github.com/refora-technologies/pulse-monitor/issues/new"
+                                            Tag="https://github.com/refora-technologies/pulse-monitor/issues/new/choose"
                                             AutomationProperties.Name="Report a problem on GitHub"
                                             Click="BtnExternalLink_Click">
                                         <StackPanel Orientation="Horizontal">
