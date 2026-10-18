@@ -45,6 +45,8 @@ function Record($name, $text) {
     if ($t) { $results.Add([pscustomobject]@{ Name = $name; Passed = $t[0]; Failed = $t[1]; Note = '' }) }
     else    { $results.Add([pscustomobject]@{ Name = $name; Passed = 0; Failed = 1; Note = 'printed no result' }) }
     if (-not $t -or $t[1] -gt 0) { Write-Output $text }
+    # On GitHub every report is kept, folded, so a passing run can be read check by check too.
+    elseif ($env:GITHUB_ACTIONS) { Write-Output "::group::$name report"; Write-Output $text; Write-Output '::endgroup::' }
 }
 
 $python = @('python', 'py') | Where-Object { Get-Command $_ -ErrorAction SilentlyContinue } | Select-Object -First 1
