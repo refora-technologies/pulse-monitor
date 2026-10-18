@@ -418,11 +418,31 @@ public sealed class SensorReader : IDisposable
                 // slept, and showing those would be an old number dressed as a live one.
                 snapshot.ActiveGpuName = chosen.Name;
                 chosenIsDiscrete = IsDiscrete(chosen);
-                data.GpuAsleep = true;
                 ApplyVideoMemory(chosen, data);
 
-                foreach (var tile in new[] { "gpu_temp", "gpu_power", "gpu_clock", "gpu_usage" })
-                    Source(tile, $"{chosen.Name} is asleep, so it was not read");
+                var id = chosen.Identifier.ToString();
+                if (_asleepSince is null || _asleepCard != id) { _asleepSince = Environment.TickCount64; _asleepCard = id; }
+                long asleepMs = Environment.TickCount64 - _asleepSince.Value;
+
+                if (asleepMs < SleepShownAfterMs && _held is { } held && held.Card == id)
+                {
+                    // A dip, as far as anyone can tell yet: the card's last readings stand. It is
+                    // still not read, so the battery saving is the same either way.
+                    data.GpuTemp  = held.Temp;
+                    data.GpuPower = held.Power;
+                    data.GpuClock = held.Clock;
+                    data.GpuUsage = held.Usage;
+                    data.GpuTempIsDie = held.TempIsDie;
+
+                    foreach (var tile in new[] { "gpu_temp", "gpu_power", "gpu_clock", "gpu_usage" })
+                        Source(tile, $"{chosen.Name} has been asleep {asleepMs / 1000.0:0.0} s; showing its last reading until it has slept {SleepShownAfterMs / 1000} s");
+                }
+                else
+                {
+                    data.GpuAsleep = true;
+                    foreach (var tile in new[] { "gpu_temp", "gpu_power", "gpu_clock", "gpu_usage" })
+                        Source(tile, $"{chosen.Name} is asleep, so it was not read");
+                }
             }
             else if (chosen != null)
             {
@@ -431,6 +451,10 @@ public sealed class SensorReader : IDisposable
 
                 chosenIsDiscrete = IsDiscrete(chosen);
                 ApplyWindowsTemperature(chosen.Name, chosenIsDiscrete, data);
+
+                _asleepSince = null;
+                _held = new HeldReading(chosen.Identifier.ToString(),
+                    data.GpuTemp, data.GpuPower, data.GpuClock, data.GpuUsage, data.GpuTempIsDie);
             }
         }
         catch (Exception ex)
@@ -1069,6 +1093,27 @@ public sealed class SensorReader : IDisposable
 
     /// Where <see cref="_vendorGpuLoad"/> came from, for diagnostics. Reset with it.
     private string? _vendorGpuLoadFrom;
+
+    /// <summary>
+    /// How long the chosen card must stay asleep before its tiles say so.
+    /// </summary>
+    /// <remarks>
+    /// A laptop card can drop into sleep for a moment and be woken again straight away, over
+    /// and over. Measured: about one second at a time on a reporter's RTX 3050 on 18 Oct 2026,
+    /// where GPU Usage and GPU Temp flickered between "asleep" and their readings every few
+    /// seconds, and 0.5 to 6 s on the owner's laptop on 13 and 16 Oct. Real sleep lasts minutes.
+    /// Until this long has passed the tiles keep the card's last reading, which it took while it
+    /// was idle enough to fall asleep, so it is very nearly what the card is doing anyway.
+    /// </remarks>
+    private const long SleepShownAfterMs = 10_000;
+
+    /// When the chosen card was first seen asleep in its current sleep, and which card it was.
+    private long? _asleepSince;
+    private string? _asleepCard;
+
+    /// The chosen card's last readings while awake, kept to cover a short dip into sleep.
+    private readonly record struct HeldReading(string Card, float? Temp, float? Power, float? Clock, float? Usage, bool TempIsDie);
+    private HeldReading? _held;
 
     /// The adapter Windows knows by this name, or null. Preferring one that has performance
     /// counters, because a machine can list the same adapter twice and only one of the two
