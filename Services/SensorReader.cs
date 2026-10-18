@@ -1375,23 +1375,48 @@ public sealed class SensorReader : IDisposable
         //
         // The real adapter is the one with the shortest name, because a binding is named
         // after the adapter it attaches to and then extended.
-        var chosenByAddress = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-
-        // Adapters that report no address at all are kept as they are. Deduplicating them
-        // against each other would mean treating "unknown" as a shared identity.
-        var withoutAddress = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        List<System.Net.NetworkInformation.NetworkInterface> up;
 
         try
         {
-            foreach (var nic in System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces())
+            up = System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces()
+                .Where(nic => nic.NetworkInterfaceType is not (System.Net.NetworkInformation.NetworkInterfaceType.Loopback
+                                                            or System.Net.NetworkInformation.NetworkInterfaceType.Tunnel)
+                           && nic.OperationalStatus == System.Net.NetworkInformation.OperationalStatus.Up)
+                .ToList();
+        }
+        catch
+        {
+            // Silent, because there is nothing to report it through: this is static, and in
+            // the sensor host, whose only channel out is the instance logger. The caller is
+            // told the enumeration did not finish, which is the part that matters. It used to
+            // be told nothing, so a failure looked like a machine with no physical adapters,
+            // and the caller reads that as "count every adapter" — putting back the six times
+            // overcount this filter exists to prevent.
+            return (new HashSet<string>(StringComparer.OrdinalIgnoreCase), false);
+        }
+
+        var physical = OnePerAddress(up.Where(nic => !LooksVirtual(nic.Name) && !LooksVirtual(nic.Description)));
+
+        // Inside a virtual machine every adapter is virtual, by name as well as in fact: on
+        // GitHub's build machines each one says Hyper-V or Virtual, so the filter above left
+        // nothing. An empty set means "count everything" to the caller, and there that counted
+        // one link five times, once as itself and once for each filter bound to it.
+        // The names are no help on such a machine, but the addresses still are.
+        if (physical.Count == 0) physical = OnePerAddress(up);
+
+        return (physical, true);
+
+        static HashSet<string> OnePerAddress(IEnumerable<System.Net.NetworkInformation.NetworkInterface> nics)
+        {
+            var chosenByAddress = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+            // Adapters that report no address at all are kept as they are. Deduplicating them
+            // against each other would mean treating "unknown" as a shared identity.
+            var withoutAddress = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var nic in nics)
             {
-                if (nic.NetworkInterfaceType is System.Net.NetworkInformation.NetworkInterfaceType.Loopback
-                                             or System.Net.NetworkInformation.NetworkInterfaceType.Tunnel)
-                    continue;
-
-                if (nic.OperationalStatus != System.Net.NetworkInformation.OperationalStatus.Up) continue;
-                if (LooksVirtual(nic.Name) || LooksVirtual(nic.Description)) continue;
-
                 string address = nic.GetPhysicalAddress().ToString();
 
                 if (string.IsNullOrEmpty(address))
@@ -1406,21 +1431,11 @@ public sealed class SensorReader : IDisposable
                     chosenByAddress[address] = nic.Name;
                 }
             }
-        }
-        catch
-        {
-            // Silent, because there is nothing to report it through: this is static, and in
-            // the sensor host, whose only channel out is the instance logger. The caller is
-            // told the enumeration did not finish, which is the part that matters. It used to
-            // be told nothing, so a failure looked like a machine with no physical adapters,
-            // and the caller reads that as "count every adapter" — putting back the six times
-            // overcount this filter exists to prevent.
-            return (new HashSet<string>(StringComparer.OrdinalIgnoreCase), false);
-        }
 
-        var physical = new HashSet<string>(chosenByAddress.Values, StringComparer.OrdinalIgnoreCase);
-        physical.UnionWith(withoutAddress);
-        return (physical, true);
+            var set = new HashSet<string>(chosenByAddress.Values, StringComparer.OrdinalIgnoreCase);
+            set.UnionWith(withoutAddress);
+            return set;
+        }
 
         static bool LooksVirtual(string text) =>
             VirtualAdapterMarkers.Any(m => text.Contains(m, StringComparison.OrdinalIgnoreCase));
