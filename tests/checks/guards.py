@@ -869,7 +869,7 @@ def diagnosis_guards(src):
     iss = src.text("setup.iss")
     if iss is not None:
         check("uninstalling takes the logs with it",
-              "{userappdata}\Refora\Pulse\logs" in iss,
+              r"{userappdata}\Refora\Pulse\logs" in iss,
               "otherwise a reinstall inherits sessions from versions that are gone")
 
         check("but leaves the settings, which are the user's work",
