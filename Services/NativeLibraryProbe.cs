@@ -9,10 +9,10 @@ namespace Pulse.Services;
 /// Works out why a native library would not load, at the moment it would not load.
 /// </summary>
 /// <remarks>
-/// Pulse ships self-contained and single-file, so the native WPF libraries are unpacked beside
-/// the executable's bundle and loaded from there. On some machines one of them is briefly
-/// unreadable during logon, which throws while the first window is still being built and leaves
-/// Pulse running with no overlay.
+/// Pulse ships self-contained and single-file, with the native WPF libraries installed beside the
+/// executable. Up to 1.3.3 they were unpacked to %TEMP% instead, where they kept disappearing;
+/// when one cannot be read at logon, WPF throws while the first window is still being built and
+/// Pulse is left running with no overlay.
 ///
 /// The exception .NET raises for this says <c>Dll was not found.</c> and nothing else. No file
 /// name, no error code, no indication whether the file is missing, locked, or unreadable. Four
