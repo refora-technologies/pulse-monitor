@@ -1100,15 +1100,35 @@ class Program
             // Run() is deliberately once per process, so the latch is released to run it here.
             cleanupType.GetField("_alreadyRun", BindingFlags.NonPublic | BindingFlags.Static)!
                        .SetValue(null, 0);
+
+            // The clean-up says why it stopped short only in Pulse's log, so what it wrote
+            // during this call is kept for the failure message.
+            var logPath = (string)_asm.GetType("Pulse.Services.LogService")!
+                              .GetProperty("LogPath", BindingFlags.Public | BindingFlags.Static)!.GetValue(null)!;
+            long logFrom = File.Exists(logPath) ? new FileInfo(logPath).Length : 0;
+
             cleanupType.GetMethod("Run", BindingFlags.Public | BindingFlags.Static)!
                        .Invoke(null, null);
+
+            string cleanupSaid = "";
+            try
+            {
+                using var log = new FileStream(logPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                if (log.Length >= logFrom) log.Seek(logFrom, SeekOrigin.Begin);
+                cleanupSaid = string.Join("\n        ", new StreamReader(log).ReadToEnd()
+                    .Split('\n').Where(l => l.Contains("TraceSessionCleanup")).Select(l => l.Trim()));
+            }
+            catch (IOException) { }
 
             string after = Listing();
             int oldAfter  = Count("Pulse_999");
             int oursAfter = Count(FpsSessionName);
 
             Check("the leaked sessions are gone", oldAfter == 0,
-                  $"{oldBefore} before, {oldAfter} after");
+                  oldAfter == 0 ? $"{oldBefore} before, none after"
+                                : $"{oldBefore} before, {oldAfter} after. The clean-up logged:\n        "
+                                + (cleanupSaid.Length > 0 ? cleanupSaid : "nothing")
+                                + Evidence(after));
 
             Check("and ours is untouched", oursAfter == oursBefore,
                   oursAfter == oursBefore
