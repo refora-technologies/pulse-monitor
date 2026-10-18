@@ -16,15 +16,17 @@ $ErrorActionPreference = 'Stop'
 $tests = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repo  = Split-Path -Parent $tests
 
+# The bundled third-party programs first: Pulse's build copies PresentMon into its output, and
+# the frame capture suite runs it. Fetched and verified, never committed. A fresh clone has
+# neither, which is how this ordering was found.
+& (Join-Path $repo 'fetch-third-party.ps1') | Out-Null
+
 # Every suite reads the code under test from Pulse.dll in the Debug output, so it is built first;
 # otherwise the suites would quietly test whatever was built last.
 Write-Output "Building Pulse..."
 & dotnet build (Join-Path $repo 'Pulse.csproj') -c Debug --nologo -v q
 if ($LASTEXITCODE -ne 0) { throw 'Pulse did not build' }
 $pulseOut = Join-Path $repo 'bin\Debug\net10.0-windows'
-
-# PresentMon is used by the frame capture suite; fetched and verified, never committed.
-& (Join-Path $repo 'fetch-third-party.ps1') | Out-Null
 
 $results = New-Object System.Collections.Generic.List[object]
 
