@@ -2,13 +2,13 @@
 bin/
 obj/
 publish/
-installer/*
-!installer/*.ps1
+installer/
 
 # User-specific files
 *.user
 *.suo
 .vs/
+.vscode/
 settings.json
 
 # Build results
@@ -16,3 +16,10 @@ settings.json
 *.dll
 *.pdb
 *.cache
+
+# Never committed: measurements, traces and dumps belong in the private lab, not here.
+# The repository holds finished work only; see CONTRIBUTING.md.
+*.etl
+*.dmp
+*.trace
+pulse-diagnostics-*.txt

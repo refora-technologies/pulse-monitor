@@ -40,29 +40,31 @@
 - **Arrange It Your Way:** Drag tiles into any order you like, or move them with the keyboard, and place the overlay by dragging it, snapping it to a corner, or sliding it into position.
 - **Resilient Sensor Reading:** Sensors are read in an isolated background process, so a graphics driver fault cannot take Pulse down with it. Pulse also notices when a GPU is switched off or comes back, re-detects your hardware on its own, and keeps trying to open sensors that were not ready rather than giving up for the rest of the session.
 - **Verified Updates:** The in-app updater checks a SHA-256 checksum before installing anything and refuses to run an update that doesn't match, and downloads to a location only administrators can write to.
-- **Diagnostics:** One click writes a report to your desktop, leading with what went wrong and how often, small enough to attach to a bug report.
+- **Easy on Laptop Batteries:** On laptops with a separate graphics card, Pulse leaves the card alone while it sleeps instead of waking it to read it. Its tiles say "asleep" until something uses the card again.
+- **Optional Sensor Driver:** CPU temperature, CPU power and CPU clock need the PawnIO sensor driver, which setup offers and ticks by default. It is unticked for you if FACEIT's anti-cheat is installed, because FACEIT will not start while it is present. Without it, those tiles explain what they need and can install it later from Pulse.
+- **Diagnostics:** One click writes a report to your desktop, leading with what went wrong and how often, and listing the sensors on your PC and which one each tile uses. Small enough to attach to a bug report, and nothing is sent anywhere.
 - **Refora Design Language:** A customized, violet-accented dark theme powered by the Plus Jakarta Sans font family for crisp, elegant readability.
-- **Zero Configuration Setup:** Single-file executable architecture that runs seamlessly without requiring any external .NET runtime installations.
+- **Zero Configuration Setup:** Self-contained, so it runs without installing a separate .NET runtime.
 
 ## Technical Stack
 
 - **Framework:** .NET 10.0 (WPF)
-- **Architecture:** MVVM Design Pattern (CommunityToolkit.Mvvm)
+- **Architecture:** MVVM, with sensors read in a separate helper process
 - **Hardware Integration:** LibreHardwareMonitor
 - **Frame Rate Capture:** PresentMon
 - **Data Serialization:** Newtonsoft.Json
 
 ## Installation
 
-**Requirements:** 64-bit Windows 10 or 11 on an x64 processor. Pulse installs a kernel-level driver to read sensors and that driver is x64 only, so setup will refuse an ARM64 machine rather than install something that cannot work.
+**Requirements:** 64-bit Windows 10 or 11 on an x64 processor. The optional sensor driver is x64 only, so setup will refuse an ARM64 machine rather than install something that cannot work.
 
-Download the latest installer from our official distribution channels. Pulse features a completely self-contained deployment model—no prerequisites required.
+Download the latest installer from the [website](https://pulse.reforatech.com) or the [releases page](https://github.com/refora-technologies/pulse-monitor/releases/latest). Nothing else needs to be installed first.
 
 1. Run `PulseSetup.exe`.
 2. Follow the on-screen instructions.
 3. Pulse launches when setup finishes and opens its control panel. It stays in the system tray after that.
 
-> **Note on Administrator Privileges:** Pulse requires elevated administrator privileges upon launch in order to securely read low-level hardware sensors directly from the kernel interface.
+> **Note on Administrator Privileges:** Pulse runs as administrator, because reading hardware sensors and capturing frame rates both need it. To report a security problem, see [SECURITY.md](SECURITY.md).
 
 ## Configuration & Usage
 
@@ -83,13 +85,20 @@ Once launched, right-click the Pulse icon in the Windows system tray and choose 
 - Un-dock the overlay to manually drag it to any custom position on your desktop — right-click it in this mode for quick access to the control panel or to hide the overlay.
 - Save a diagnostics file from the **About** section if you need to report a problem.
 
+## Contributing and Support
+
+- **Found a bug?** [Report it](https://github.com/refora-technologies/pulse-monitor/issues/new/choose), with a diagnostics file if you can.
+- **A question or an idea?** Ask in [Q&A](https://github.com/refora-technologies/pulse-monitor/discussions/categories/q-a) or share it in [Ideas](https://github.com/refora-technologies/pulse-monitor/discussions/categories/ideas).
+- **A security problem?** Report it privately, as [SECURITY.md](SECURITY.md) explains.
+- **Want to build Pulse or send a change?** [CONTRIBUTING.md](CONTRIBUTING.md) covers building, the tests, and how changes are made. Every push is built and tested on GitHub, and releases are built there too, from pinned tools, with the third-party programs Pulse ships checked against their official releases.
+
 ## License
 
 This project is licensed under the **GNU General Public License v3.0 (GPLv3)**.
 
 You are free to use, modify, and distribute this software, provided that any derivative works are also open-source and licensed under the identical terms. See the `LICENSE` file for the complete terms and conditions.
 
-Pulse bundles and links to the following open-source components: LibreHardwareMonitor (MPL-2.0), PawnIO kernel driver (LGPL-2.1), PresentMon (MIT), Newtonsoft.Json (MIT), and CommunityToolkit.Mvvm (MIT). See `THIRD-PARTY-NOTICES.txt` for full attribution.
+Pulse bundles and links to the following open-source components: LibreHardwareMonitor (MPL-2.0), the PawnIO sensor driver (GPL-2.0-or-later), PresentMon (MIT) and Newtonsoft.Json (MIT). See `THIRD-PARTY-NOTICES.txt` for full attribution.
 
 ---
 
