@@ -52,4 +52,6 @@ wrong, delete the draft and the tag, fix it, and go back to step 1.
 
 Publish the draft on GitHub. From that moment Pulse's updater offers it.
 
-Then update the website's fallback version and installer size, and deploy it.
+Then update the website's fallback version and installer size, and deploy it, and post the
+release in Discussions under Announcements: a short note of what changed, in the same words
+as the release notes, with a link to the release.
