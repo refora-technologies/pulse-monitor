@@ -1,0 +1,20 @@
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Ask anything about installing, setting up or using Pulse. If something is broken rather than unclear, a [bug report](https://github.com/refora-technologies/pulse-monitor/issues/new/choose) reaches us faster.
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Your question
+      description: What you're trying to do, and where you got stuck.
+    validations:
+      required: true
+
+  - type: input
+    id: setup
+    attributes:
+      label: Pulse version and your PC
+      description: Optional, but it often decides the answer. Pulse's version is in the control panel under About.
+      placeholder: 1.3.4 on Windows 11, desktop with an AMD Ryzen 7 7800X3D and Radeon RX 7900 XT

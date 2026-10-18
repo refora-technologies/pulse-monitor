@@ -1,0 +1,22 @@
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping shape Pulse. Before posting, search Ideas in case someone has suggested it already. If they have, add your vote and how you'd use it.
+
+        Pulse stays deliberately simple, so ideas are weighed by how many people they help against how much they add to what everyone sees.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What would it let you do?
+      description: Start with the problem or the wish, rather than the solution. What do you do today, and what gets in the way?
+      placeholder: When I stream, I'd like to see my upload speed without opening Task Manager.
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: How do you imagine it working?
+      description: Optional. Screenshots or examples from other tools are welcome.
