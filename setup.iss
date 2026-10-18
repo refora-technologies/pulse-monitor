@@ -5,8 +5,8 @@
 [Setup]
 AppId={{B8F3E2A4-9D1C-4F7E-A5B2-3C8D6E9F1A2B}
 AppName=Pulse
-AppVersion=1.3.3
-AppVerName=Pulse v1.3.3
+AppVersion=1.3.4
+AppVerName=Pulse v1.3.4
 AppPublisher=Refora Technologies
 AppPublisherURL=https://reforatech.com
 AppSupportURL=https://reforatech.com
@@ -42,8 +42,8 @@ WizardSmallImageFile=Resources\Installer\small-58.png,Resources\Installer\small-
 
 ; What Windows shows for PulseSetup.exe under Properties > Details, and in the elevation
 ; prompt. Without these it described itself as an anonymous setup program.
-VersionInfoVersion=1.3.3
-VersionInfoProductVersion=1.3.3
+VersionInfoVersion=1.3.4
+VersionInfoProductVersion=1.3.4
 VersionInfoProductName=Pulse
 VersionInfoCompany=Refora Technologies
 VersionInfoDescription=Pulse Setup
