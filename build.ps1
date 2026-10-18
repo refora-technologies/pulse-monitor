@@ -8,33 +8,33 @@
 #
 #     powershell -ExecutionPolicy Bypass -File build.ps1
 #
-# What is still not reproducible from a clean checkout, and is worth knowing before trying:
-# Resources\PresentMon\PresentMon-2.5.1-x64.exe and PawnIO_setup.exe are not tracked in the
-# repository, and there is no script that fetches them. They have to be put in place by hand
-# from their own projects before this will produce a working build.
+# Works from a clean checkout: the two third-party programs Pulse ships (the PawnIO installer
+# and PresentMon) are fetched from their official releases by fetch-third-party.ps1, which
+# refuses anything whose SHA-256 is not the pinned one. GitHub builds releases with this same
+# script, so a local build and a released one are made the same way.
 
 $ErrorActionPreference = 'Stop'
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $here
 
-$iscc = 'C:\InnoSetup6\ISCC.exe'
+& (Join-Path $here 'fetch-third-party.ps1')
+if (-not $?) { throw 'the third-party programs could not be put in place' }
 
-foreach ($needed in @(
-    'Resources\PresentMon\PresentMon-2.5.1-x64.exe',
-    'PawnIO_setup.exe')) {
-    if (-not (Test-Path $needed)) {
-        throw "$needed is missing. It is not tracked in the repository; see the note at the top of this script."
-    }
-}
-
-if (-not (Test-Path $iscc)) { throw "Inno Setup was not found at $iscc" }
+# Inno Setup 6, wherever it is installed: INNO_ISCC when set, then the usual places. GitHub's
+# Windows machines have it under Program Files (x86); this PC has it at C:\InnoSetup6.
+$iscc = @($env:INNO_ISCC,
+          'C:\InnoSetup6\ISCC.exe',
+          "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+          "$env:ProgramFiles\Inno Setup 6\ISCC.exe") |
+        Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+if (-not $iscc) { throw 'Inno Setup 6 was not found. Install it, or set INNO_ISCC to the path of ISCC.exe.' }
 
 Write-Output 'Publishing...'
 Remove-Item -Recurse -Force publish -ErrorAction SilentlyContinue
 
-# Self-contained and single-file, which is what "no prerequisites required" in the README
-# means. IncludeNativeLibrariesForSelfExtract is set in the project file, so the native
-# libraries travel inside the executable and unpack beside it at runtime.
+# Self-contained and single-file, so nothing needs installing first. The native libraries are
+# left beside the executable (IncludeNativeLibrariesForSelfExtract is off in the project file)
+# and setup.iss installs them with it, rather than having them unpacked to %TEMP% at launch.
 dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o publish --nologo
 if ($LASTEXITCODE -ne 0) { throw 'publish failed' }
 
