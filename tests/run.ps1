@@ -50,6 +50,12 @@ function Record($name, $text) {
 $python = @('python', 'py') | Where-Object { Get-Command $_ -ErrorAction SilentlyContinue } | Select-Object -First 1
 if (-not $python) { throw 'Python 3 is needed for the source checks.' }
 
+# From here every check and suite is judged by the result it prints, not by whether it wrote to
+# its error output. Under 'Stop', Windows PowerShell turns any line a program writes there into
+# an error that ends the whole run, so one harmless warning hid every result after it. That is
+# how the first run on GitHub ended, on a warning from a newer Python than ours.
+$ErrorActionPreference = 'Continue'
+
 foreach ($check in @(@('hygiene', 'checks\hygiene.py', ''),
                      @('hygiene catches', 'checks\hygiene.py', '--self-test'),
                      @('regression guards', 'checks\guards.py', ''),
