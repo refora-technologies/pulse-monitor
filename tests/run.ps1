@@ -16,6 +16,14 @@ $ErrorActionPreference = 'Stop'
 $tests = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repo  = Split-Path -Parent $tests
 
+# Made absolute now, because each suite runs from its own folder. A relative path given here
+# pointed nowhere from there, and the notes suite reads a missing file as "nothing to check":
+# the release build's check of the notes about to be published passed without reading them.
+if ($Notes) {
+    if (-not (Test-Path $Notes -PathType Leaf)) { throw "There is no release notes file at $Notes." }
+    $Notes = (Resolve-Path $Notes).Path
+}
+
 # The bundled third-party programs first: Pulse's build copies PresentMon into its output, and
 # the frame capture suite runs it. Fetched and verified, never committed. A fresh clone has
 # neither, which is how this ordering was found.
