@@ -1,0 +1,37 @@
+# Builds Pulse and runs every check that needs no special hardware, on every push and pull
+# request: the repository hygiene check, the source checks and their fault tests, and the
+# test suites under tests/. Tests that need administrator rights, the sensor driver or a real
+# graphics card are run by Refora Technologies before each release, as docs/RELEASING.md says.
+name: Checks
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    # A fixed image rather than windows-latest, so a result does not change under us.
+    runs-on: windows-2025
+    steps:
+      # Full history: the fault tests show each source check failing against the commit that
+      # fixed what it guards.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.400
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+
+      - name: Run the checks
+        env:
+          # Lets the release notes suite read the notes of the latest published release.
+          GH_TOKEN: ${{ github.token }}
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File tests\run.ps1
