@@ -336,21 +336,23 @@ public partial class App : WinApplication
     /// Shows the overlay, and keeps trying for a while if it cannot be built yet.
     /// </summary>
     /// <remarks>
-    /// Building the window can fail at logon. Pulse ships single-file, so its native WPF
-    /// libraries are unpacked to %TEMP% and something touching one of them — a scanner
-    /// reaching a freshly extracted file first, a cold disk under logon load — makes WPF throw
-    /// while it is still parsing the markup. A reporter hit this on ten of twenty-seven boots.
+    /// Building the window used to fail at logon. Up to 1.3.3 Pulse's native WPF libraries were
+    /// unpacked to %TEMP% and loaded from there, and that folder is not Pulse's to keep: on the
+    /// owner's laptop four of the five kept disappearing between sessions, eight times in four
+    /// weeks to 16 Oct 2026, and once one was held open by another program. WPF then threw while
+    /// still parsing the markup. A reporter hit this on ten of twenty-seven boots.
     ///
     /// It used to be fatal, then 1.3.0 made unhandled interface exceptions survivable and it
     /// became worse in a quieter way: Pulse carried on running with no overlay and no way to
     /// know why, because the throw landed on the assignment below and skipped the two menu
     /// refreshes underneath it. The tray then offered "Hide Overlay" over an empty screen.
     ///
-    /// The condition has always cleared on its own, so retrying is how Pulse recovers. It is a
-    /// fallback, not a fix: why the library is briefly unreadable is still not known, and
-    /// NativeLibraryProbe records what Windows says about it when it happens. The failure was
-    /// reproduced by holding wpfgfx_cor3.dll open with no sharing while Pulse starts; see
-    /// _tests/overlay-startup-repro.
+    /// The cause is gone since the libraries are installed beside Pulse.exe in Program Files
+    /// (Pulse.csproj, IncludeNativeLibrariesForSelfExtract). This retry stays as the safety net
+    /// for anything else that holds a library for a moment at logon, an antivirus scan being the
+    /// one seen. NativeLibraryProbe records what Windows says if it ever happens again. The
+    /// failure can be reproduced by holding wpfgfx_cor3.dll open with no sharing while Pulse
+    /// starts; see _tests/overlay-startup-repro.
     /// </remarks>
     public void ShowOverlay()
     {
