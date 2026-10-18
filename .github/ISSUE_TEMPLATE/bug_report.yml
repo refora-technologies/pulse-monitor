@@ -1,0 +1,108 @@
+name: Something isn't working
+description: A tile reads wrong or shows nothing, the overlay misbehaves, Pulse crashes, or it doesn't do what it says.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this. A few details now save a lot of back and forth later.
+
+        **Have a question rather than a fault?** Ask in [Q&A](https://github.com/refora-technologies/pulse-monitor/discussions/categories/q-a) instead.
+        **Found a security problem?** Please don't report it here. Email reforatech@gmail.com instead, as [SECURITY.md](https://github.com/refora-technologies/pulse-monitor/blob/main/SECURITY.md) explains.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you saw, and what you expected instead. A screenshot of the overlay helps.
+      placeholder: CPU Temp shows "--" while every other tile has a reading.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: When does it happen?
+      description: The steps that lead to it, as exactly as you can. Say whether it happens every time, sometimes, or only once.
+      placeholder: |
+        1. Start the PC
+        2. Open a game in fullscreen
+        3. ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: tiles
+    attributes:
+      label: Which tiles are affected?
+      multiple: true
+      options:
+        - None, it isn't about a tile
+        - CPU Usage
+        - CPU Temp
+        - CPU Clock
+        - CPU Power
+        - GPU Usage
+        - GPU Temp
+        - GPU Clock
+        - GPU Power
+        - VRAM Used
+        - RAM Used
+        - FPS
+        - 1% Low
+        - Net Upload
+        - Net Download
+        - Disk Activity
+        - Battery
+        - CPU+GPU Power
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Pulse version
+      description: In the control panel, under About.
+      placeholder: "1.3.4"
+    validations:
+      required: true
+
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      description: Press Windows + R, type winver, and copy the first line.
+      placeholder: Windows 11, version 24H2
+    validations:
+      required: true
+
+  - type: input
+    id: hardware
+    attributes:
+      label: Processor and graphics
+      description: Laptop or desktop, the processor, and every graphics card or built-in graphics.
+      placeholder: Laptop, Intel Core i5-13420H, Intel UHD Graphics and NVIDIA RTX 3050 Laptop GPU
+    validations:
+      required: true
+
+  - type: dropdown
+    id: driver
+    attributes:
+      label: Is the sensor driver (PawnIO) installed?
+      description: Setup offers it. In Windows, Settings, Apps, Installed apps, look for PawnIO.
+      options:
+        - "Yes"
+        - "No"
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics file
+      description: |
+        In the control panel, under About, press Save diagnostics, then drag the file from your desktop into this box.
+        It holds Pulse's version, your Windows version, your hardware and sensor names, whether sensors are working, and Pulse's own messages with times. Your Windows account name is removed from it, and it never contains the names of your apps, games or files. If you'd rather not post it publicly, email it to reforatech@gmail.com instead and say so here.
+    validations:
+      required: false

@@ -1,0 +1,14 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Ask a question
+    url: https://github.com/refora-technologies/pulse-monitor/discussions/categories/q-a
+    about: Not sure how something works, or stuck setting up? Ask in Q&A.
+  - name: Suggest an idea
+    url: https://github.com/refora-technologies/pulse-monitor/discussions/categories/ideas
+    about: New tiles, settings and changes are discussed in Ideas.
+  - name: Report a security problem
+    url: https://github.com/refora-technologies/pulse-monitor/blob/main/SECURITY.md
+    about: Please report it privately by email, as SECURITY.md explains.
+  - name: Pulse website
+    url: https://pulse.reforatech.com
+    about: Download, privacy and terms.
