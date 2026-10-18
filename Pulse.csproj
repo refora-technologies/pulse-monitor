@@ -52,6 +52,15 @@
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
   </ItemGroup>
 
+  <!-- The test suites are projects of their own under tests\. Without this, the SDK's default
+       globbing would compile their sources into Pulse itself. -->
+  <ItemGroup>
+    <Compile Remove="tests\**" />
+    <Page Remove="tests\**" />
+    <None Remove="tests\**" />
+    <EmbeddedResource Remove="tests\**" />
+  </ItemGroup>
+
   <ItemGroup>
     <Resource Include="Resources\Icons\**" />
     <Resource Include="Resources\Fonts\**" />
