@@ -6,9 +6,12 @@ policy is about.
 
 ## Reporting a problem
 
-If you find a way to misuse Pulse, please tell us **privately**, by email to
-**reforatech@gmail.com**, with "Pulse security" in the subject. Please don't open a public
-issue or discussion about it until it is fixed.
+If you find a way to misuse Pulse, please tell us **privately**: use
+[Report a vulnerability](https://github.com/refora-technologies/pulse-monitor/security/advisories/new)
+on this repository's Security tab. Only you and Refora Technologies can see the report, and we
+can work on the fix with you there. If you would rather not use GitHub, email
+**reforatech@gmail.com** with "Pulse security" in the subject. Please don't open a public issue
+or discussion about it until it is fixed.
 
 It helps to include:
 
