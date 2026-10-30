@@ -44,7 +44,7 @@
          which was once two security patches behind. Pulse runs elevated, so shipping a stale
          runtime matters more than it would for an ordinary app.
          Bump this when a new 10.0.x patch is published. -->
-    <RuntimeFrameworkVersion>10.0.11</RuntimeFrameworkVersion>
+    <RuntimeFrameworkVersion>10.0.14</RuntimeFrameworkVersion>
   </PropertyGroup>
 
   <ItemGroup>
