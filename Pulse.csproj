@@ -59,6 +59,8 @@
     <Page Remove="tests\**" />
     <None Remove="tests\**" />
     <EmbeddedResource Remove="tests\**" />
+    <!-- The in-game overlay is C++, built by InGame\build-ingame.ps1, not by this project. -->
+    <None Remove="InGame\**" />
   </ItemGroup>
 
   <ItemGroup>

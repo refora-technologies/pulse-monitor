@@ -23,3 +23,8 @@ settings.json
 *.dmp
 *.trace
 pulse-diagnostics-*.txt
+
+# Dear ImGui is fetched and checked by fetch-third-party.ps1, never committed; and the in-game
+# overlay's build files.
+InGame/third_party/
+InGame/obj/

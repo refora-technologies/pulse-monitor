@@ -199,6 +199,10 @@ public class TileViewModel : BaseViewModel
     }
 
     /// 0 = neutral, 1 = normal, 2 = warning, 3 = danger.
+    /// The colour state the window overlay draws the value in: 0 neutral, 1 normal, 2 warm, 3 hot.
+    /// The in-game overlay is sent the same, so both show the same colour for the same reading.
+    internal int ColourState => State;
+
     private int State
     {
         get
