@@ -355,8 +355,15 @@ public class HardwareService : IDisposable
     /// </summary>
     private static SensorSubsystems RequiredSubsystems()
     {
-        var active = SettingsService.Instance.Settings.ActiveTileIds;
+        var settings = SettingsService.Instance.Settings;
         var needed = SensorSubsystems.None;
+
+        // The in-game overlay's own list too, when it has one: its tiles are read from the same
+        // readings, and a game set with GPU temperature needs the GPU read even when the window
+        // overlay shows none of it.
+        var active = settings.InGameOverlayEnabled && settings.InGameOwnTiles
+            ? settings.ActiveTileIds.Concat(settings.InGameTileIds)
+            : settings.ActiveTileIds;
 
         foreach (var id in active)
             needed |= SensorReader.SubsystemFor(id) ?? SensorSubsystems.None;

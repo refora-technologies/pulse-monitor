@@ -1145,6 +1145,16 @@ public partial class OverlayWindow : Window
     /// and then failed to show. The constructor has already subscribed to a static Windows event
     /// by then, which pins the window for the life of the process, and each retry built another.
     /// </remarks>
+    /// <summary>
+    /// Hides what the overlay draws while the in-game overlay draws inside the game in front
+    /// (App.SetOverlaySuppressed). The window stays shown; its content goes, and with it every
+    /// pixel that could catch a click.
+    /// </summary>
+    public void SetSuppressed(bool suppressed)
+    {
+        DragBorder.Visibility = suppressed ? Visibility.Hidden : Visibility.Visible;
+    }
+
     public void Release()
     {
         _topmostTimer?.Stop();

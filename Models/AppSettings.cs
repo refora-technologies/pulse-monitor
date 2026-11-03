@@ -148,6 +148,43 @@ public class AppSettings
     /// LibreHardwareMonitor identifier of the GPU to monitor. Empty means auto-detect.
     public string SelectedGpuId { get; set; } = "";
 
+    // ── In-game overlay (1.3.5) ─────────────────────────────────────────────────────────
+    //
+    // Pulse's readings drawn inside games, so they stay visible in full-screen games where the
+    // window overlay cannot. Off by default: turning it on puts a small part of Pulse into the
+    // game, and the player says yes to that first. Never in games with anti-cheat.
+
+    /// Whether Pulse draws its overlay inside games.
+    public bool InGameOverlayEnabled { get; set; } = false;
+
+    /// Off: the in-game overlay follows the window overlay's position, size and opacity. On: it
+    /// uses the InGame* values below.
+    public bool InGameOwnLook { get; set; } = false;
+
+    /// "List" (one reading per line, as the window overlay's compact mode) or "Bar" (all on one
+    /// straight line).
+    public string InGameLayout { get; set; } = "List";
+
+    /// Where it sits on the game's screen, as a fraction of the free space: 0 left or top, 1 right
+    /// or bottom, the same idea as OverlayAnchorFx. Top left by default, where players look for a
+    /// frame rate.
+    public double InGameAnchorX { get; set; } = 0;
+    public double InGameAnchorY { get; set; } = 0;
+
+    /// The same three as the window overlay's, with the same defaults: slightly see-through, so
+    /// the game shows through.
+    public double InGameOpacity { get; set; } = 0.85;
+    public double InGameBackgroundOpacity { get; set; } = 1.0;
+    public double InGameScale { get; set; } = 1.0;
+
+    /// Off: the same readings as the window overlay. On: InGameTileIds, a list of its own, so a
+    /// gaming set does not have to be the desktop set.
+    public bool InGameOwnTiles { get; set; } = false;
+    public List<string> InGameTileIds { get; set; } = new() { "fps", "fps_1low", "gpu_temp", "gpu_usage", "cpu_temp" };
+
+    /// Games the player turned it off for, by executable name ("game.exe"), compared without case.
+    public List<string> InGameExcludedGames { get; set; } = new();
+
     private static readonly string SettingsPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "Refora", "Pulse", "settings.json");
@@ -322,6 +359,16 @@ public class AppSettings
 
         if (OverlayPosition is not ("TopLeft" or "TopRight" or "BottomLeft" or "BottomRight" or "Custom"))
             OverlayPosition = "TopRight";
+
+        if (InGameLayout is not ("List" or "Bar")) InGameLayout = "List";
+        InGameAnchorX           = Clamp(InGameAnchorX, 0.0, 1.0, 0.0);
+        InGameAnchorY           = Clamp(InGameAnchorY, 0.0, 1.0, 0.0);
+        InGameOpacity           = Clamp(InGameOpacity, 0.15, 1.0, 0.85);
+        InGameBackgroundOpacity = Clamp(InGameBackgroundOpacity, 0.0, 1.0, 1.0);
+        InGameScale             = Clamp(InGameScale, 0.5, 3.0, 1.0);
+        InGameTileIds           = InGameTileIds?.Where(id => !string.IsNullOrWhiteSpace(id)).Distinct().ToList() ?? new List<string>();
+        InGameExcludedGames     = InGameExcludedGames?.Where(n => !string.IsNullOrWhiteSpace(n))
+                                                      .Distinct(StringComparer.OrdinalIgnoreCase).ToList() ?? new List<string>();
     }
 
     /// Out-of-range values fall back to the default rather than to the nearest bound: a 0 or

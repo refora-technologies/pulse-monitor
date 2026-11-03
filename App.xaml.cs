@@ -148,6 +148,10 @@ public partial class App : WinApplication
 
         ShowOverlay();
 
+        // After the overlay exists, as it may hide the overlay's content while a game shows the
+        // in-game one. Does nothing until the in-game overlay is turned on.
+        Services.InGame.InGameOverlayService.Instance.Start();
+
         if (!e.Args.Contains("--startup"))
             ShowControlPanel();
 
@@ -362,6 +366,7 @@ public partial class App : WinApplication
             {
                 if (_overlayWindow == null || !_overlayWindow.IsLoaded)
                     _overlayWindow = new OverlayWindow();
+                _overlayWindow.SetSuppressed(_overlaySuppressed);
                 _overlayWindow.Show();
                 _overlayWindow.Topmost = true;
                 StopOverlayRetry();
@@ -451,6 +456,20 @@ public partial class App : WinApplication
             UpdateMainWindowButton();
             UpdateTrayMenu();
         });
+    }
+
+    private bool _overlaySuppressed;
+
+    /// <summary>
+    /// Hides the window overlay's content while the in-game overlay is drawing in the game in front,
+    /// and brings it back after. The window itself stays shown, so the player's own show/hide
+    /// choice, the tray menu and the shortcut all carry on meaning what they did; only what is
+    /// drawn changes, and a hidden overlay lets every click through.
+    /// </summary>
+    public void SetOverlaySuppressed(bool suppressed)
+    {
+        _overlaySuppressed = suppressed;
+        _overlayWindow?.SetSuppressed(suppressed);
     }
 
     private void ToggleOverlay()
@@ -667,6 +686,7 @@ public partial class App : WinApplication
         _trayIcon?.Dispose();
         HardwareService.Instance.Dispose();
         FpsService.Instance.Dispose();
+        Services.InGame.InGameOverlayService.Instance.Dispose();
 
         // Released before the process ends, not left to it. Windows holds a registered
         // combination for as long as the handle lives, so an orderly exit that skipped this
