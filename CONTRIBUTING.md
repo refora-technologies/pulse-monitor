@@ -26,15 +26,17 @@ and it's better to agree on the shape of a change before you spend time on it.
 
 ## Building
 
-You need Windows 10 or 11 (x64), the .NET 10 SDK, and Inno Setup 6.
+You need Windows 10 or 11 (x64), the .NET 10 SDK, Inno Setup 6, and Visual Studio 2022 or its
+Build Tools with "Desktop development with C++", for the in-game overlay.
 
 ```
 powershell -ExecutionPolicy Bypass -File build.ps1
 ```
 
 This publishes Pulse, downloads the two components it bundles (the PawnIO driver installer and
-PresentMon) from their official releases, checks each one's SHA-256 against the value pinned in
-the script, and builds `installer\PulseSetup.exe` with its checksum file.
+PresentMon) from their official releases, and the Dear ImGui source the in-game overlay is built
+from, checks each one's SHA-256 against the value pinned in the script, builds the in-game overlay
+(`InGame\build-ingame.ps1`), and builds `installer\PulseSetup.exe` with its checksum file.
 
 Pulse runs as administrator, so running the built `Pulse.exe` shows a UAC prompt.
 
