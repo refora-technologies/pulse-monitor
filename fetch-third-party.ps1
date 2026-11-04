@@ -18,8 +18,8 @@ $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $files = @(
     @{
         Path   = 'PawnIO_setup.exe'
-        Url    = 'https://github.com/namazso/PawnIO.Setup/releases/download/2.1.0/PawnIO_setup.exe'
-        Sha256 = 'a3a46226c5e2824f4cdd42be0eecbabfc672c86f7889710f5ab1e6ad385b47a0'
+        Url    = 'https://github.com/namazso/PawnIO.Setup/releases/download/2.2.0/PawnIO_setup.exe'
+        Sha256 = '1f519a22e47187f70a1379a48ca604981c4fcf694f4e65b734aaa74a9fba3032'
     },
     @{
         Path   = 'Resources\PresentMon\PresentMon-2.5.1-x64.exe'
