@@ -38,6 +38,7 @@ public sealed class InGameOverlayService : IDisposable
     private System.Threading.Timer? _timer;
     private bool _suppressing;
     private GameInfo? _lastGame;
+    private GameInfo? _shownGame;
     private (int Pid, IntPtr Handle)? _shownWindow;
     private int _ticking;
     private volatile bool _disposed;
@@ -86,49 +87,51 @@ public sealed class InGameOverlayService : IDisposable
 
         int pid = ForegroundProcessId();
         GameInfo? found = pid == 0 || pid == Environment.ProcessId ? null : CheckGame(pid, settings);
-        if (found is not { Verdict: not (Verdict.NotAGame or Verdict.NotOpenable) } info)
+
+        // A game the overlay can go into, in front: added to it once, and it becomes the game.
+        if (found is { Verdict: Verdict.Allowed } game)
         {
-            // Nothing that counts as a game is in front: the desktop, a browser, this panel, a
-            // click on the other screen. The game the overlay was showing in keeps it for as long
-            // as the game is still on screen (owner, 4 Nov): the window overlay comes back only
-            // once the game is minimised or hidden.
-            if (_lastGame is { Verdict: Verdict.Allowed } shown && _shownWindow is { } window && window.Pid == shown.Pid
-                && !IsExcluded(shown, settings) && IsRunning(shown.Pid) && OnScreen(window.Handle))
+            if (!_loaded.Contains(pid) && !_loadFailed.Contains(pid))
             {
-                DrawIn(app, frame, visible, shown);
-                return;
+                var problem = Load(pid);
+                if (problem == null) _loaded.Add(pid);
+                else
+                {
+                    _loadFailed.Add(pid);
+                    LogService.Warn(nameof(InGameOverlayService), $"Could not put the in-game overlay into {game.Name}: {problem}.");
+                }
             }
+            if (_loaded.Contains(pid))
+            {
+                _shownGame = game;
+                _shownWindow = (pid, GetForegroundWindow());
+            }
+        }
 
-            // No game draws, and the window overlay shows.
-            _writer.Write(frame with { Enabled = false });
-            Suppress(app, false);
-
-            // The last game is still spoken of while it runs, so the panel opened over it can
-            // say what happened there and offer to turn the overlay off for it.
-            if (_lastGame is { } last && IsRunning(last.Pid))
-            {
-                bool excluded = IsExcluded(last, settings);
-                bool goesIn = last.Verdict is Verdict.Allowed or Verdict.Excluded;
-                SetStatus(excluded ? $"Turned off for {last.Name}"
-                        : goesIn ? $"Ready for {last.Name}: it shows when you go back to the game"
-                        : NotInText(last), goesIn || excluded ? ExeName(last) : null);
-            }
-            else
-            {
-                _lastGame = null;
-                SetStatus("Waiting for a game", null);
-            }
+        // The game keeps the overlay until it is closed, turned off in Pulse, or minimised (owner,
+        // 4 Nov). Whatever else is in front, a chat app, Steam, the other screen, does not matter.
+        if (_shownGame is { } shown && !IsRunning(shown.Pid)) { _shownGame = null; _shownWindow = null; }
+        if (_shownGame is { } current && _shownWindow is { } window && !IsExcluded(current, settings) && OnScreen(window.Handle))
+        {
+            DrawIn(app, frame, visible, current);
             return;
         }
 
-        _lastGame = info;
-        if (info.Verdict != Verdict.Allowed)
+        // No game draws, and the window overlay shows.
+        _writer.Write(frame with { Enabled = false });
+        Suppress(app, false);
+
+        if (found is { } info && IsAGame(info))
         {
-            _writer.Write(frame with { Enabled = false });
-            Suppress(app, false);
-            // Offered only where it would change something: a game it already stays out of has
-            // nothing to turn off.
-            // A game loads DirectX a while after it starts: not yet is not "does not".
+            _lastGame = info;
+            if (info.Verdict == Verdict.Allowed)
+            {
+                SetStatus($"Not in {info.Name}: Pulse could not add it to this game", null);
+                return;
+            }
+            // A game loads DirectX a while after it starts: not yet is not "does not". The per-game
+            // button is offered only where it changes something: a game the overlay already stays
+            // out of has nothing to turn off.
             bool starting = info.Verdict == Verdict.NoDirectX && _firstSeen.TryGetValue(pid, out var seen)
                             && DateTime.UtcNow - seen < TimeSpan.FromMinutes(1);
             SetStatus(starting ? $"Waiting for {info.Name} to start" : NotInText(info),
@@ -136,28 +139,18 @@ public sealed class InGameOverlayService : IDisposable
             return;
         }
 
-        if (!_loaded.Contains(pid) && !_loadFailed.Contains(pid))
+        // Nothing that counts as a game in front. The game still running is spoken of, so the panel
+        // opened beside it can say what happened there and offer to turn the overlay off for it.
+        if (_shownGame is { } waiting)
+            SetStatus(IsExcluded(waiting, settings) ? $"Turned off for {waiting.Name}"
+                      : $"Ready for {waiting.Name}: it shows again when the game is back on screen", ExeName(waiting));
+        else if (_lastGame is { } last && IsRunning(last.Pid))
+            SetStatus(NotInText(last), last.Verdict == Verdict.Excluded ? ExeName(last) : null);
+        else
         {
-            var problem = Load(pid);
-            if (problem == null) _loaded.Add(pid);
-            else
-            {
-                _loadFailed.Add(pid);
-                LogService.Warn(nameof(InGameOverlayService), $"Could not put the in-game overlay into {info.Name}: {problem}.");
-            }
+            _lastGame = null;
+            SetStatus("Waiting for a game", null);
         }
-
-        if (_loadFailed.Contains(pid))
-        {
-            _writer.Write(frame with { Enabled = false });
-            Suppress(app, false);
-            SetStatus($"Not in {info.Name}: Pulse could not add it to this game", null);
-            return;
-        }
-
-        // Remembered, to keep the overlay in this game while it stays on screen behind something else.
-        _shownWindow = (pid, GetForegroundWindow());
-        DrawIn(app, frame, visible, info);
     }
 
     /// <summary>
@@ -182,6 +175,18 @@ public sealed class InGameOverlayService : IDisposable
             _ => $"Starting in {info.Name}",
         }, ExeName(info));
     }
+
+    /// <summary>
+    /// Whether a program is a game, for what the status line speaks of. Programs that do not draw
+    /// with DirectX 11 or 12, and are not Vulkan games either, are just programs: an archiver in
+    /// front says "waiting for a game", not "not in WinRAR".
+    /// </summary>
+    private static bool IsAGame(GameInfo info) => info.Verdict switch
+    {
+        Verdict.NotAGame or Verdict.NotOpenable => false,
+        Verdict.NoDirectX => info.Detail.Contains("Vulkan", StringComparison.Ordinal),
+        _ => true,
+    };
 
     /// Why the overlay is not in a game, for the status line.
     private static string NotInText(GameInfo info) => info.Verdict switch

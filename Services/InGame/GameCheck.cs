@@ -117,9 +117,6 @@ internal static class GameCheck
             if (pid == Environment.ProcessId || NotGames.Contains(process.ProcessName))
                 return new GameInfo(pid, name, path, Verdict.NotAGame, "not a game");
 
-            if (path.Contains(@"\WindowsApps\", StringComparison.OrdinalIgnoreCase))
-                return new GameInfo(pid, name, path, Verdict.StoreApp, "Microsoft Store and Xbox app games are not supported yet");
-
             var exe = System.IO.Path.GetFileName(path);
             if (excluded.Any(e => string.Equals(e, exe, StringComparison.OrdinalIgnoreCase)))
                 return new GameInfo(pid, name, path, Verdict.Excluded, "turned off for this game");
@@ -137,6 +134,11 @@ internal static class GameCheck
                 return modules.Contains("vulkan-1.dll")
                     ? new GameInfo(pid, name, path, Verdict.NoDirectX, "Vulkan games are not supported yet")
                     : new GameInfo(pid, name, path, Verdict.NoDirectX, "it does not use DirectX 11 or 12");
+
+            // After the checks above, so a store app that is not a game (the Claude app is one,
+            // and an Electron app) is never spoken of as a store game.
+            if (path.Contains(@"\WindowsApps\", StringComparison.OrdinalIgnoreCase))
+                return new GameInfo(pid, name, path, Verdict.StoreApp, "Microsoft Store and Xbox app games are not supported yet");
 
             var antiCheat = FindAntiCheat(process.ProcessName, path, modules);
             if (antiCheat != null)
