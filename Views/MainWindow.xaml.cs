@@ -426,12 +426,50 @@ public partial class MainWindow : Window
         else
         {
             var note = new InGameNoteWindow { Owner = this };
-            note.ShowDialog();
+            ShowDialogFocused(note);
             if (note.Accepted) _vm.InGameOverlayEnabled = true;
         }
 
         // The click has already flipped the switch; it shows what was decided instead.
         InGameToggle.SetCurrentValue(System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty, _vm.InGameOverlayEnabled);
+    }
+
+    /// <summary>
+    /// Shows a dialog over the panel with the panel blurred and dimmed behind it, easing in and
+    /// out, so the question has the eye's whole attention.
+    /// </summary>
+    private void ShowDialogFocused(Window dialog)
+    {
+        bool animate = SystemParameters.ClientAreaAnimation;
+        var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+        var blur = new System.Windows.Media.Effects.BlurEffect
+        {
+            Radius = animate ? 0 : 8,
+            RenderingBias = System.Windows.Media.Effects.RenderingBias.Performance,
+        };
+        ShellGrid.Effect = blur;
+        DialogScrim.Visibility = Visibility.Visible;
+        if (animate)
+        {
+            blur.BeginAnimation(System.Windows.Media.Effects.BlurEffect.RadiusProperty,
+                new DoubleAnimation(0, 8, TimeSpan.FromMilliseconds(220)) { EasingFunction = ease });
+            DialogScrim.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(220)) { EasingFunction = ease });
+        }
+        else DialogScrim.Opacity = 1;
+
+        try { dialog.ShowDialog(); }
+        finally
+        {
+            void Clear() { ShellGrid.Effect = null; DialogScrim.Visibility = Visibility.Collapsed; DialogScrim.BeginAnimation(OpacityProperty, null); DialogScrim.Opacity = 0; }
+            if (animate)
+            {
+                var back = new DoubleAnimation(0, TimeSpan.FromMilliseconds(160)) { EasingFunction = ease };
+                back.Completed += (_, _) => Clear();
+                blur.BeginAnimation(System.Windows.Media.Effects.BlurEffect.RadiusProperty, back);
+                DialogScrim.BeginAnimation(OpacityProperty, new DoubleAnimation(0, TimeSpan.FromMilliseconds(160)) { EasingFunction = ease });
+            }
+            else Clear();
+        }
     }
 
     private void InGameExcludeGame_Click(object sender, RoutedEventArgs e) => _vm?.ToggleInGameGameExcluded();
@@ -1116,7 +1154,7 @@ public partial class MainWindow : Window
         }
 
         var dialog = new WhatsNewWindow(_vm.PendingUpdate) { Owner = this };
-        dialog.ShowDialog();
+        ShowDialogFocused(dialog);
 
         if (dialog.Accepted) await _vm.InstallUpdateAsync();
     }

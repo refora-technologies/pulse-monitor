@@ -41,6 +41,7 @@ class Program
         TextIsCutWhole();
         AntiCheatRules();
         NotGames();
+        LooksLikeAGame();
         WindowOverlayPlace();
         ReadingOrder();
         SettingsAreRepaired();
@@ -279,6 +280,30 @@ class Program
         Check("Windows' own name is not used as a game's",
               !((string)display.Invoke(null, new object[] { Path.Combine(Environment.SystemDirectory, "kernel32.dll"), "x" }))
                   .Contains("Microsoft", StringComparison.OrdinalIgnoreCase));
+    }
+
+    // A program must look like a game before the overlay goes in (owner, 4 Nov): something games
+    // have and other programs do not. Anything else is left alone, without being listed anywhere.
+    static void LooksLikeAGame()
+    {
+        var method = T("Pulse.Services.InGame.GameCheck").GetMethod("GameSignal", Any)!;
+        string Signal(string process, string path, bool covers, params string[] modules) =>
+            (string)method.Invoke(null, new object[] { process, path, new HashSet<string>(modules, StringComparer.OrdinalIgnoreCase), covers });
+
+        var tool = Path.Combine(Path.GetTempPath(), "SomeTool", "tool.exe");
+        Check("a plain DirectX program is not a game", Signal("tool", tool, false, "dxgi.dll", "d3d11.dll", "kernel32.dll") == null);
+        Check("a Steam game, by Steam's library", Signal("x", tool, false, "dxgi.dll", "steam_api64.dll") != null);
+        Check("a game Steam's overlay went into", Signal("x", tool, false, "GameOverlayRenderer64.dll") != null);
+        Check("an Epic game", Signal("x", tool, false, "EOSSDK-Win64-Shipping.dll") != null);
+        Check("a Unity game", Signal("x", tool, false, "UnityPlayer.dll") != null);
+        Check("an Unreal game, by its executable's name", Signal("Rouge-Win64-Shipping", tool, false) != null);
+        Check("a game in a Steam library", Signal("x", Path.Combine(Path.GetTempPath(), "SteamLibrary", "steamapps", "common", "G", "g.exe"), false) != null);
+        Check("a game in a Games folder", Signal("x", Path.Combine(Path.GetTempPath(), "Games", "G", "g.exe"), false) != null);
+        Check("a program that fills the screen without a title bar", Signal("x", tool, true) != null);
+        Check("library names compared without case", Signal("x", tool, false, "UNITYPLAYER.DLL") != null);
+
+        var covers = T("Pulse.Services.InGame.GameCheck").GetMethod("CoversItsScreen", Any)!;
+        Check("no window, nothing filled", (bool)covers.Invoke(null, new object[] { IntPtr.Zero })! == false);
     }
 
     static void NotGames()

@@ -18,16 +18,24 @@ internal enum Verdict
     ThirtyTwoBit,    // only 64-bit programs in this release
     NoDirectX,       // does not use DirectX 11 or 12 (yet)
     NotOpenable,     // protected, or gone
+    Unrecognised,    // draws with DirectX but shows nothing that says "game"; the player can say it is one
 }
 
 internal readonly record struct GameInfo(int Pid, string Name, string Path, Verdict Verdict, string Detail);
 
 /// <summary>
 /// The rules for which programs the in-game overlay goes into (_the design's section 2_):
-/// only the program in front, only once it draws with DirectX 11 or 12, only 64-bit, never one on
-/// the not-a-game list, never one with anti-cheat, never one the player turned it off for, never
-/// one Windows will not let Pulse look at.
+/// only the program in front, only once it draws with DirectX 11 or 12, only 64-bit, never one
+/// with anti-cheat, never one the player turned it off for, never one Windows will not let Pulse
+/// look at, and only one that looks like a game.
 /// </summary>
+/// <remarks>
+/// "Looks like a game" is decided from what games have and other programs do not (GameSignal):
+/// a store's game library loaded, a game engine, a game library folder, or the whole screen
+/// without a title bar. Asking that, rather than keeping a list of every program that is not a
+/// game, means a new chat app or editor is left alone without anyone adding it anywhere (owner,
+/// 4 Nov). The not-a-game list stays as a backstop for programs known to look like games.
+/// </remarks>
 /// <remarks>
 /// Looking is all this does: the program's path, the names of the libraries it has loaded, and
 /// the files in its folder. Nothing here reads or changes the program's memory.
@@ -97,7 +105,12 @@ internal static class GameCheck
     /// <summary>
     /// The verdict for the program with this process id.
     /// </summary>
-    public static GameInfo Check(int pid, IReadOnlyCollection<string> excluded)
+    public static GameInfo Check(int pid, IReadOnlyCollection<string> excluded) =>
+        Check(pid, excluded, Array.Empty<string>(), IntPtr.Zero);
+
+    /// <param name="included">Games the player said are games, from "Show Pulse in this game".</param>
+    /// <param name="window">The program's window in front, to see whether it fills the screen.</param>
+    public static GameInfo Check(int pid, IReadOnlyCollection<string> excluded, IReadOnlyCollection<string> included, IntPtr window)
     {
         Process process;
         string name, path;
@@ -147,7 +160,14 @@ internal static class GameCheck
             if (!Is64Bit(process))
                 return new GameInfo(pid, name, path, Verdict.ThirtyTwoBit, "32-bit games are not supported yet");
 
-            return new GameInfo(pid, name, path, Verdict.Allowed, "");
+            // Last, so a game with anti-cheat is always called that, and never offered "show
+            // Pulse in this game".
+            bool chosen = included.Any(e => string.Equals(e, exe, StringComparison.OrdinalIgnoreCase));
+            var signal = chosen ? "the player said it is a game" : GameSignal(process.ProcessName, path, modules, CoversItsScreen(window));
+            if (signal == null)
+                return new GameInfo(pid, name, path, Verdict.Unrecognised, "it does not look like a game");
+
+            return new GameInfo(pid, name, path, Verdict.Allowed, signal);
         }
     }
 
@@ -177,6 +197,70 @@ internal static class GameCheck
 
     private static readonly string[] GenericNames =
         { "Bootstrap", "Unreal", "UnrealGame", "UE4", "UE5", "Unity", "Microsoft", "Windows", "Launcher", "Game.exe", "Shipping" };
+
+    /// <summary>
+    /// What says a program is a game, or null when nothing does.
+    /// </summary>
+    /// <remarks>
+    /// Each of these is something games have and other programs do not: a store's or a game
+    /// engine's library loaded, an Unreal game's executable name, a game library folder, or the
+    /// whole screen without a title bar. Windowed games almost always have one of the first four.
+    /// </remarks>
+    internal static string? GameSignal(string processName, string exePath, IReadOnlySet<string> modules, bool coversScreen)
+    {
+        foreach (var marker in GameLibraries)
+            if (modules.Contains(marker)) return $"it loads {marker}";
+
+        if (processName.EndsWith("-Shipping", StringComparison.OrdinalIgnoreCase))
+            return "an Unreal Engine game";
+
+        var dir = System.IO.Path.GetDirectoryName(exePath) ?? "";
+        foreach (var part in dir.Split(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar))
+            if (GameFolders.Contains(part)) return $"it is installed in a game library ({part})";
+
+        return coversScreen ? "it fills the screen" : null;
+    }
+
+    /// Libraries only games load: stores' game services and game engines.
+    internal static readonly string[] GameLibraries =
+    {
+        "steam_api64.dll", "GameOverlayRenderer64.dll",                 // Steam
+        "EOSSDK-Win64-Shipping.dll", "EOSOVH-Win64-Shipping.dll",       // Epic Online Services
+        "Galaxy64.dll",                                                 // GOG
+        "XCurl.dll", "PartyWin.dll", "libHttpClient.GDK.dll",           // Xbox and the Microsoft Game Development Kit
+        "UnityPlayer.dll", "GameAssembly.dll",                          // Unity
+        "nvngx_dlss.dll", "sl.interposer.dll", "amd_fidelityfx_dx12.dll", "libxess.dll",  // upscalers for games
+        "dstorage.dll", "bink2w64.dll", "fmod.dll", "fmodstudio.dll", "PhysX3_x64.dll", "PhysX_64.dll",
+    };
+
+    /// Folders games are installed in, by name, anywhere in the path.
+    internal static readonly HashSet<string> GameFolders = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "steamapps", "Epic Games", "GOG Games", "GOG Galaxy", "XboxGames", "Ubisoft Game Launcher",
+        "EA Games", "Origin Games", "Riot Games", "Battle.net", "Amazon Games", "Games",
+    };
+
+    /// Whether a window fills its screen with no title bar: full screen or borderless, as games are.
+    internal static bool CoversItsScreen(IntPtr window)
+    {
+        if (window == IntPtr.Zero || !GetWindowRect(window, out var r)) return false;
+        if ((GetWindowLongW(window, GWL_STYLE) & WS_CAPTION) == WS_CAPTION) return false;
+        var info = new MONITORINFO { cbSize = Marshal.SizeOf<MONITORINFO>() };
+        if (!GetMonitorInfoW(MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST), ref info)) return false;
+        var m = info.rcMonitor;
+        return r.Left <= m.Left && r.Top <= m.Top && r.Right >= m.Right && r.Bottom >= m.Bottom;
+    }
+
+    private const int GWL_STYLE = -16;
+    private const uint WS_CAPTION = 0x00C00000, MONITOR_DEFAULTTONEAREST = 2;
+
+    [StructLayout(LayoutKind.Sequential)] private struct RECT { public int Left, Top, Right, Bottom; }
+    [StructLayout(LayoutKind.Sequential)] private struct MONITORINFO { public int cbSize; public RECT rcMonitor, rcWork; public uint dwFlags; }
+
+    [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr window, out RECT rect);
+    [DllImport("user32.dll")] private static extern uint GetWindowLongW(IntPtr window, int index);
+    [DllImport("user32.dll")] private static extern IntPtr MonitorFromWindow(IntPtr window, uint flags);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern bool GetMonitorInfoW(IntPtr monitor, ref MONITORINFO info);
 
     /// <summary>
     /// The anti-cheat this game appears to use, or null. When unsure the answer is "yes": a game

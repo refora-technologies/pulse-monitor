@@ -26,6 +26,12 @@ public sealed class InGameOverlayService : IDisposable
     /// <summary>The executable of the game in front, when there is one: for "turn off for this game".</summary>
     public string? CurrentGame { get; private set; }
 
+    /// <summary>
+    /// The program in front draws like a game but nothing says it is one, so the panel offers
+    /// "show Pulse in this game" instead of "turn off".
+    /// </summary>
+    public bool CurrentGameUnrecognised { get; private set; }
+
     public event EventHandler? StatusChanged;
 
     private readonly InGameBlockWriter _writer = new();
@@ -33,6 +39,15 @@ public sealed class InGameOverlayService : IDisposable
     private readonly HashSet<int> _loaded = new();
     private readonly HashSet<int> _loadFailed = new();
     private readonly Dictionary<int, DateTime> _firstSeen = new();
+    private readonly Dictionary<int, DateTime> _readySince = new();
+    private DateTime _nextWatch;
+
+    /// How long a game draws before the overlay goes in: some anti-cheat starts a few seconds after
+    /// the game's graphics do, and has to be seen before Pulse is inside, not after.
+    private static readonly TimeSpan SettleTime = TimeSpan.FromSeconds(10);
+
+    /// How often the games the overlay is in are looked at again for anti-cheat that started late.
+    private static readonly TimeSpan WatchEvery = TimeSpan.FromSeconds(5);
     private readonly List<TileViewModel> _ownTiles = new();
     private string _ownTileKey = "";
     private System.Threading.Timer? _timer;
@@ -79,6 +94,8 @@ public sealed class InGameOverlayService : IDisposable
             return;
         }
 
+        WatchLoadedGames();
+
         // The tiles and the player's show/hide choice live on the UI thread; a quick look.
         (InGameFrame Frame, bool Visible)? snapshot = null;
         // Hidden content (Suppress) leaves the window shown, so this stays the player's own choice.
@@ -93,12 +110,29 @@ public sealed class InGameOverlayService : IDisposable
         {
             if (!_loaded.Contains(pid) && !_loadFailed.Contains(pid))
             {
-                var problem = Load(pid);
-                if (problem == null) _loaded.Add(pid);
-                else
+                // Not the moment it starts drawing: after it has drawn for a while, so anti-cheat
+                // that starts a few seconds behind the graphics is there to be seen.
+                if (!_readySince.TryGetValue(pid, out var since)) _readySince[pid] = since = DateTime.UtcNow;
+                if (DateTime.UtcNow - since >= SettleTime)
                 {
-                    _loadFailed.Add(pid);
-                    LogService.Warn(nameof(InGameOverlayService), $"Could not put the in-game overlay into {game.Name}: {problem}.");
+                    // Asked again from scratch just before going in: nothing remembered is trusted for this.
+                    var latest = GameCheck.Check(pid, settings.InGameExcludedGames, settings.InGameIncludedGames, GetForegroundWindow());
+                    if (latest.Verdict != Verdict.Allowed)
+                    {
+                        LogService.Info(nameof(InGameOverlayService), $"{latest.Name} ({pid}): {latest.Verdict} on the last look before adding the overlay, {latest.Detail}.");
+                        _checked[pid] = (latest, DateTime.UtcNow);
+                        found = latest;
+                    }
+                    else
+                    {
+                        var problem = Load(pid);
+                        if (problem == null) _loaded.Add(pid);
+                        else
+                        {
+                            _loadFailed.Add(pid);
+                            LogService.Warn(nameof(InGameOverlayService), $"Could not put the in-game overlay into {game.Name}: {problem}.");
+                        }
+                    }
                 }
             }
             if (_loaded.Contains(pid))
@@ -126,7 +160,8 @@ public sealed class InGameOverlayService : IDisposable
             _lastGame = info;
             if (info.Verdict == Verdict.Allowed)
             {
-                SetStatus($"Not in {info.Name}: Pulse could not add it to this game", null);
+                SetStatus(_loadFailed.Contains(pid) ? $"Not in {info.Name}: Pulse could not add it to this game"
+                                                    : $"Getting ready in {info.Name}", null);
                 return;
             }
             // A game loads DirectX a while after it starts: not yet is not "does not". The per-game
@@ -135,7 +170,8 @@ public sealed class InGameOverlayService : IDisposable
             bool starting = info.Verdict == Verdict.NoDirectX && _firstSeen.TryGetValue(pid, out var seen)
                             && DateTime.UtcNow - seen < TimeSpan.FromMinutes(1);
             SetStatus(starting ? $"Waiting for {info.Name} to start" : NotInText(info),
-                      info.Verdict == Verdict.Excluded ? ExeName(info) : null);
+                      info.Verdict is Verdict.Excluded or Verdict.Unrecognised ? ExeName(info) : null,
+                      info.Verdict == Verdict.Unrecognised);
             return;
         }
 
@@ -193,6 +229,7 @@ public sealed class InGameOverlayService : IDisposable
     {
         Verdict.Excluded => $"Turned off for {info.Name}",
         Verdict.AntiCheat => $"Not in {info.Name}: {info.Detail}, so the window overlay is shown",
+        Verdict.Unrecognised => $"Not in {info.Name}: it does not look like a game. If it is one, Pulse can show in it",
         _ => $"Not in {info.Name}: {info.Detail}",
     };
 
@@ -210,6 +247,40 @@ public sealed class InGameOverlayService : IDisposable
         return problem;
     }
 
+    /// <summary>
+    /// Looks again at the games the overlay is in, every few seconds, for anti-cheat that started
+    /// after it went in. One found means that game is treated as having anti-cheat from then on:
+    /// Pulse stops naming it, so the overlay inside draws nothing, and the window overlay shows.
+    /// Taking the overlay out of a running game is not safe, so it stays until the game closes.
+    /// </summary>
+    private void WatchLoadedGames()
+    {
+        var now = DateTime.UtcNow;
+        if (now < _nextWatch || _loaded.Count == 0) return;
+        _nextWatch = now + WatchEvery;
+
+        foreach (var pid in _loaded.ToList())
+        {
+            if (_checked.TryGetValue(pid, out var known) && known.Info.Verdict == Verdict.AntiCheat) continue;
+            string? found;
+            string name;
+            try
+            {
+                using var process = Process.GetProcessById(pid);
+                name = process.ProcessName;
+                found = GameCheck.FindAntiCheat(name, "", GameCheck.LoadedModuleNames(process));
+            }
+            catch (Exception ex) when (ex is ArgumentException or InvalidOperationException) { continue; }  // closed: forgotten elsewhere
+            if (found == null) continue;
+
+            var info = _checked.TryGetValue(pid, out var k) ? k.Info : new GameInfo(pid, name, "", Verdict.Allowed, "");
+            _checked[pid] = (info with { Verdict = Verdict.AntiCheat, Detail = $"{found}, which started after Pulse's overlay went in" }, now);
+            if (_shownGame?.Pid == pid) { _shownGame = null; _shownWindow = null; }
+            LogService.Warn(nameof(InGameOverlayService),
+                $"{info.Name} ({pid}): anti-cheat started after the in-game overlay went in ({found}). It draws nothing there from now on; the window overlay is shown.");
+        }
+    }
+
     /// The verdict for a game, remembered: a game's folder and anti-cheat do not change while it runs.
     /// "No DirectX yet" is asked again for a while, as a game loads its graphics after starting.
     private GameInfo CheckGame(int pid, AppSettings settings)
@@ -217,12 +288,15 @@ public sealed class InGameOverlayService : IDisposable
         var now = DateTime.UtcNow;
         if (_checked.TryGetValue(pid, out var known))
         {
-            bool recheck = known.Info.Verdict == Verdict.NoDirectX && now - known.CheckedAt > TimeSpan.FromSeconds(2)
+            // Asked again: a game still loading its graphics, one that may yet fill the screen or be
+            // named a game by the player, and one the player has just turned off or back on.
+            bool recheck = known.Info.Verdict is Verdict.NoDirectX or Verdict.Unrecognised && now - known.CheckedAt > TimeSpan.FromSeconds(2)
+                        || known.Info.Verdict == Verdict.Unrecognised && IsIncluded(known.Info, settings)
                         || known.Info.Verdict == Verdict.Excluded || known.Info.Verdict == Verdict.Allowed && IsExcluded(known.Info, settings);
             if (!recheck) return known.Info;
         }
 
-        var info = GameCheck.Check(pid, settings.InGameExcludedGames);
+        var info = GameCheck.Check(pid, settings.InGameExcludedGames, settings.InGameIncludedGames, GetForegroundWindow());
         if (!_checked.ContainsKey(pid) || _checked[pid].Info.Verdict != info.Verdict)
             LogService.Info(nameof(InGameOverlayService), $"{info.Name} ({pid}): {info.Verdict}{(info.Detail.Length > 0 ? ", " + info.Detail : "")}.");
         _checked[pid] = (info, now);
@@ -231,10 +305,13 @@ public sealed class InGameOverlayService : IDisposable
         // Forget games that have closed, so their process ids can be used again.
         foreach (var gone in _checked.Keys.Where(p => !IsRunning(p)).ToList())
         {
-            _checked.Remove(gone); _loaded.Remove(gone); _loadFailed.Remove(gone); _firstSeen.Remove(gone);
+            _checked.Remove(gone); _loaded.Remove(gone); _loadFailed.Remove(gone); _firstSeen.Remove(gone); _readySince.Remove(gone);
         }
         return info;
     }
+
+    private static bool IsIncluded(GameInfo info, AppSettings settings) =>
+        settings.InGameIncludedGames.Any(e => string.Equals(e, ExeName(info), StringComparison.OrdinalIgnoreCase));
 
     private static bool IsExcluded(GameInfo info, AppSettings settings) =>
         settings.InGameExcludedGames.Any(e => string.Equals(e, ExeName(info), StringComparison.OrdinalIgnoreCase));
@@ -323,11 +400,12 @@ public sealed class InGameOverlayService : IDisposable
         app.Dispatcher.BeginInvoke(() => app.SetOverlaySuppressed(suppress));
     }
 
-    private void SetStatus(string text, string? game)
+    private void SetStatus(string text, string? game, bool unrecognised = false)
     {
-        if (text == StatusText && game == CurrentGame) return;
+        if (text == StatusText && game == CurrentGame && unrecognised == CurrentGameUnrecognised) return;
         StatusText = text;
         CurrentGame = game;
+        CurrentGameUnrecognised = unrecognised;
         StatusChanged?.Invoke(this, EventArgs.Empty);
     }
 

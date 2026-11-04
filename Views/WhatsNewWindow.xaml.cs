@@ -23,6 +23,7 @@ public partial class WhatsNewWindow : Window
     public WhatsNewWindow(UpdateInfo info)
     {
         InitializeComponent();
+        DialogMotion.Attach(this);
 
         VersionText.Text = info.DisplayVersion;
 

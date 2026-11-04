@@ -15,6 +15,7 @@ public partial class InGameNoteWindow : Window
     public InGameNoteWindow()
     {
         InitializeComponent();
+        DialogMotion.Attach(this);
 
         // No title bar, so dragging anywhere moves it, as the update dialog does.
         MouseLeftButtonDown += (_, e) =>
