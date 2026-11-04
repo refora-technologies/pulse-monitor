@@ -237,6 +237,25 @@ class Program
             Check("ordinary libraries are not mistaken for anti-cheat",
                   FindAntiCheat("CleanGame-Win64-Shipping", clean, "d3d11.dll", "dxgi.dll", "xinput1_4.dll", "steam_api64.dll",
                                 "nvapi64.dll", "amd_ags_x64.dll", "GFSDK_Aftermath_Lib.x64.dll", "bink2w64.dll", "fmod.dll") == null);
+            // A game installed straight into Program Files, on a PC with Valorant: Riot Vanguard
+            // sits beside it there, and belongs to no other game. Found 4 Nov, marking WinRAR.
+            var programFiles = Path.Combine(root, "Program Files");
+            Directory.CreateDirectory(Path.Combine(programFiles, "Riot Vanguard"));
+            Directory.CreateDirectory(Path.Combine(programFiles, "SomeGame"));
+            File.WriteAllText(Path.Combine(programFiles, "SomeGame", "SomeGame.exe"), "");
+            Check("not into Program Files, where other programs' anti-cheat lives",
+                  FindAntiCheat("SomeGame", Path.Combine(programFiles, "SomeGame", "SomeGame.exe")) == null);
+            Directory.CreateDirectory(Path.Combine(programFiles, "OwnAc", "EasyAntiCheat"));
+            File.WriteAllText(Path.Combine(programFiles, "OwnAc", "OwnAc.exe"), "");
+            Check("but a game's own anti-cheat beside it is still found",
+                  FindAntiCheat("OwnAc", Path.Combine(programFiles, "OwnAc", "OwnAc.exe")) != null);
+            var downloads = Path.Combine(root, "Downloads");
+            Directory.CreateDirectory(downloads);
+            File.WriteAllText(Path.Combine(downloads, "BEService_x64.exe"), "");
+            File.WriteAllText(Path.Combine(downloads, "tool.exe"), "");
+            Check("a program's own folder is looked in even when shared, erring towards anti-cheat",
+                  FindAntiCheat("tool", Path.Combine(downloads, "tool.exe")) != null);
+
             // Deep enough that the walk up stays inside this test's own folder.
             Directory.CreateDirectory(Path.Combine(root, "a", "b", "c"));
             Check("a missing folder is not an error",
@@ -246,6 +265,14 @@ class Program
         {
             try { Directory.Delete(root, true); } catch (IOException) { } catch (UnauthorizedAccessException) { }
         }
+
+        var shared = T("Pulse.Services.InGame.GameCheck").GetMethod("IsSharedFolder", Any)!;
+        bool Shared(string d) => (bool)shared.Invoke(null, new object[] { d })!;
+        Check("shared: a drive root", Shared(@"C:\") && Shared(@"D:\"));
+        Check("shared: Program Files", Shared(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles)));
+        var library = Path.Combine(Path.GetTempPath(), "SteamLibrary", "steamapps", "common");
+        Check("shared: Steam's library", Shared(library));
+        Check("not shared: a game's own folder", !Shared(Path.Combine(library, "Some Game")));
 
         var display = T("Pulse.Services.InGame.GameCheck").GetMethod("DisplayName", Any)!;
         Check("a game's name falls back to the process name", (string)display.Invoke(null, new object[] { "", "SomeGame" }) == "SomeGame");

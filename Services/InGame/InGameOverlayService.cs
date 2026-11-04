@@ -40,6 +40,7 @@ public sealed class InGameOverlayService : IDisposable
     private GameInfo? _lastGame;
     private (int Pid, IntPtr Handle)? _shownWindow;
     private int _ticking;
+    private volatile bool _disposed;
 
     private InGameOverlayService()
     {
@@ -54,6 +55,7 @@ public sealed class InGameOverlayService : IDisposable
 
     private void Tick()
     {
+        if (_disposed) return;
         if (Interlocked.Exchange(ref _ticking, 1) == 1) return;  // never two at once
         try { TickOnce(); }
         catch (Exception ex) { LogService.Error(nameof(InGameOverlayService), "The in-game overlay's update failed", ex); }
@@ -336,7 +338,10 @@ public sealed class InGameOverlayService : IDisposable
 
     public void Dispose()
     {
+        _disposed = true;
         _timer?.Dispose();
+        // An update already under way finishes first, so it cannot write after this.
+        for (int i = 0; i < 50 && Volatile.Read(ref _ticking) == 1; i++) Thread.Sleep(20);
         _writer.Dispose();
     }
 

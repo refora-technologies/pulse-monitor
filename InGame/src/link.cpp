@@ -40,8 +40,10 @@ bool ReadBlock(Block& out) {
         if (out.magic != kMagic || out.version != kVersion) return false;
         if (out.tileCount > (uint32_t)kMaxTiles) out.tileCount = kMaxTiles;
         if (now - out.writtenAtMs > 3000) {
-            // Pulse stopped writing: let the block go so it can close, and look again later.
-            if (now - out.writtenAtMs > 10000) { CloseBlock(); Log("Pulse's readings stopped"); }
+            // Pulse stopped writing: let the block go at once, so a Pulse started again can make
+            // its own (it will not use one that already exists), and look again once a second.
+            CloseBlock();
+            Log("Pulse's readings stopped");
             return false;
         }
         return true;
