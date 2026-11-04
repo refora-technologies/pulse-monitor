@@ -33,6 +33,7 @@
 
 - **Real-Time Telemetry:** Instant readouts for CPU/GPU Temperatures, Clock Speeds, Usage, Power Draw, VRAM/RAM utilization, FPS, Network throughput (upload/download), Disk Activity, and battery charge.
 - **FPS Monitoring:** Tracks the frame rate of whatever app or game currently has focus, powered by a bundled PresentMon capture — works with any GPU vendor. An optional **1% Low** tile reports the frame rate at the 99th percentile of recent frame times, measured over the last 2,000 frames or 30 seconds, whichever is shorter. That shows stutter an average frame rate hides.
+- **In-Game Overlay:** Turn it on and Pulse draws your readings inside the game itself, so they stay on screen in full-screen games too. Out of the box it is a slim line at the top centre of the screen, set flush with its edge; give it its own position, size, opacity and readings if you like. It only draws your readings, works in 64-bit DirectX 11 and 12 games, and never goes into games with anti-cheat, where your normal overlay stays instead. Off until you turn it on.
 - **Keyboard Shortcuts:** Show or hide the overlay, open the control panel, or switch compact mode from anywhere, including inside a game. Off until you turn them on, and Pulse refuses combinations that other software needs.
 - **GPU Selection:** On laptops and multi-GPU systems, choose exactly which adapter the GPU tiles read from, or leave it on automatic.
 - **Dynamic Overlay:** A seamless glassmorphic HUD that sits unobtrusively on your screen, featuring a secondary "Compact Mode" designed specifically for distraction-free in-game monitoring. Right-click the overlay in free-drag mode for quick access to the control panel.
@@ -52,6 +53,7 @@
 - **Architecture:** MVVM, with sensors read in a separate helper process
 - **Hardware Integration:** LibreHardwareMonitor
 - **Frame Rate Capture:** PresentMon
+- **In-Game Overlay:** C++ with Dear ImGui, drawn through DirectX 11 and 12
 - **Data Serialization:** Newtonsoft.Json
 
 ## Installation
@@ -82,6 +84,7 @@ Once launched, right-click the Pulse icon in the Windows system tray and choose 
 - Show network speeds in megabytes per second or megabits per second.
 - Show the battery charge level on a laptop.
 - Set keyboard shortcuts for the overlay, the control panel and compact mode.
+- Turn on the **in-game overlay**, see which game it is showing in, turn it off for a single game, and give it its own position, look and readings.
 - Un-dock the overlay to manually drag it to any custom position on your desktop — right-click it in this mode for quick access to the control panel or to hide the overlay.
 - Save a diagnostics file from the **About** section if you need to report a problem.
 
