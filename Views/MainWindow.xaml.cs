@@ -58,6 +58,8 @@ public partial class MainWindow : Window
             HighlightActivePollingRate();
             HighlightActiveNetworkUnit();
             HighlightActivePosition();
+            HighlightInGameCorner();
+            HighlightInGameLayout();
             UpdateOverlayButton();
             PopulateMonitorButtons();
             PopulateGpuButtons();
@@ -94,6 +96,8 @@ public partial class MainWindow : Window
                     {
                         case nameof(_vm.OverlayPosition):     HighlightActivePosition(); break;
                         case nameof(_vm.SelectedMonitorIndex): HighlightActiveMonitor(); break;
+                        case nameof(_vm.InGameCorner):        HighlightInGameCorner(); break;
+                        case nameof(_vm.InGameIsBar):         HighlightInGameLayout(); break;
                     }
                 };
             }
@@ -109,6 +113,8 @@ public partial class MainWindow : Window
 
             PollRatePanel.SizeChanged += (_, _) => UpdateSegIndicator(false);
             NetUnitPanel.SizeChanged  += (_, _) => UpdateNetUnitIndicator(false);
+            // Hidden until its switch is on, so it has no width to measure before then.
+            InGameLayoutPanel.SizeChanged += (_, _) => UpdateInGameLayoutIndicator(false);
             Dispatcher.InvokeAsync(() => UpdateNetUnitIndicator(false),
                 System.Windows.Threading.DispatcherPriority.Loaded);
             Dispatcher.InvokeAsync(() => UpdateSegIndicator(false),
@@ -404,6 +410,96 @@ public partial class MainWindow : Window
         {
             if (child is WpfButton btn)
                 btn.Style = btn.Tag?.ToString() == _vm.OverlayPosition ? activeStyle : normalStyle;
+        }
+    }
+
+
+    // ── In-game overlay ──────────────────────────────────────────────────────────────
+
+    /// Turning it on asks first, and only "Turn on" turns it on. Turning it off just does.
+    private void InGameToggle_Click(object sender, RoutedEventArgs e)
+    {
+        if (_vm == null) return;
+
+        if (_vm.InGameOverlayEnabled)
+            _vm.InGameOverlayEnabled = false;
+        else
+        {
+            var note = new InGameNoteWindow { Owner = this };
+            note.ShowDialog();
+            if (note.Accepted) _vm.InGameOverlayEnabled = true;
+        }
+
+        // The click has already flipped the switch; it shows what was decided instead.
+        InGameToggle.SetCurrentValue(System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty, _vm.InGameOverlayEnabled);
+    }
+
+    private void InGameExcludeGame_Click(object sender, RoutedEventArgs e) => _vm?.ToggleInGameGameExcluded();
+
+    private void InGameClearExclusions_Click(object sender, RoutedEventArgs e) => _vm?.ClearInGameExclusions();
+
+    private void ResetInGameLook_Click(object sender, RoutedEventArgs e)
+    {
+        _vm?.ResetInGameLook();
+        HighlightInGameLayout();
+    }
+
+    private void InGameCorner_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is WpfButton btn && _vm != null) _vm.SetInGameCorner(btn.Tag?.ToString() ?? "TopLeft");
+    }
+
+    private void HighlightInGameCorner()
+    {
+        if (_vm == null || InGamePositionPanel == null) return;
+        var activeStyle = (WpfStyle)FindResource("CornerBtnActive");
+        var normalStyle = (WpfStyle)FindResource("CornerBtn");
+        foreach (var child in InGamePositionPanel.Children)
+            if (child is WpfButton btn)
+                btn.Style = btn.Tag?.ToString() == _vm.InGameCorner ? activeStyle : normalStyle;
+    }
+
+    private void InGameLayout_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not WpfButton btn || _vm == null) return;
+        _vm.InGameIsBar = (btn.Tag as string) == "Bar";
+        HighlightInGameLayout();
+    }
+
+    private void HighlightInGameLayout()
+    {
+        if (_vm == null || InGameLayoutPanel == null) return;
+        var activeStyle = (WpfStyle)FindResource("SegBtnActive");
+        var normalStyle = (WpfStyle)FindResource("SegBtn");
+        foreach (var child in InGameLayoutPanel.Children)
+            if (child is WpfButton btn)
+                btn.Style = ((btn.Tag as string) == "Bar") == _vm.InGameIsBar ? activeStyle : normalStyle;
+        UpdateInGameLayoutIndicator(true);
+    }
+
+    private void UpdateInGameLayoutIndicator(bool animate)
+    {
+        if (_vm == null || InGameLayoutIndicator == null || InGameLayoutPanel == null) return;
+        if (InGameLayoutPanel.ActualWidth <= 0) return;
+
+        double segW = InGameLayoutPanel.ActualWidth / 2.0;
+        InGameLayoutIndicator.Width = segW;
+        double targetX = _vm.InGameIsBar ? segW : 0;
+
+        if (animate)
+        {
+            var anim = new DoubleAnimation
+            {
+                To = targetX,
+                Duration = TimeSpan.FromMilliseconds(200),
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+            };
+            InGameLayoutIndicatorTranslate.BeginAnimation(TranslateTransform.XProperty, anim);
+        }
+        else
+        {
+            InGameLayoutIndicatorTranslate.BeginAnimation(TranslateTransform.XProperty, null);
+            InGameLayoutIndicatorTranslate.X = targetX;
         }
     }
 

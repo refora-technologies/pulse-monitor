@@ -104,8 +104,8 @@ internal static class GameCheck
         try
         {
             process = Process.GetProcessById(pid);
-            name = process.ProcessName;
             path = process.MainModule?.FileName ?? "";
+            name = DisplayName(path, process.ProcessName);
         }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception)
         {
@@ -114,7 +114,7 @@ internal static class GameCheck
 
         using (process)
         {
-            if (pid == Environment.ProcessId || NotGames.Contains(name))
+            if (pid == Environment.ProcessId || NotGames.Contains(process.ProcessName))
                 return new GameInfo(pid, name, path, Verdict.NotAGame, "not a game");
 
             if (path.Contains(@"\WindowsApps\", StringComparison.OrdinalIgnoreCase))
@@ -127,7 +127,7 @@ internal static class GameCheck
             if (IsElectronApp(path))
                 return new GameInfo(pid, name, path, Verdict.NotAGame, "not a game");
 
-            var antiCheat = FindAntiCheat(name, path, LoadedModuleNames(process));
+            var antiCheat = FindAntiCheat(process.ProcessName, path, LoadedModuleNames(process));
             if (antiCheat != null)
                 return new GameInfo(pid, name, path, Verdict.AntiCheat, antiCheat);
 
@@ -144,12 +144,39 @@ internal static class GameCheck
     }
 
     /// <summary>
+    /// The game's name as its makers wrote it into the executable ("007 First Light" rather
+    /// than "007FirstLight"), for the status line. Engine and stub names say nothing about the
+    /// game, so those fall back to the process name.
+    /// </summary>
+    internal static string DisplayName(string path, string processName)
+    {
+        try
+        {
+            if (path.Length > 0)
+            {
+                var info = FileVersionInfo.GetVersionInfo(path);
+                foreach (var candidate in new[] { info.ProductName, info.FileDescription })
+                {
+                    var text = candidate?.Trim() ?? "";
+                    if (text.Length is >= 2 and <= 40 && !GenericNames.Any(g => text.Contains(g, StringComparison.OrdinalIgnoreCase)))
+                        return text;
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) { }  // unreadable version details: the process name is the fallback
+        return processName;
+    }
+
+    private static readonly string[] GenericNames =
+        { "Bootstrap", "Unreal", "UnrealGame", "UE4", "UE5", "Unity", "Microsoft", "Windows", "Launcher", "Game.exe", "Shipping" };
+
+    /// <summary>
     /// The anti-cheat this game appears to use, or null. When unsure the answer is "yes": a game
     /// wrongly kept on the window overlay costs nothing, an account cannot be given back.
     /// </summary>
     internal static string? FindAntiCheat(string processName, string exePath, IReadOnlySet<string> modules)
     {
-        if (AntiCheatGames.Contains(processName)) return $"{processName} uses anti-cheat";
+        if (AntiCheatGames.Contains(processName)) return "it uses anti-cheat";
 
         foreach (var module in modules)
             foreach (var mark in AntiCheatMarks)
@@ -182,7 +209,7 @@ internal static class GameCheck
                     if (entryName.Contains(mark, StringComparison.OrdinalIgnoreCase)) return entryName;
             }
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }  // a folder that cannot be listed has nothing to find in it
         return null;
     }
 
@@ -201,7 +228,7 @@ internal static class GameCheck
         {
             foreach (ProcessModule m in process.Modules) names.Add(m.ModuleName);
         }
-        catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception) { }
+        catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception) { }  // protected or gone: an empty list, and the checks after this decide
         return names;
     }
 
@@ -212,7 +239,7 @@ internal static class GameCheck
             if (IsWow64Process2(process.Handle, out ushort machine, out _))
                 return machine == 0;  // IMAGE_FILE_MACHINE_UNKNOWN: not running under WOW64
         }
-        catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception) { }
+        catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception) { }  // cannot be asked: treated as 32-bit, so it is left alone
         return false;
     }
 

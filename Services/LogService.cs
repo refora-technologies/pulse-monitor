@@ -45,6 +45,9 @@ public static class LogService
 
     public static string LogPath => Path.Combine(Directory, "pulse.log");
 
+    /// Written by the in-game overlay from inside games (InGame/src/log.cpp), one file for all of them.
+    public static string InGameLogPath => Path.Combine(Directory, "ingame.log");
+
     /// <summary>
     /// Records that a session is in progress and what it was last doing.
     ///
@@ -360,6 +363,22 @@ public static class LogService
                 // sequence is what says whether the crash came before or after the thing that
                 // caused it.
                 AppendRecent(report, current, currentError, "log (current)");
+
+                // Games write this one, so it is read outside the lock, and its paths are
+                // redacted here: nothing in Pulse wrote them.
+                string? inGame = null;
+                Exception? inGameError = null;
+                try
+                {
+                    if (File.Exists(InGameLogPath))
+                    {
+                        using var stream = new FileStream(InGameLogPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                        using var reader = new StreamReader(stream);
+                        inGame = Redact(reader.ReadToEnd());
+                    }
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { inGameError = ex; }
+                AppendRecent(report, inGame, inGameError, "in-game overlay log");
 
                 if (sessionState != null)
                 {

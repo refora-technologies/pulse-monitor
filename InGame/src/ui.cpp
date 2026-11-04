@@ -185,9 +185,12 @@ void BuildOverlay(float width, float height, float pixelsPerDip) {
     ImGui::NewFrame();
 
     // Nothing is drawn without Pulse's readings, or while the player has it turned off or hidden:
-    // a player should never see stale numbers or a message meant for us.
+    // a player should never see stale numbers or a message meant for us. Only in the game Pulse
+    // names, the one in front: a game in the background, or one the player turned it off for,
+    // leaves the window overlay to show instead, so there are never two.
     Block b;
-    bool draw = ReadBlock(b) && b.enabled && b.tileCount > 0;
+    bool draw = ReadBlock(b) && b.enabled && b.tileCount > 0 &&
+                (b.targetPid == 0 || b.targetPid == GetCurrentProcessId());
     ReportStatus(draw ? Drawing : Hidden);
     if (draw) {
         Style st;

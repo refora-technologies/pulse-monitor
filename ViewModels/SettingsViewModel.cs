@@ -318,6 +318,261 @@ public class SettingsViewModel : BaseViewModel
         }
     }
 
+    // ── In-game overlay ─────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// The in-game overlay: Pulse's readings drawn inside the game itself, so they show in
+    /// full-screen games too. Off until the player turns it on and has read the note.
+    /// </summary>
+    private bool _inGameOverlayEnabled;
+    public bool InGameOverlayEnabled
+    {
+        get => _inGameOverlayEnabled;
+        set
+        {
+            if (!Set(ref _inGameOverlayEnabled, value)) return;
+            SettingsService.Instance.Settings.InGameOverlayEnabled = value;
+            SettingsService.Instance.Save();
+        }
+    }
+
+    /// Off: the in-game overlay sits where the window overlay does and looks the same. On: the
+    /// controls below.
+    private bool _inGameOwnLook;
+    public bool InGameOwnLook
+    {
+        get => _inGameOwnLook;
+        set
+        {
+            if (!Set(ref _inGameOwnLook, value)) return;
+            SettingsService.Instance.Settings.InGameOwnLook = value;
+            SettingsService.Instance.Save();
+        }
+    }
+
+    /// The straight layout: every reading on one line, rather than one per line.
+    public bool InGameIsBar
+    {
+        get => SettingsService.Instance.Settings.InGameLayout == "Bar";
+        set
+        {
+            if (value == InGameIsBar) return;
+            SettingsService.Instance.Settings.InGameLayout = value ? "Bar" : "List";
+            OnPropertyChanged();
+            SettingsService.Instance.Save();
+        }
+    }
+
+    // Where it sits, as a share of the free space: 0 is left or top, 1 right or bottom. A share
+    // rather than pixels, since games run at every resolution and the same setting should land
+    // in the same place in all of them.
+    private double _inGameAnchorX, _inGameAnchorY;
+    public double InGameAnchorX
+    {
+        get => _inGameAnchorX;
+        set
+        {
+            if (!Set(ref _inGameAnchorX, Math.Clamp(value, 0, 1))) return;
+            SettingsService.Instance.Settings.InGameAnchorX = _inGameAnchorX;
+            OnPropertyChanged(nameof(InGameAnchorXPercent));
+            OnPropertyChanged(nameof(InGameCorner));
+            ScheduleSettingsSave();
+        }
+    }
+    public double InGameAnchorY
+    {
+        get => _inGameAnchorY;
+        set
+        {
+            if (!Set(ref _inGameAnchorY, Math.Clamp(value, 0, 1))) return;
+            SettingsService.Instance.Settings.InGameAnchorY = _inGameAnchorY;
+            OnPropertyChanged(nameof(InGameAnchorYPercent));
+            OnPropertyChanged(nameof(InGameCorner));
+            ScheduleSettingsSave();
+        }
+    }
+    public int InGameAnchorXPercent => (int)Math.Round(_inGameAnchorX * 100);
+    public int InGameAnchorYPercent => (int)Math.Round(_inGameAnchorY * 100);
+
+    /// The corner it is in, for the corner buttons, or "" when it sits somewhere between.
+    public string InGameCorner => (_inGameAnchorX, _inGameAnchorY) switch
+    {
+        (0, 0) => "TopLeft",
+        (1, 0) => "TopRight",
+        (0, 1) => "BottomLeft",
+        (1, 1) => "BottomRight",
+        _ => "",
+    };
+
+    public void SetInGameCorner(string corner)
+    {
+        InGameAnchorX = corner is "TopRight" or "BottomRight" ? 1 : 0;
+        InGameAnchorY = corner is "BottomLeft" or "BottomRight" ? 1 : 0;
+    }
+
+    private double _inGameOpacity, _inGameBackgroundOpacity, _inGameScale;
+    public double InGameOpacity
+    {
+        get => _inGameOpacity;
+        set
+        {
+            if (!Set(ref _inGameOpacity, value)) return;
+            SettingsService.Instance.Settings.InGameOpacity = value;
+            OnPropertyChanged(nameof(InGameOpacityPercent));
+            ScheduleSettingsSave();
+        }
+    }
+    public double InGameBackgroundOpacity
+    {
+        get => _inGameBackgroundOpacity;
+        set
+        {
+            if (!Set(ref _inGameBackgroundOpacity, value)) return;
+            SettingsService.Instance.Settings.InGameBackgroundOpacity = value;
+            OnPropertyChanged(nameof(InGameBackgroundPercent));
+            ScheduleSettingsSave();
+        }
+    }
+    /// Its size. Set here rather than by dragging a corner, as the window overlay is: inside a
+    /// game the overlay never takes the mouse.
+    public double InGameScale
+    {
+        get => _inGameScale;
+        set
+        {
+            if (!Set(ref _inGameScale, value)) return;
+            SettingsService.Instance.Settings.InGameScale = value;
+            OnPropertyChanged(nameof(InGameScalePercent));
+            ScheduleSettingsSave();
+        }
+    }
+    public int InGameOpacityPercent    => (int)Math.Round(_inGameOpacity * 100);
+    public int InGameBackgroundPercent => (int)Math.Round(_inGameBackgroundOpacity * 100);
+    public int InGameScalePercent      => (int)Math.Round(_inGameScale * 100);
+
+    /// Back to how it looks out of the box: top left, slightly see-through, normal size, a list.
+    public void ResetInGameLook()
+    {
+        var defaults = new Models.AppSettings();
+        InGameAnchorX           = defaults.InGameAnchorX;
+        InGameAnchorY           = defaults.InGameAnchorY;
+        InGameOpacity           = defaults.InGameOpacity;
+        InGameBackgroundOpacity = defaults.InGameBackgroundOpacity;
+        InGameScale             = defaults.InGameScale;
+        InGameIsBar             = defaults.InGameLayout == "Bar";
+    }
+
+    /// Off: the same readings as the window overlay. On: the list below, so a gaming set
+    /// (frame rate, 1% low, GPU temperature) need not be the desktop set.
+    private bool _inGameOwnTiles;
+    public bool InGameOwnTiles
+    {
+        get => _inGameOwnTiles;
+        set
+        {
+            if (!Set(ref _inGameOwnTiles, value)) return;
+            SettingsService.Instance.Settings.InGameOwnTiles = value;
+            SettingsService.Instance.Save();
+        }
+    }
+
+    /// The readings to choose from for games, in the window overlay's order.
+    public ObservableCollection<TileSelectionItem> InGameTiles { get; } = new();
+    public int InGameSelectedCount => InGameTiles.Count(t => t.IsSelected && t.IsAvailable);
+
+    private void BuildInGameTiles()
+    {
+        var chosen = SettingsService.Instance.Settings.InGameTileIds.ToHashSet(StringComparer.Ordinal);
+        InGameTiles.Clear();
+        foreach (var tile in AllTiles)
+        {
+            var item = new TileSelectionItem(tile.Definition, chosen.Contains(tile.Definition.Id));
+            item.PropertyChanged += (_, e) =>
+            {
+                if (e.PropertyName != nameof(TileSelectionItem.IsSelected)) return;
+                SaveInGameTiles();
+            };
+            InGameTiles.Add(item);
+        }
+    }
+
+    private void SaveInGameTiles()
+    {
+        var settings = SettingsService.Instance.Settings;
+        var known = InGameTiles.Select(t => t.Definition.Id).ToHashSet(StringComparer.Ordinal);
+        // Ids this build does not know are kept, as for the window overlay's list.
+        settings.InGameTileIds = InGameTiles.Where(t => t.IsSelected).Select(t => t.Definition.Id)
+                                            .Concat(settings.InGameTileIds.Where(id => !known.Contains(id)))
+                                            .ToList();
+        OnPropertyChanged(nameof(InGameSelectedCount));
+        SettingsService.Instance.Save();
+    }
+
+    // What the in-game overlay is doing now, from the service, for the line under the toggle.
+    public string InGameStatusText => Services.InGame.InGameOverlayService.Instance.StatusText;
+    public string? InGameGame => Services.InGame.InGameOverlayService.Instance.CurrentGame;
+    public bool HasInGameGame => !string.IsNullOrEmpty(InGameGame);
+
+    /// The status line's colour: green while it shows in a game, amber when a game was passed
+    /// over, and the usual grey while it waits.
+    public string InGameStatusTone
+    {
+        get
+        {
+            var text = InGameStatusText;
+            if (text.StartsWith("Showing", StringComparison.Ordinal)) return "Good";
+            if (text.StartsWith("Not in", StringComparison.Ordinal) || text.StartsWith("Stopped", StringComparison.Ordinal)
+                || text.StartsWith("Turned off", StringComparison.Ordinal)) return "Warn";
+            return "Idle";
+        }
+    }
+
+    public bool IsInGameGameExcluded =>
+        InGameGame is { } exe && SettingsService.Instance.Settings.InGameExcludedGames
+            .Any(e => string.Equals(e, exe, StringComparison.OrdinalIgnoreCase));
+
+    public string InGameExcludeText => IsInGameGameExcluded ? "Turn back on for this game" : "Turn off for this game";
+
+    /// For a game that misbehaves with any overlay: off for that game only, remembered.
+    public void ToggleInGameGameExcluded()
+    {
+        if (InGameGame is not { } exe) return;
+        var list = SettingsService.Instance.Settings.InGameExcludedGames;
+        if (IsInGameGameExcluded) list.RemoveAll(e => string.Equals(e, exe, StringComparison.OrdinalIgnoreCase));
+        else list.Add(exe);
+        SettingsService.Instance.Save();
+        RaiseInGameExclusions();
+    }
+
+    /// Games it is turned off for, so they can be turned back on without starting each one.
+    public string InGameExcludedSummary =>
+        string.Join(", ", SettingsService.Instance.Settings.InGameExcludedGames.Select(e => System.IO.Path.GetFileNameWithoutExtension(e)));
+    public bool HasInGameExclusions => SettingsService.Instance.Settings.InGameExcludedGames.Count > 0;
+
+    public void ClearInGameExclusions()
+    {
+        SettingsService.Instance.Settings.InGameExcludedGames.Clear();
+        SettingsService.Instance.Save();
+        RaiseInGameExclusions();
+    }
+
+    private void RaiseInGameExclusions()
+    {
+        OnPropertyChanged(nameof(IsInGameGameExcluded));
+        OnPropertyChanged(nameof(InGameExcludeText));
+        OnPropertyChanged(nameof(InGameExcludedSummary));
+        OnPropertyChanged(nameof(HasInGameExclusions));
+    }
+
+    private void RaiseInGameStatus()
+    {
+        OnPropertyChanged(nameof(InGameStatusText));
+        OnPropertyChanged(nameof(InGameStatusTone));
+        OnPropertyChanged(nameof(InGameGame));
+        OnPropertyChanged(nameof(HasInGameGame));
+        RaiseInGameExclusions();
+    }
+
     // ── Keyboard shortcuts ──────────────────────────────────────────────────────────
 
     public ObservableCollection<ShortcutRowViewModel> ShortcutRows { get; } = new();
@@ -930,7 +1185,7 @@ public class SettingsViewModel : BaseViewModel
             // The chooser chips print the unit too, and they are not rebuilt when a setting
             // changes, so they are told. The overlay picks it up on its next reading, which
             // is at most one poll away.
-            foreach (var tile in AllTiles) tile.RefreshUnit();
+            foreach (var tile in AllTiles.Concat(InGameTiles)) tile.RefreshUnit();
         }
     }
 
@@ -1162,6 +1417,14 @@ public class SettingsViewModel : BaseViewModel
         _showMaxValues         = settings.ShowMaxValues;
         _networkUnitBits       = settings.NetworkUnitBits;
         _shortcutsEnabled      = settings.ShortcutsEnabled;
+        _inGameOverlayEnabled  = settings.InGameOverlayEnabled;
+        _inGameOwnLook         = settings.InGameOwnLook;
+        _inGameAnchorX         = settings.InGameAnchorX;
+        _inGameAnchorY         = settings.InGameAnchorY;
+        _inGameOpacity         = settings.InGameOpacity;
+        _inGameBackgroundOpacity = settings.InGameBackgroundOpacity;
+        _inGameScale           = settings.InGameScale;
+        _inGameOwnTiles        = settings.InGameOwnTiles;
 
         BuildShortcutRows();
 
@@ -1184,6 +1447,12 @@ public class SettingsViewModel : BaseViewModel
             };
             AllTiles.Add(item);
         }
+
+        BuildInGameTiles();
+
+        // Raised from the service's own thread; the panel's bindings want the UI thread.
+        Services.InGame.InGameOverlayService.Instance.StatusChanged += (_, _) =>
+            System.Windows.Application.Current?.Dispatcher.BeginInvoke(RaiseInGameStatus);
 
         // Only fires when saving starts failing or starts working again, so this costs
         // nothing during normal use.
@@ -1513,8 +1782,9 @@ public class SettingsViewModel : BaseViewModel
             HardwareService.Instance.RestartHost("the sensor driver is now available");
         _driverSeen = driver;
 
-        foreach (var tile in AllTiles)
+        foreach (var tile in AllTiles.Concat(InGameTiles))
             tile.Status = SensorDriver.Instance.StatusOf(tile.Definition.Id);
+        OnPropertyChanged(nameof(InGameSelectedCount));
 
         OnPropertyChanged(nameof(PausedCount));
         RaiseExplanation();

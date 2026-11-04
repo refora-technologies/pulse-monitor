@@ -50,14 +50,16 @@ struct Block {
     float anchorX, anchorY;      // where the panel sits: 0 left/top, 1 right/bottom, between = between
     float panelOpacity;          // the background's opacity (readings stay solid)
     float overlayOpacity;        // the whole overlay's opacity
-    uint32_t reserved[6];
+    uint32_t targetPid;          // the one game that may draw: the game in front. 0: any (test tools only)
+    uint32_t reserved[5];
     Tile tiles[kMaxTiles];
 };
 
 // The layout Pulse writes byte for byte (Services/InGame/InGameBlockWriter.cs). Checked here so a
 // change on either side cannot pass unnoticed.
 static_assert(sizeof(Tile) == 84, "Tile layout changed: update Pulse's writer");
-static_assert(offsetof(Block, enabled) == 24 && offsetof(Block, scale) == 28 && offsetof(Block, tiles) == 72,
+static_assert(offsetof(Block, enabled) == 24 && offsetof(Block, scale) == 28 && offsetof(Block, targetPid) == 48 &&
+              offsetof(Block, tiles) == 72,
               "Block layout changed: update Pulse's writer");
 static_assert(sizeof(Block) == 2088, "Block layout changed: update Pulse's writer");
 

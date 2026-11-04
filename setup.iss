@@ -119,6 +119,9 @@ Source: "Resources\Fonts\OFL.txt"; DestDir: "{app}"; Flags: ignoreversion
 ; deleteafterinstall copy in {tmp} is long gone by then.
 Source: "PawnIO_setup.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "Resources\PresentMon\PresentMon-2.5.1-x64.exe"; DestDir: "{app}\Resources\PresentMon"; Flags: ignoreversion
+; The in-game overlay, with the two weights of the font it draws with and their licence. Only ever
+; loaded into a game when the player turns the in-game overlay on.
+Source: "publish\ingame\*"; DestDir: "{app}\ingame"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\Pulse"; Filename: "{app}\Pulse.exe"; IconFilename: "{app}\Pulse.exe"
@@ -142,6 +145,9 @@ Filename: "{app}\Pulse.exe"; Description: "Launch Pulse"; Flags: nowait postinst
 Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /TN ""PulseMonitor"" /F"; Flags: runhidden; RunOnceId: "DelPulseTask"; Check: TaskTargetsThisInstall
 
 [UninstallDelete]
+; Includes copies set aside by an update while a game still had them loaded; see MoveAsideInGame.
+Type: filesandordirs; Name: "{app}\ingame"
+
 ; Pulse is a single-file app, so .NET unpacks its native libraries here, into a differently
 ; named folder for every build. Left behind they accumulate and look like stray installs.
 Type: filesandordirs; Name: "{localappdata}\Temp\.net\Pulse"
@@ -275,11 +281,42 @@ begin
   CloseOrphanedCapture();
 end;
 
+{ A game that is still running keeps the in-game overlay loaded until it closes, and Windows
+  will not let a loaded library be overwritten, so an update would stop on it. It does allow one
+  to be renamed: the running game keeps the old copy, set aside under another name, and every
+  game started after the update loads the new one. Copies set aside earlier are removed once
+  nothing has them loaded any more; one still in use just stays until next time. }
+procedure MoveAsideInGame();
+var
+  Dir, Dll: String;
+  Found: TFindRec;
+begin
+  Dir := ExpandConstant('{app}\ingame');
+  if not DirExists(Dir) then
+    exit;
+
+  if FindFirst(Dir + '\pulse_ingame.*.old', Found) then
+  begin
+    try
+      repeat
+        DeleteFile(Dir + '\' + Found.Name);
+      until not FindNext(Found);
+    finally
+      FindClose(Found);
+    end;
+  end;
+
+  Dll := Dir + '\pulse_ingame.dll';
+  if FileExists(Dll) and not DeleteFile(Dll) then
+    RenameFile(Dll, Dir + '\pulse_ingame.' + GetDateTimeString('yyyymmddhhnnss', #0, #0) + '.old');
+end;
+
 { Runs after the wizard and Restart Manager have done their work but before any file is
   written, which is the only point where clearing the orphan actually helps. }
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
   CloseOrphanedCapture();
+  MoveAsideInGame();
   Result := '';
 end;
 

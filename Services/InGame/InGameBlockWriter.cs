@@ -11,9 +11,11 @@ internal readonly record struct InGameTile(string Id, string Label, string Value
 /// <summary>
 /// Everything the in-game overlay draws in one frame: the readings, and how to lay them out.
 /// </summary>
+/// TargetPid is the one game allowed to draw, the game in front; any other game with the overlay
+/// loaded draws nothing.
 internal sealed record InGameFrame(
     bool Enabled, bool Bar, float Scale, float AnchorX, float AnchorY,
-    float PanelOpacity, float OverlayOpacity, IReadOnlyList<InGameTile> Tiles);
+    float PanelOpacity, float OverlayOpacity, IReadOnlyList<InGameTile> Tiles, uint TargetPid = 0);
 
 /// <summary>
 /// Writes Pulse's readings into the block the in-game overlay reads (InGame/src/pulse_ingame_shared.h).
@@ -46,7 +48,7 @@ internal sealed class InGameBlockWriter : IDisposable
     // Byte offsets, matching the C++ structs.
     public const int TileSize = 84, TileId = 0, TileLabel = 16, TileValue = 40, TileUnit = 64, TileState = 76, TileHasBar = 77, TileBar = 80;
     public const int OffMagic = 0, OffVersion = 4, OffSequence = 8, OffTileCount = 12, OffWrittenAt = 16, OffEnabled = 24, OffLayout = 25,
-                     OffScale = 28, OffAnchorX = 32, OffAnchorY = 36, OffPanel = 40, OffOverlay = 44, OffTiles = 72;
+                     OffScale = 28, OffAnchorX = 32, OffAnchorY = 36, OffPanel = 40, OffOverlay = 44, OffTarget = 48, OffTiles = 72;
     public const int BlockSize = OffTiles + MaxTiles * TileSize;  // 2088
 
     private IntPtr _mapping, _view;
@@ -141,6 +143,7 @@ internal sealed class InGameBlockWriter : IDisposable
         BitConverter.TryWriteBytes(b.AsSpan(OffAnchorY), frame.AnchorY);
         BitConverter.TryWriteBytes(b.AsSpan(OffPanel), frame.PanelOpacity);
         BitConverter.TryWriteBytes(b.AsSpan(OffOverlay), frame.OverlayOpacity);
+        BitConverter.TryWriteBytes(b.AsSpan(OffTarget), frame.TargetPid);
 
         for (int i = 0; i < count; i++)
         {

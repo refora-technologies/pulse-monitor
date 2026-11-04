@@ -44,6 +44,11 @@ Plus Jakarta Sans (embedded font)
   Source  : https://github.com/tokotype/PlusJakartaSans
   Copyright 2020 The Plus Jakarta Sans Project Authors
 
+Dear ImGui v1.93.0 (draws the in-game overlay)
+  License : MIT License
+  Source  : https://github.com/ocornut/imgui
+  Copyright (c) 2014-2026 Omar Cornut
+
 
 LibreHardwareMonitorLib ships several libraries of its own, and those travel
 inside Pulse.exe too:

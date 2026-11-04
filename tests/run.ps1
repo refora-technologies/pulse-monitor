@@ -89,6 +89,7 @@ $suites = @(
     @('shortcuts',         'shortcuts',         'ShortcutTest.exe',     $true),
     @('tile availability', 'tile-availability', 'AvailabilityTest.exe', $false),
     @('stability',         'stability',         'StabilityTest.exe',    $true),
+    @('in-game overlay',   'ingame',            'InGameTest.exe',       $true),
     @('release notes',     'release-notes',     'NotesTest.exe',        $true)
 )
 
