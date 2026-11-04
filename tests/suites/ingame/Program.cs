@@ -342,9 +342,17 @@ class Program
         var type = T("Pulse.Models.AppSettings");
         var s = Activator.CreateInstance(type)!;
         Check("off by default", (bool)type.GetProperty("InGameOverlayEnabled")!.GetValue(s)! == false);
-        Check("its own look off by default", (bool)type.GetProperty("InGameOwnLook")!.GetValue(s)! == false);
-        Check("its own readings off by default", (bool)type.GetProperty("InGameOwnTiles")!.GetValue(s)! == false);
-        Check("slightly see-through by default", (double)type.GetProperty("InGameOpacity")!.GetValue(s)! == 0.85);
+        // The owner's look (4 Nov 2026): one straight line at the top centre, flush with the edge.
+        Check("its own look on by default", (bool)type.GetProperty("InGameOwnLook")!.GetValue(s)! == true);
+        Check("a straight line by default", (string)type.GetProperty("InGameLayout")!.GetValue(s)! == "Bar");
+        Check("at the top centre by default",
+              (double)type.GetProperty("InGameAnchorX")!.GetValue(s)! == 0.5 && (double)type.GetProperty("InGameAnchorY")!.GetValue(s)! == 0);
+        Check("slightly see-through, solid background, normal size by default",
+              (double)type.GetProperty("InGameOpacity")!.GetValue(s)! == 0.85 && (double)type.GetProperty("InGameBackgroundOpacity")!.GetValue(s)! == 1.0 &&
+              (double)type.GetProperty("InGameScale")!.GetValue(s)! == 1.0);
+        Check("its own five gaming readings by default, frame rate first",
+              (bool)type.GetProperty("InGameOwnTiles")!.GetValue(s)! == true &&
+              string.Join(",", (List<string>)type.GetProperty("InGameTileOrder")!.GetValue(s)!) == "fps,fps_1low,gpu_temp,gpu_usage,cpu_temp");
 
         type.GetProperty("InGameLayout")!.SetValue(s, "Diagonal");
         type.GetProperty("InGameOpacity")!.SetValue(s, double.NaN);

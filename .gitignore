@@ -28,3 +28,7 @@ pulse-diagnostics-*.txt
 # overlay's build files.
 InGame/third_party/
 InGame/obj/
+
+# Python caches, made when a check is imported
+__pycache__/
+*.pyc

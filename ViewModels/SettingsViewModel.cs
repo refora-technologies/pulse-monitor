@@ -450,7 +450,8 @@ public class SettingsViewModel : BaseViewModel
     public int InGameBackgroundPercent => (int)Math.Round(_inGameBackgroundOpacity * 100);
     public int InGameScalePercent      => (int)Math.Round(_inGameScale * 100);
 
-    /// Back to how it looks out of the box: top left, slightly see-through, normal size, a list.
+    /// Back to how it looks out of the box: one straight line at the top centre, slightly
+    /// see-through, normal size.
     public void ResetInGameLook()
     {
         var defaults = new Models.AppSettings();

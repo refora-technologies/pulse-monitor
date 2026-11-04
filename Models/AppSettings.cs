@@ -158,17 +158,17 @@ public class AppSettings
     public bool InGameOverlayEnabled { get; set; } = false;
 
     /// Off: the in-game overlay follows the window overlay's position, size and opacity. On: it
-    /// uses the InGame* values below.
-    public bool InGameOwnLook { get; set; } = false;
+    /// uses the InGame* values below. On by default, with the owner's look (4 Nov 2026): one
+    /// straight line at the top centre of the screen, flush with its edge like a camera notch.
+    public bool InGameOwnLook { get; set; } = true;
 
     /// "List" (one reading per line, as the window overlay's compact mode) or "Bar" (all on one
     /// straight line).
-    public string InGameLayout { get; set; } = "List";
+    public string InGameLayout { get; set; } = "Bar";
 
     /// Where it sits on the game's screen, as a fraction of the free space: 0 left or top, 1 right
-    /// or bottom, the same idea as OverlayAnchorFx. Top left by default, where players look for a
-    /// frame rate.
-    public double InGameAnchorX { get; set; } = 0;
+    /// or bottom, the same idea as OverlayAnchorFx. Top centre by default.
+    public double InGameAnchorX { get; set; } = 0.5;
     public double InGameAnchorY { get; set; } = 0;
 
     /// The same three as the window overlay's, with the same defaults: slightly see-through, so
@@ -178,13 +178,16 @@ public class AppSettings
     public double InGameScale { get; set; } = 1.0;
 
     /// Off: the same readings as the window overlay. On: InGameTileIds, a list of its own, so a
-    /// gaming set does not have to be the desktop set.
-    public bool InGameOwnTiles { get; set; } = false;
+    /// gaming set does not have to be the desktop set. On by default with five gaming readings:
+    /// the default bar runs across the top of the screen, and the window overlay's list could be
+    /// too long for one line.
+    public bool InGameOwnTiles { get; set; } = true;
     public List<string> InGameTileIds { get; set; } = new() { "fps", "fps_1low", "gpu_temp", "gpu_usage", "cpu_temp" };
 
-    /// The order of every reading in that list, chosen or not, as the panel shows it. Empty
-    /// until the player rearranges it: the window overlay's order until then.
-    public List<string> InGameTileOrder { get; set; } = new();
+    /// The order of every reading in that list, chosen or not, as the panel shows it; any not
+    /// named follow in the window overlay's order. Frame rate first by default. Empty (after
+    /// "Reset order") means the window overlay's order.
+    public List<string> InGameTileOrder { get; set; } = new() { "fps", "fps_1low", "gpu_temp", "gpu_usage", "cpu_temp" };
 
     /// Games the player turned it off for, by executable name ("game.exe"), compared without case.
     public List<string> InGameExcludedGames { get; set; } = new();

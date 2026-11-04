@@ -682,9 +682,12 @@ Pulse bundles or uses the following open-source components. Full
 attribution details are in THIRD-PARTY-NOTICES.txt.
 
   LibreHardwareMonitorLib v0.9.6  — Mozilla Public License 2.0
-  PawnIO (kernel sensor driver)   — GNU Lesser General Public License v2.1
-  CommunityToolkit.Mvvm v8.3.2    — MIT License
-  Newtonsoft.Json v13.0.3         — MIT License
+  PawnIO (kernel sensor driver)   — GNU General Public License v2.0 or later,
+                                    with an exception for its device interface
+  Newtonsoft.Json v13.0.4         — MIT License
+  PresentMon v2.5.1               — MIT License
+  Dear ImGui v1.93.0              — MIT License
+  Plus Jakarta Sans (font)        — SIL Open Font License v1.1
 
 ======================================================================
 
