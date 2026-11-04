@@ -272,14 +272,27 @@ public sealed class InGameOverlayService : IDisposable
 
     /// The in-game list's tiles, kept up to date from the latest reading. The frame rate and 1% low
     /// are left as they are: the overlay measures those itself, from the game's own frames.
+    /// <summary>
+    /// The chosen readings for games, in the order the panel shows them: the player's own once
+    /// arranged, the window overlay's until then.
+    /// </summary>
+    internal static List<string> InGameOrder(AppSettings s)
+    {
+        var order = s.InGameTileOrder.Count > 0 ? s.InGameTileOrder : s.TileOrder;
+        return s.InGameTileIds.Select((id, i) => (id, i))
+                              .OrderBy(x => { int at = order.IndexOf(x.id); return at >= 0 ? at : order.Count + x.i; })
+                              .Select(x => x.id).ToList();
+    }
+
     private IEnumerable<TileViewModel> OwnTiles(AppSettings s)
     {
-        var key = string.Join(",", s.InGameTileIds);
+        var ids = InGameOrder(s);
+        var key = string.Join(",", ids);
         if (key != _ownTileKey)
         {
             _ownTileKey = key;
             _ownTiles.Clear();
-            foreach (var id in s.InGameTileIds)
+            foreach (var id in ids)
             {
                 var def = SensorTileDefinition.All.FirstOrDefault(d => d.Id == id);
                 if (def != null && SensorDriver.Instance.StatusOf(id) == TileStatus.Ready) _ownTiles.Add(new TileViewModel(def));
