@@ -32,10 +32,11 @@ internal sealed record InGameFrame(
 /// administrators may write it.
 /// </para>
 /// <para>
-/// If the block already exists when Pulse goes to create it, something else made it, since only
-/// one Pulse runs at a time. That block is not used: its security is whatever its maker chose, and
-/// writing into it, or letting the overlay read from it, could put someone else's numbers in front
-/// of a player.
+/// If the block already exists when Pulse goes to create it, it is not used: its security is
+/// whatever its maker chose, and writing into it, or letting the overlay read from it, could put
+/// someone else's numbers in front of a player. Usually it is only a game still holding the block
+/// of the Pulse that ran a moment ago, which it lets go of seconds after the readings stop, so
+/// creating it is tried again a little later rather than given up on.
 /// </para>
 /// </remarks>
 internal sealed class InGameBlockWriter : IDisposable
@@ -53,7 +54,12 @@ internal sealed class InGameBlockWriter : IDisposable
 
     private IntPtr _mapping, _view;
     private uint _sequence;
-    private bool _refused;
+    private long _retryAt;
+    private bool _toldRefused;
+    private bool _disposed;
+
+    /// How long to wait before trying again when the block already exists.
+    private const long RetryMs = 2000;
 
     /// <summary>
     /// Creates the block on first use. False when it cannot be, or when it existed already.
@@ -61,7 +67,7 @@ internal sealed class InGameBlockWriter : IDisposable
     public bool Open()
     {
         if (_view != IntPtr.Zero) return true;
-        if (_refused) return false;
+        if (_disposed || Environment.TickCount64 < _retryAt) return false;
 
         if (!ConvertStringSecurityDescriptorToSecurityDescriptorW("D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GR;;;IU)", 1, out var sd, IntPtr.Zero))
         {
@@ -82,10 +88,19 @@ internal sealed class InGameBlockWriter : IDisposable
             {
                 CloseHandle(_mapping);
                 _mapping = IntPtr.Zero;
-                _refused = true;
-                LogService.Warn(nameof(InGameBlockWriter),
-                    "The in-game block already existed, made by something other than this Pulse. Not used, so no game reads it.");
+                _retryAt = Environment.TickCount64 + RetryMs;
+                if (!_toldRefused)
+                {
+                    _toldRefused = true;
+                    LogService.Warn(nameof(InGameBlockWriter),
+                        "The in-game block already exists, not made by this Pulse (most likely a game still holding the last one). Not used; trying again shortly.");
+                }
                 return false;
+            }
+            if (_toldRefused)
+            {
+                _toldRefused = false;
+                LogService.Info(nameof(InGameBlockWriter), "The in-game block is this Pulse's own now.");
             }
             _view = MapViewOfFile(_mapping, FILE_MAP_WRITE, 0, 0, (UIntPtr)BlockSize);
             if (_view == IntPtr.Zero)
@@ -172,6 +187,7 @@ internal sealed class InGameBlockWriter : IDisposable
 
     public void Dispose()
     {
+        _disposed = true;   // never made again on the way out
         if (_view != IntPtr.Zero) { UnmapViewOfFile(_view); _view = IntPtr.Zero; }
         if (_mapping != IntPtr.Zero) { CloseHandle(_mapping); _mapping = IntPtr.Zero; }
     }

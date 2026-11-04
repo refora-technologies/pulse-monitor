@@ -127,17 +127,23 @@ internal static class GameCheck
             if (IsElectronApp(path))
                 return new GameInfo(pid, name, path, Verdict.NotAGame, "not a game");
 
-            var antiCheat = FindAntiCheat(process.ProcessName, path, LoadedModuleNames(process));
+            // A program that does not draw with DirectX 11 or 12 is not judged any further: an
+            // archiver or a chat app is not a game, and calling it one with anti-cheat (WinRAR
+            // was, 4 Nov) only confuses. One that draws with Vulkan is a game the overlay cannot
+            // go into yet, and is said so.
+            var modules = LoadedModuleNames(process);
+            bool dxgi = modules.Contains("dxgi.dll"), d3d = modules.Contains("d3d11.dll") || modules.Contains("d3d12.dll");
+            if (!dxgi || !d3d)
+                return modules.Contains("vulkan-1.dll")
+                    ? new GameInfo(pid, name, path, Verdict.NoDirectX, "Vulkan games are not supported yet")
+                    : new GameInfo(pid, name, path, Verdict.NoDirectX, "it does not use DirectX 11 or 12");
+
+            var antiCheat = FindAntiCheat(process.ProcessName, path, modules);
             if (antiCheat != null)
                 return new GameInfo(pid, name, path, Verdict.AntiCheat, antiCheat);
 
             if (!Is64Bit(process))
                 return new GameInfo(pid, name, path, Verdict.ThirtyTwoBit, "32-bit games are not supported yet");
-
-            var modules = LoadedModuleNames(process);
-            bool dxgi = modules.Contains("dxgi.dll"), d3d = modules.Contains("d3d11.dll") || modules.Contains("d3d12.dll");
-            if (!dxgi || !d3d)
-                return new GameInfo(pid, name, path, Verdict.NoDirectX, "it does not use DirectX 11 or 12");
 
             return new GameInfo(pid, name, path, Verdict.Allowed, "");
         }
@@ -184,19 +190,54 @@ internal static class GameCheck
                     return $"anti-cheat is loaded in it ({module})";
 
         // The game's folder, and up to three above it: engines put the executable in
-        // Binaries\Win64 while the anti-cheat sits at the game's root.
+        // Binaries\Win64 while the anti-cheat sits at the game's root. Never into a folder shared
+        // with other programs: Program Files holds Riot Vanguard on any PC with Valorant, and
+        // reaching it marked WinRAR, and would have marked any game installed there, as anti-cheat.
+        // The program's own folder is always looked in, wherever it is.
         var dir = System.IO.Path.GetDirectoryName(exePath);
-        for (int up = 0; up < 4 && !string.IsNullOrEmpty(dir); up++)
+        for (int up = 0; up < 4 && !string.IsNullOrEmpty(dir) && (up == 0 || !IsSharedFolder(dir)); up++)
         {
             var found = MarkIn(dir);
             if (found != null) return $"anti-cheat files are in its folder ({found})";
-            var parent = Directory.GetParent(dir);
-            // Not past a library root: Steam's "common" folder holds every other game too.
-            if (parent == null || parent.Name.Equals("common", StringComparison.OrdinalIgnoreCase)) break;
-            dir = parent.FullName;
+            dir = Directory.GetParent(dir)?.FullName;
         }
         return null;
     }
+
+    /// <summary>
+    /// Folders that hold many programs or games side by side, where a file belongs to no game in
+    /// particular: drive roots, Windows' program and user folders, and the stores' libraries.
+    /// </summary>
+    internal static bool IsSharedFolder(string dir)
+    {
+        var full = System.IO.Path.TrimEndingDirectorySeparator(System.IO.Path.GetFullPath(dir));
+        if (System.IO.Path.GetPathRoot(full)?.TrimEnd('\\', '/').Equals(full.TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase) == true)
+            return true;   // a drive root
+
+        foreach (var special in new[] { Environment.SpecialFolder.ProgramFiles, Environment.SpecialFolder.ProgramFilesX86,
+                                        Environment.SpecialFolder.Windows, Environment.SpecialFolder.UserProfile,
+                                        Environment.SpecialFolder.Desktop, Environment.SpecialFolder.MyDocuments,
+                                        Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolder.ApplicationData })
+        {
+            var path = Environment.GetFolderPath(special);
+            if (path.Length > 0 && string.Equals(System.IO.Path.TrimEndingDirectorySeparator(path), full, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        var name = System.IO.Path.GetFileName(full);
+        return SharedFolderNames.Contains(name);
+    }
+
+    /// Library and collection folders by name, wherever they are.
+    private static readonly HashSet<string> SharedFolderNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "common",            // Steam: steamapps\common
+        "steamapps", "SteamLibrary", "Steam",
+        "Epic Games", "GOG Games", "GOG Galaxy", "XboxGames", "WindowsApps",
+        "EA Games", "Origin Games", "Ubisoft Game Launcher", "games",   // Ubisoft keeps them in ...\games
+        "Riot Games", "Battle.net", "Amazon Games", "Program Files", "Program Files (x86)",
+        "Users", "Downloads", "Desktop", "Documents", "Games",
+    };
 
     private static string? MarkIn(string dir)
     {
