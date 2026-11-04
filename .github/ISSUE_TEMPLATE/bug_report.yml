@@ -32,6 +32,19 @@ body:
       required: true
 
   - type: dropdown
+    id: overlay
+    attributes:
+      label: Where do you see it?
+      options:
+        - The overlay on the desktop (the window overlay)
+        - The overlay inside a game (the in-game overlay)
+        - The control panel
+        - Installing or updating
+        - Somewhere else
+    validations:
+      required: true
+
+  - type: dropdown
     id: tiles
     attributes:
       label: Which tiles are affected?
@@ -63,7 +76,7 @@ body:
     attributes:
       label: Pulse version
       description: In the control panel, under About.
-      placeholder: "1.3.4"
+      placeholder: "1.3.5"
     validations:
       required: true
 

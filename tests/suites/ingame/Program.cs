@@ -45,6 +45,7 @@ class Program
         WindowOverlayPlace();
         ReadingOrder();
         SettingsAreRepaired();
+        LogsNameNoGame();
 
         Console.WriteLine($"\n{_pass} passed, {_fail} failed");
         return _fail == 0 ? 0 : 1;
@@ -107,6 +108,40 @@ class Program
         Check("the name and version agree",
               h.Contains("Local\\\\PulseIngame-v3") && (string)w.GetField("Name", Any)!.GetValue(null)! == @"Local\PulseIngame-v3" &&
               Regex.IsMatch(h, @"kVersion = 3;"));
+    }
+
+    static string RepoRoot()
+    {
+        foreach (var start in new[] { Directory.GetCurrentDirectory(), AppContext.BaseDirectory })
+            for (var dir = new DirectoryInfo(start); dir != null; dir = dir.Parent)
+                if (File.Exists(Path.Combine(dir.FullName, "InGame", "src", "pulse_ingame_shared.h"))) return dir.FullName;
+        return null;
+    }
+
+    // Pulse's privacy policy promises its logs "never record the name of an application, game,
+    // window or file". The in-game overlay first logged game names in both logs (4 Nov); they are
+    // by process number now, and this keeps them so.
+    static void LogsNameNoGame()
+    {
+        var root = RepoRoot();
+        Check("the repository is found", root != null);
+        if (root == null) return;
+        var named = new List<string>();
+        foreach (var file in Directory.GetFiles(Path.Combine(root, "Services", "InGame"), "*.cs"))
+        {
+            var lines = File.ReadAllLines(file);
+            for (int i = 0; i < lines.Length; i++)
+            {
+                if (!lines[i].Contains("LogService.")) continue;
+                // A call can run onto the next line.
+                var call = lines[i] + (i + 1 < lines.Length ? lines[i + 1] : "");
+                // A name, a path, or a reason (reasons name files: a library loaded, a file in the folder).
+                if (Regex.IsMatch(call, @"\{[^}]*\.(Name|Path|Detail)\b|\{[^}]*ExeName\(|\{found\}")) named.Add($"{Path.GetFileName(file)}:{i + 1}");
+            }
+        }
+        Check("Pulse's log names no game, and no file", named.Count == 0, string.Join(", ", named));
+        var log = File.ReadAllText(Path.Combine(root, "InGame", "src", "log.cpp"));
+        Check("the in-game log names no game", !log.Contains("GetModuleFileNameA(nullptr") && log.Contains("[pid %lu]"));
     }
 
     static object Tile(string id, string label, string value, string unit, byte state, bool bar, float fraction)

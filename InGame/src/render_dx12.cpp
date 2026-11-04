@@ -129,6 +129,7 @@ bool Dx12Init(IDXGISwapChain* chain, ID3D12Device* device) {
 }
 
 void Dx12Draw(IDXGISwapChain* chain) {
+    if (!ShouldDraw()) return;
     IDXGISwapChain3* chain3 = nullptr;
     if (FAILED(chain->QueryInterface(IID_PPV_ARGS(&chain3)))) return;
     UINT index = chain3->GetCurrentBackBufferIndex();

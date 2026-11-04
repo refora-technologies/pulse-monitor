@@ -29,6 +29,7 @@ bool Dx11Init(IDXGISwapChain*, ID3D11Device* device) {
 }
 
 void Dx11Draw(IDXGISwapChain* chain) {
+    if (!ShouldDraw()) return;
     ID3D11Texture2D* back = nullptr;
     if (FAILED(chain->GetBuffer(0, IID_PPV_ARGS(&back)))) return;
     ID3D11RenderTargetView* rtv = nullptr;

@@ -271,6 +271,18 @@ bool LoadFonts() {
     return all;
 }
 
+// Whether there is anything to draw this frame, asked before any of the drawing work: with the
+// overlay switched off, turned off for this game, another game's turn, or Pulse closed, a game
+// pays next to nothing for having it inside. No buffer is taken, no ImGui frame built, nothing is
+// sent to the graphics card. Measured 4 Nov in 007: 0.14 ms a frame went on drawing nothing.
+bool ShouldDraw() {
+    Block b;
+    bool draw = ReadBlock(b) && b.enabled && b.tileCount > 0 &&
+                (b.targetPid == 0 || b.targetPid == GetCurrentProcessId());
+    if (!draw) ReportStatus(Hidden);
+    return draw;
+}
+
 void BuildOverlay(float width, float height, float pixelsPerDip) {
     ImGuiIO& io = ImGui::GetIO();
     io.DisplaySize = ImVec2(width, height);
