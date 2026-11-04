@@ -182,6 +182,10 @@ public class AppSettings
     public bool InGameOwnTiles { get; set; } = false;
     public List<string> InGameTileIds { get; set; } = new() { "fps", "fps_1low", "gpu_temp", "gpu_usage", "cpu_temp" };
 
+    /// The order of every reading in that list, chosen or not, as the panel shows it. Empty
+    /// until the player rearranges it: the window overlay's order until then.
+    public List<string> InGameTileOrder { get; set; } = new();
+
     /// Games the player turned it off for, by executable name ("game.exe"), compared without case.
     public List<string> InGameExcludedGames { get; set; } = new();
 
@@ -367,6 +371,7 @@ public class AppSettings
         InGameBackgroundOpacity = Clamp(InGameBackgroundOpacity, 0.0, 1.0, 1.0);
         InGameScale             = Clamp(InGameScale, 0.5, 3.0, 1.0);
         InGameTileIds           = InGameTileIds?.Where(id => !string.IsNullOrWhiteSpace(id)).Distinct().ToList() ?? new List<string>();
+        InGameTileOrder         = InGameTileOrder?.Where(id => !string.IsNullOrWhiteSpace(id)).Distinct().ToList() ?? new List<string>();
         InGameExcludedGames     = InGameExcludedGames?.Where(n => !string.IsNullOrWhiteSpace(n))
                                                       .Distinct(StringComparer.OrdinalIgnoreCase).ToList() ?? new List<string>();
     }

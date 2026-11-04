@@ -729,6 +729,8 @@ public partial class MainWindow : Window
         if (_vm == null) return;
         if (e.KeyboardDevice.Modifiers != System.Windows.Input.ModifierKeys.Alt) return;
         if (sender is not WpfBorder border || border.Tag is not string tileId) return;
+        var list = ListOf(sender);
+        bool inGame = list == _vm.InGameTiles;
 
         const int columns = 2;
 
@@ -747,9 +749,10 @@ public partial class MainWindow : Window
 
         if (delta == 0) return;
 
-        int index = -1;
-        for (int i = 0; i < _vm.AllTiles.Count; i++)
-            if (_vm.AllTiles[i].Definition.Id == tileId) { index = i; break; }
+        // Counted over the tiles that are shown: the games list leaves out readings this PC
+        // cannot give, and a move past one of those would look like nothing happened.
+        var shown = list.Where(t => !inGame || t.IsAvailable).ToList();
+        int index = shown.FindIndex(t => t.Definition.Id == tileId);
 
         if (index < 0) return;
 
@@ -758,23 +761,47 @@ public partial class MainWindow : Window
         // Refused rather than clamped. MoveTile clamps into range, so Alt+Up on the second
         // tile asked for index -1, got 0, and slid the tile sideways instead of doing
         // nothing — a move in a direction the user did not press.
-        if (target < 0 || target >= _vm.AllTiles.Count)
+        if (target < 0 || target >= shown.Count)
         {
             e.Handled = true;   // still swallow it, so focus does not jump away instead
             return;
         }
 
-        _vm.MoveTile(tileId, target);
+        Move(list, tileId, list.IndexOf(shown[target]));
         e.Handled = true;
 
         // The panel rebuilds its items, so focus has to be put back on the tile that moved
-        // or the user loses their place after every keystroke.
-        Dispatcher.InvokeAsync(() => FocusTile(tileId), System.Windows.Threading.DispatcherPriority.Loaded);
+        // or the user loses their place after every keystroke. Within its own list: both
+        // lists hold the same readings.
+        var scope = ListControlOf(sender);
+        Dispatcher.InvokeAsync(() => FocusTile(tileId, scope), System.Windows.Threading.DispatcherPriority.Loaded);
     }
 
-    private void FocusTile(string tileId)
+    /// The list a tile in the panel belongs to: the window overlay's, or the games one.
+    private System.Collections.ObjectModel.ObservableCollection<TileSelectionItem> ListOf(object sender) =>
+        _vm != null && (sender as FrameworkElement)?.DataContext is TileSelectionItem item && _vm.InGameTiles.Contains(item)
+            ? _vm.InGameTiles : _vm!.AllTiles;
+
+    private void Move(System.Collections.ObjectModel.ObservableCollection<TileSelectionItem> list, string tileId, int index)
     {
-        foreach (var border in FindVisualChildren<WpfBorder>(this))
+        if (_vm == null) return;
+        if (list == _vm.InGameTiles) _vm.MoveInGameTile(tileId, index);
+        else _vm.MoveTile(tileId, index);
+    }
+
+    /// Each list has its own drag format, so a tile cannot be dropped into the other list.
+    private string DragFormatOf(object sender) => _vm != null && ListOf(sender) == _vm.InGameTiles ? InGameTileDragFormat : TileDragFormat;
+
+    private static DependencyObject ListControlOf(object sender)
+    {
+        var at = sender as DependencyObject;
+        while (at != null && at is not System.Windows.Controls.ItemsControl) at = VisualTreeHelper.GetParent(at);
+        return at ?? (DependencyObject)sender;
+    }
+
+    private void FocusTile(string tileId, DependencyObject scope)
+    {
+        foreach (var border in FindVisualChildren<WpfBorder>(scope))
         {
             if (border.Tag as string != tileId || !border.AllowDrop) continue;
 
@@ -799,6 +826,7 @@ public partial class MainWindow : Window
     }
 
     private const string TileDragFormat = "PulseTileId";
+    private const string InGameTileDragFormat = "PulseInGameTileId";
 
     private System.Windows.Point _tileDragStart;
     private string? _pendingDragTileId;
@@ -824,12 +852,12 @@ public partial class MainWindow : Window
         _pendingDragTileId = null;   // guard against re-entering while the drag runs
 
         DragDrop.DoDragDrop((DependencyObject)sender,
-            new WpfDataObject(TileDragFormat, id), WpfDragDropEffects.Move);
+            new WpfDataObject(DragFormatOf(sender), id), WpfDragDropEffects.Move);
     }
 
     private void Tile_DragOver(object sender, WpfDragEventArgs e)
     {
-        bool ours = e.Data.GetDataPresent(TileDragFormat);
+        bool ours = e.Data.GetDataPresent(DragFormatOf(sender));
         e.Effects = ours ? WpfDragDropEffects.Move : WpfDragDropEffects.None;
         e.Handled = true;
 
@@ -849,17 +877,19 @@ public partial class MainWindow : Window
         if (sender is WpfBorder border)
             border.BorderBrush = System.Windows.Media.Brushes.Transparent;
 
-        if (_vm == null || !e.Data.GetDataPresent(TileDragFormat)) return;
+        var format = DragFormatOf(sender);
+        if (_vm == null || !e.Data.GetDataPresent(format)) return;
 
-        var draggedId = e.Data.GetData(TileDragFormat) as string;
+        var draggedId = e.Data.GetData(format) as string;
         var targetId  = (sender as FrameworkElement)?.Tag?.ToString();
         if (string.IsNullOrEmpty(draggedId) || string.IsNullOrEmpty(targetId) || draggedId == targetId) return;
 
         // Dropping onto a tile takes that tile's position; everything else shuffles along.
-        for (int i = 0; i < _vm.AllTiles.Count; i++)
+        var list = ListOf(sender);
+        for (int i = 0; i < list.Count; i++)
         {
-            if (_vm.AllTiles[i].Definition.Id != targetId) continue;
-            _vm.MoveTile(draggedId, i);
+            if (list[i].Definition.Id != targetId) continue;
+            Move(list, draggedId, i);
             break;
         }
 
@@ -868,6 +898,9 @@ public partial class MainWindow : Window
 
     private void BtnResetTileOrder_Click(object sender, RoutedEventArgs e)
         => _vm?.ResetTileOrder();
+
+    private void BtnResetInGameTileOrder_Click(object sender, RoutedEventArgs e)
+        => _vm?.ResetInGameTileOrder();
 
     /// The tile whose explanation is open, so Escape can put focus back where it came from.
     private WpfButton? _explainedTileButton;

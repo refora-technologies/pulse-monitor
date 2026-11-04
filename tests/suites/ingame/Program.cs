@@ -42,6 +42,7 @@ class Program
         AntiCheatRules();
         NotGames();
         WindowOverlayPlace();
+        ReadingOrder();
         SettingsAreRepaired();
 
         Console.WriteLine($"\n{_pass} passed, {_fail} failed");
@@ -284,6 +285,31 @@ class Program
         Check("dragged but never placed: Pulse's default corner", Place("Custom") == (1f, 0f));
     }
 
+    static void ReadingOrder()
+    {
+        var type = T("Pulse.Models.AppSettings");
+        var order = T("Pulse.Services.InGame.InGameOverlayService").GetMethod("InGameOrder", Any)!;
+        string Drawn(List<string> chosen, List<string> windowOrder, List<string> ownOrder)
+        {
+            var s = Activator.CreateInstance(type)!;
+            type.GetProperty("InGameTileIds")!.SetValue(s, chosen);
+            type.GetProperty("TileOrder")!.SetValue(s, windowOrder);
+            type.GetProperty("InGameTileOrder")!.SetValue(s, ownOrder);
+            return string.Join(",", (List<string>)order.Invoke(null, new[] { s })!);
+        }
+
+        var chosen = new List<string> { "fps", "fps_1low", "gpu_temp", "cpu_temp" };
+        var window = new List<string> { "cpu_temp", "gpu_temp", "fps", "fps_1low", "ram_used" };
+        Check("not arranged yet: the window overlay's order",
+              Drawn(chosen, window, new List<string>()) == "cpu_temp,gpu_temp,fps,fps_1low");
+        Check("arranged: its own order",
+              Drawn(chosen, window, new List<string> { "fps_1low", "fps", "ram_used", "cpu_temp", "gpu_temp" }) == "fps_1low,fps,cpu_temp,gpu_temp");
+        Check("a chosen reading missing from the order goes last, not lost",
+              Drawn(new List<string> { "new_tile", "fps" }, window, new List<string>()) == "fps,new_tile");
+        Check("only chosen readings are drawn, whatever the order lists",
+              !Drawn(chosen, window, new List<string>()).Contains("ram_used"));
+    }
+
     static void SettingsAreRepaired()
     {
         var type = T("Pulse.Models.AppSettings");
@@ -299,6 +325,7 @@ class Program
         type.GetProperty("InGameScale")!.SetValue(s, 0.0);
         type.GetProperty("InGameTileIds")!.SetValue(s, new List<string> { "fps", "", "fps", "gpu_temp" });
         type.GetProperty("InGameExcludedGames")!.SetValue(s, new List<string> { "Game.exe", "game.EXE", " " });
+        type.GetProperty("InGameTileOrder")!.SetValue(s, null);
         type.GetMethod("Sanitise", Any)!.Invoke(s, null);
 
         Check("an unknown layout becomes the list", (string)type.GetProperty("InGameLayout")!.GetValue(s)! == "List");
@@ -307,6 +334,8 @@ class Program
         Check("a size of nothing becomes normal", (double)type.GetProperty("InGameScale")!.GetValue(s)! == 1.0);
         Check("readings: blanks and repeats dropped, order kept",
               string.Join(",", (List<string>)type.GetProperty("InGameTileIds")!.GetValue(s)!) == "fps,gpu_temp");
+        Check("a missing reading order becomes empty, so it follows the window overlay",
+              ((List<string>)type.GetProperty("InGameTileOrder")!.GetValue(s)!).Count == 0);
         Check("games turned off for: one each, without case",
               ((List<string>)type.GetProperty("InGameExcludedGames")!.GetValue(s)!).Count == 1);
     }

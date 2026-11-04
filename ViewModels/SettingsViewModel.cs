@@ -482,9 +482,19 @@ public class SettingsViewModel : BaseViewModel
 
     private void BuildInGameTiles()
     {
-        var chosen = SettingsService.Instance.Settings.InGameTileIds.ToHashSet(StringComparer.Ordinal);
+        var settings = SettingsService.Instance.Settings;
+        var chosen = settings.InGameTileIds.ToHashSet(StringComparer.Ordinal);
+        // Its own order once the player has arranged it, the window overlay's before that. A
+        // reading new to this version goes where the window overlay has it, at the end.
+        var order = settings.InGameTileOrder;
+        var ordered = AllTiles.OrderBy(t =>
+        {
+            int at = order.IndexOf(t.Definition.Id);
+            return at >= 0 ? at : order.Count + AllTiles.IndexOf(t);
+        }).ToList();
+
         InGameTiles.Clear();
-        foreach (var tile in AllTiles)
+        foreach (var tile in ordered)
         {
             var item = new TileSelectionItem(tile.Definition, chosen.Contains(tile.Definition.Id));
             item.PropertyChanged += (_, e) =>
@@ -505,6 +515,35 @@ public class SettingsViewModel : BaseViewModel
                                             .Concat(settings.InGameTileIds.Where(id => !known.Contains(id)))
                                             .ToList();
         OnPropertyChanged(nameof(InGameSelectedCount));
+        SettingsService.Instance.Save();
+    }
+
+    /// Moves a reading in the games list; the in-game overlay draws them in this order.
+    public void MoveInGameTile(string tileId, int newIndex)
+    {
+        int oldIndex = -1;
+        for (int i = 0; i < InGameTiles.Count; i++)
+            if (InGameTiles[i].Definition.Id == tileId) { oldIndex = i; break; }
+        if (oldIndex < 0) return;
+
+        newIndex = Math.Clamp(newIndex, 0, InGameTiles.Count - 1);
+        if (newIndex == oldIndex) return;
+        InGameTiles.Move(oldIndex, newIndex);
+
+        // From now on an order of its own, no longer the window overlay's.
+        var settings = SettingsService.Instance.Settings;
+        var known = InGameTiles.Select(t => t.Definition.Id).ToHashSet(StringComparer.Ordinal);
+        settings.InGameTileOrder = InGameTiles.Select(t => t.Definition.Id)
+                                              .Concat(settings.InGameTileOrder.Where(id => !known.Contains(id)))
+                                              .ToList();
+        SaveInGameTiles();
+    }
+
+    /// Back to following the window overlay's order, keeping which readings are chosen.
+    public void ResetInGameTileOrder()
+    {
+        SettingsService.Instance.Settings.InGameTileOrder = new List<string>();
+        BuildInGameTiles();
         SettingsService.Instance.Save();
     }
 
@@ -1831,6 +1870,13 @@ public class SettingsViewModel : BaseViewModel
 
         AllTiles.Move(oldIndex, newIndex);
         ApplyTileSelection();
+        FollowWindowOrder();
+    }
+
+    /// The games list shows the window overlay's order until the player arranges it.
+    private void FollowWindowOrder()
+    {
+        if (SettingsService.Instance.Settings.InGameTileOrder.Count == 0) BuildInGameTiles();
     }
 
     /// Puts the tiles back to the shipped default arrangement.
@@ -1853,6 +1899,7 @@ public class SettingsViewModel : BaseViewModel
         }
 
         ApplyTileSelection();
+        FollowWindowOrder();
     }
 
     private void ApplyTileSelection()

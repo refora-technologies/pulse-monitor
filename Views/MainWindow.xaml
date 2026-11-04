@@ -1992,27 +1992,61 @@
                                             </ItemsControl.ItemContainerStyle>
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate>
-                                                    <CheckBox Style="{StaticResource TileToggle}" Margin="1.5"
-                                                              IsChecked="{Binding IsSelected, Mode=TwoWay}"
-                                                              AutomationProperties.Name="{Binding Definition.Label, Mode=OneWay, StringFormat='{}{0}, in games'}"
-                                                              ToolTip="{Binding Definition.Description, Mode=OneWay}">
-                                                        <TextBlock FontSize="11.5">
-                                                            <Run Text="{Binding Definition.Label, Mode=OneWay}"
-                                                                 Foreground="#DBD7F2" FontWeight="Medium"/>
-                                                            <Run Text=" "/>
-                                                            <Run Text="{Binding DisplayUnit, Mode=OneWay}"
-                                                                 Foreground="#8B86B4" FontSize="10"/>
-                                                        </TextBlock>
-                                                    </CheckBox>
+                                                    <!-- Rearranged the same way as the window
+                                                         overlay's list: the grip, or Alt and an arrow. -->
+                                                    <Border AllowDrop="True" Background="Transparent"
+                                                            BorderThickness="1.5" BorderBrush="Transparent"
+                                                            CornerRadius="10" Margin="1.5"
+                                                            Tag="{Binding Definition.Id}"
+                                                            DragOver="Tile_DragOver"
+                                                            DragLeave="Tile_DragLeave"
+                                                            Drop="Tile_Drop"
+                                                            KeyDown="Tile_KeyDown">
+                                                        <Grid>
+                                                            <CheckBox Style="{StaticResource TileToggle}"
+                                                                      IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                                                      AutomationProperties.Name="{Binding Definition.Label, Mode=OneWay, StringFormat='{}{0}, in games'}"
+                                                                      AutomationProperties.HelpText="Space chooses this reading for games. Alt with an arrow key moves it."
+                                                                      ToolTip="{Binding Definition.Description, Mode=OneWay}">
+                                                                <TextBlock FontSize="11.5" Margin="0,0,14,0">
+                                                                    <Run Text="{Binding Definition.Label, Mode=OneWay}"
+                                                                         Foreground="#DBD7F2" FontWeight="Medium"/>
+                                                                    <Run Text=" "/>
+                                                                    <Run Text="{Binding DisplayUnit, Mode=OneWay}"
+                                                                         Foreground="#8B86B4" FontSize="10"/>
+                                                                </TextBlock>
+                                                            </CheckBox>
+                                                            <Border Background="Transparent"
+                                                                    HorizontalAlignment="Right" VerticalAlignment="Stretch"
+                                                                    Padding="7,0,8,0" Cursor="SizeAll"
+                                                                    ToolTip="Drag to reorder"
+                                                                    Tag="{Binding Definition.Id}"
+                                                                    PreviewMouseLeftButtonDown="Grip_MouseDown"
+                                                                    PreviewMouseMove="Grip_MouseMove">
+                                                                <TextBlock Text="&#x28FF;" FontSize="12"
+                                                                           Foreground="#332F52"
+                                                                           VerticalAlignment="Center"/>
+                                                            </Border>
+                                                        </Grid>
+                                                    </Border>
                                                 </DataTemplate>
                                             </ItemsControl.ItemTemplate>
                                         </ItemsControl>
                                     </Border>
-                                    <TextBlock Margin="5,8,5,0" FontSize="10.5" FontWeight="Medium" Foreground="#8B86B4"
-                                               TextWrapping="Wrap">
-                                        <Run Text="{Binding InGameSelectedCount, Mode=OneWay}" Foreground="#A78BFA"/>
-                                        <Run Text=" chosen, in the window overlay's order. Frame rate and 1% low are measured from the game's own frames."/>
-                                    </TextBlock>
+                                    <Grid Margin="5,8,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock FontSize="10.5" FontWeight="Medium" Foreground="#8B86B4" TextWrapping="Wrap">
+                                            <Run Text="{Binding InGameSelectedCount, Mode=OneWay}" Foreground="#A78BFA"/>
+                                            <Run Text=" chosen. Drag the handle on a tile to reorder; the in-game overlay uses this order. Frame rate and 1% low are measured from the game's own frames."/>
+                                        </TextBlock>
+                                        <Button Grid.Column="1" Content="Reset order" Style="{StaticResource LinkBtn}"
+                                                Padding="8,3" FontSize="10" Margin="8,0,0,0" VerticalAlignment="Top"
+                                                ToolTip="Put these back in the window overlay's order"
+                                                Click="BtnResetInGameTileOrder_Click"/>
+                                    </Grid>
                                 </StackPanel>
                             </StackPanel>
                         </StackPanel>
