@@ -38,6 +38,11 @@ Remove-Item -Recurse -Force publish -ErrorAction SilentlyContinue
 dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o publish --nologo
 if ($LASTEXITCODE -ne 0) { throw 'publish failed' }
 
+# The in-game overlay, a small C++ library, into publish\ingame. Needs the C++ build tools.
+Write-Output 'Building the in-game overlay...'
+& (Join-Path $here 'InGame\build-ingame.ps1') -Output publish
+if (-not $?) { throw 'the in-game overlay did not build' }
+
 Write-Output 'Building the installer...'
 & $iscc /Q setup.iss
 if ($LASTEXITCODE -ne 0) { throw 'the installer did not build' }

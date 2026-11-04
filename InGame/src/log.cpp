@@ -17,19 +17,31 @@ namespace {
 std::mutex g_lock;
 std::vector<std::string> g_pending;
 HANDLE g_wake = nullptr;
+char g_who[96] = "";  // "[game.exe 1234]  " in the shared log, so its lines say which game they are from
 
 DWORD WINAPI Writer(void*) {
-    // PULSE_INGAME_LOG if the program was started with it, otherwise beside this DLL.
+    // PULSE_INGAME_LOG if the program was started with it (the tests), otherwise ingame.log beside
+    // Pulse's own logs, where its "Save diagnostics" finds it. Not beside this DLL: that is in
+    // Program Files, which a game, not running as administrator, cannot write to.
     char path[MAX_PATH];
     if (!GetEnvironmentVariableA("PULSE_INGAME_LOG", path, MAX_PATH)) {
-        HMODULE self = nullptr;
-        GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                           reinterpret_cast<LPCSTR>(&Writer), &self);
-        DWORD n = GetModuleFileNameA(self, path, MAX_PATH);
-        if (n == 0 || n >= MAX_PATH - 8) return 0;
-        char* dot = std::strrchr(path, '.');
-        if (!dot) return 0;
-        strcpy_s(dot, MAX_PATH - (dot - path), ".log");
+        DWORD n = ExpandEnvironmentStringsA("%APPDATA%\\Refora\\Pulse\\logs\\ingame.log", path, MAX_PATH);
+        if (n == 0 || n > MAX_PATH || std::strchr(path, '%')) return 0;
+        // Started again from empty past 1 MB; the one before is kept as ingame.1.log.
+        WIN32_FILE_ATTRIBUTE_DATA info;
+        if (GetFileAttributesExA(path, GetFileExInfoStandard, &info) && (info.nFileSizeHigh || info.nFileSizeLow > 1024 * 1024)) {
+            char older[MAX_PATH];
+            strcpy_s(older, path);
+            char* dot = std::strrchr(older, '.');
+            if (dot && dot - older < MAX_PATH - 8) {
+                strcpy_s(dot, MAX_PATH - (dot - older), ".1.log");
+                MoveFileExA(path, older, MOVEFILE_REPLACE_EXISTING);
+            }
+        }
+        char exe[MAX_PATH];
+        DWORD len = GetModuleFileNameA(nullptr, exe, MAX_PATH);
+        const char* name = len ? std::strrchr(exe, '\\') : nullptr;
+        std::snprintf(g_who, sizeof g_who, "[%s %lu]  ", name ? name + 1 : "game", GetCurrentProcessId());
     }
     for (;;) {
         WaitForSingleObject(g_wake, 1000);
@@ -62,7 +74,8 @@ void StartLog() {
 void Log(const char* format, ...) {
     char line[512];
     SYSTEMTIME t; GetLocalTime(&t);
-    int n = std::snprintf(line, sizeof line, "%02d:%02d:%02d.%03d  ", t.wHour, t.wMinute, t.wSecond, t.wMilliseconds);
+    int n = std::snprintf(line, sizeof line, "%02d:%02d:%02d.%03d  %s", t.wHour, t.wMinute, t.wSecond, t.wMilliseconds, g_who);
+    if (n < 0 || n >= (int)sizeof line) n = 0;
     va_list args; va_start(args, format);
     std::vsnprintf(line + n, sizeof line - n, format, args);
     va_end(args);

@@ -32,13 +32,19 @@ public sealed class InGameOverlayService : IDisposable
     private readonly Dictionary<int, (GameInfo Info, DateTime CheckedAt)> _checked = new();
     private readonly HashSet<int> _loaded = new();
     private readonly HashSet<int> _loadFailed = new();
+    private readonly Dictionary<int, DateTime> _firstSeen = new();
     private readonly List<TileViewModel> _ownTiles = new();
     private string _ownTileKey = "";
     private System.Threading.Timer? _timer;
     private bool _suppressing;
+    private GameInfo? _lastGame;
     private int _ticking;
 
-    private InGameOverlayService() { }
+    private InGameOverlayService()
+    {
+        // A reading that becomes readable, or stops, changes which of the in-game list can show.
+        SensorDriver.Instance.Changed += (_, _) => _ownTileKey = "";
+    }
 
     public void Start()
     {
@@ -64,6 +70,7 @@ public sealed class InGameOverlayService : IDisposable
             // Told to draw nothing, in case a game still has it loaded from earlier.
             _writer.Write(Empty);
             Suppress(app, false);
+            _lastGame = null;
             SetStatus("", null);
             return;
         }
@@ -73,26 +80,46 @@ public sealed class InGameOverlayService : IDisposable
         // Hidden content (Suppress) leaves the window shown, so this stays the player's own choice.
         app.Dispatcher.Invoke(() => snapshot = (BuildFrame(settings), app.IsOverlayVisible));
         var (frame, visible) = snapshot!.Value;
-        _writer.Write(frame with { Enabled = visible });
 
         int pid = ForegroundProcessId();
-        if (pid == 0 || pid == Environment.ProcessId)
+        GameInfo? found = pid == 0 || pid == Environment.ProcessId ? null : CheckGame(pid, settings);
+        if (found is not { Verdict: not (Verdict.NotAGame or Verdict.NotOpenable) } info)
         {
+            // Nothing that counts as a game is in front: the desktop, a browser, or this panel.
+            // No game draws, and the window overlay shows.
+            _writer.Write(frame with { Enabled = false });
             Suppress(app, false);
-            SetStatus("Waiting for a game", null);
+
+            // The last game is still spoken of while it runs, so the panel opened over it can
+            // say what happened there and offer to turn the overlay off for it.
+            if (_lastGame is { } last && IsRunning(last.Pid))
+            {
+                bool excluded = IsExcluded(last, settings);
+                bool goesIn = last.Verdict is Verdict.Allowed or Verdict.Excluded;
+                SetStatus(excluded ? $"Turned off for {last.Name}"
+                        : goesIn ? $"Ready for {last.Name}: it shows when you go back to the game"
+                        : NotInText(last), goesIn || excluded ? ExeName(last) : null);
+            }
+            else
+            {
+                _lastGame = null;
+                SetStatus("Waiting for a game", null);
+            }
             return;
         }
 
-        var info = CheckGame(pid, settings);
+        _lastGame = info;
         if (info.Verdict != Verdict.Allowed)
         {
+            _writer.Write(frame with { Enabled = false });
             Suppress(app, false);
-            SetStatus(info.Verdict switch
-            {
-                Verdict.NotAGame or Verdict.NotOpenable => "Waiting for a game",
-                Verdict.AntiCheat => $"Not in {info.Name}: {info.Detail}, so the window overlay is shown",
-                _ => $"Not in {info.Name}: {info.Detail}",
-            }, info.Verdict is Verdict.NotAGame or Verdict.NotOpenable ? null : ExeName(info));
+            // Offered only where it would change something: a game it already stays out of has
+            // nothing to turn off.
+            // A game loads DirectX a while after it starts: not yet is not "does not".
+            bool starting = info.Verdict == Verdict.NoDirectX && _firstSeen.TryGetValue(pid, out var seen)
+                            && DateTime.UtcNow - seen < TimeSpan.FromMinutes(1);
+            SetStatus(starting ? $"Waiting for {info.Name} to start" : NotInText(info),
+                      info.Verdict == Verdict.Excluded ? ExeName(info) : null);
             return;
         }
 
@@ -109,10 +136,14 @@ public sealed class InGameOverlayService : IDisposable
 
         if (_loadFailed.Contains(pid))
         {
+            _writer.Write(frame with { Enabled = false });
             Suppress(app, false);
-            SetStatus($"Not in {info.Name}: Pulse could not add it to this game", ExeName(info));
+            SetStatus($"Not in {info.Name}: Pulse could not add it to this game", null);
             return;
         }
+
+        // Only this game draws: any other with the overlay loaded keeps quiet.
+        _writer.Write(frame with { Enabled = visible, TargetPid = (uint)pid });
 
         var status = InGameLoader.ReadStatus(pid);
         bool fresh = status is { AgeMs: < 1500 };
@@ -127,6 +158,14 @@ public sealed class InGameOverlayService : IDisposable
             _ => $"Starting in {info.Name}",
         }, ExeName(info));
     }
+
+    /// Why the overlay is not in a game, for the status line.
+    private static string NotInText(GameInfo info) => info.Verdict switch
+    {
+        Verdict.Excluded => $"Turned off for {info.Name}",
+        Verdict.AntiCheat => $"Not in {info.Name}: {info.Detail}, so the window overlay is shown",
+        _ => $"Not in {info.Name}: {info.Detail}",
+    };
 
     private string? Load(int pid)
     {
@@ -158,11 +197,12 @@ public sealed class InGameOverlayService : IDisposable
         if (!_checked.ContainsKey(pid) || _checked[pid].Info.Verdict != info.Verdict)
             LogService.Info(nameof(InGameOverlayService), $"{info.Name} ({pid}): {info.Verdict}{(info.Detail.Length > 0 ? ", " + info.Detail : "")}.");
         _checked[pid] = (info, now);
+        _firstSeen.TryAdd(pid, now);
 
         // Forget games that have closed, so their process ids can be used again.
         foreach (var gone in _checked.Keys.Where(p => !IsRunning(p)).ToList())
         {
-            _checked.Remove(gone); _loaded.Remove(gone); _loadFailed.Remove(gone);
+            _checked.Remove(gone); _loaded.Remove(gone); _loadFailed.Remove(gone); _firstSeen.Remove(gone);
         }
         return info;
     }

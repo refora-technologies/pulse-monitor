@@ -1696,6 +1696,328 @@
                         </StackPanel>
                     </Border>
 
+                    <!-- ══ IN-GAME OVERLAY ══
+                         Pulse's readings drawn inside the game itself, so they show in full-screen
+                         games where the window overlay cannot. Everything below the first switch
+                         appears only once it is on. -->
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                        <TextBlock Text="&#xE7FC;" FontFamily="Segoe MDL2 Assets" FontSize="11"
+                                   Foreground="#A9A4CE" VerticalAlignment="Center" Margin="0,0,7,0"/>
+                        <TextBlock Text="IN-GAME OVERLAY" FontSize="10" FontWeight="Bold"
+                                   Foreground="#A9A4CE" VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <Border Background="#111020" CornerRadius="13" BorderBrush="#1C1A30"
+                            BorderThickness="1" Margin="0,0,0,22">
+                        <StackPanel>
+                            <!-- One way: turning it on asks first, so the click is handled in code. -->
+                            <CheckBox x:Name="InGameToggle" Style="{StaticResource RowToggle}" Margin="18,14,18,14"
+                                      IsChecked="{Binding InGameOverlayEnabled, Mode=OneWay}"
+                                      Click="InGameToggle_Click"
+                                      AutomationProperties.Name="Show Pulse inside games">
+                                <StackPanel>
+                                    <TextBlock Text="Show Pulse inside games" FontSize="13" FontWeight="SemiBold"
+                                               Foreground="#DBD7F2" Margin="0,0,0,2"/>
+                                    <TextBlock Text="Your readings drawn in the game itself, so they stay visible in full-screen games"
+                                               FontSize="10.5" FontWeight="Medium" Foreground="#8B86B4"
+                                               TextWrapping="Wrap"/>
+                                </StackPanel>
+                            </CheckBox>
+
+                            <StackPanel Visibility="{Binding InGameOverlayEnabled, Converter={StaticResource BoolToVis}}">
+
+                                <!-- What it is doing now. The one answer to "why does it not show". -->
+                                <Border Margin="18,0,18,10" Background="#0A0918" CornerRadius="10"
+                                        BorderBrush="#181530" BorderThickness="1" Padding="12,9"
+                                        AutomationProperties.LiveSetting="Polite">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Ellipse Width="7" Height="7" Margin="0,5,9,0" VerticalAlignment="Top">
+                                            <Ellipse.Style>
+                                                <Style TargetType="Ellipse">
+                                                    <Setter Property="Fill" Value="#6E6A94"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding InGameStatusTone}" Value="Good">
+                                                            <Setter Property="Fill" Value="#3DDC97"/>
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding InGameStatusTone}" Value="Warn">
+                                                            <Setter Property="Fill" Value="#FFB454"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Ellipse.Style>
+                                        </Ellipse>
+                                        <StackPanel Grid.Column="1">
+                                            <TextBlock FontSize="11.5" FontWeight="Medium" Foreground="#DBD7F2"
+                                                       TextWrapping="Wrap" LineHeight="17">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Text" Value="{Binding InGameStatusText}"/>
+                                                        <Style.Triggers>
+                                                            <!-- Before the first check, a moment after turning it on. -->
+                                                            <DataTrigger Binding="{Binding InGameStatusText}" Value="">
+                                                                <Setter Property="Text" Value="Waiting for a game"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                            <Button Style="{StaticResource LinkBtn}" Content="{Binding InGameExcludeText}"
+                                                    HorizontalAlignment="Left" Padding="0,3" Margin="0,4,0,0" FontSize="10.5"
+                                                    Visibility="{Binding HasInGameGame, Converter={StaticResource BoolToVis}}"
+                                                    ToolTip="For a game that does not get on with overlays. Pulse remembers it, and shows the window overlay there instead."
+                                                    Click="InGameExcludeGame_Click"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+
+                                <!-- The note from turning it on, kept in view while it is on. -->
+                                <TextBlock Margin="18,0,18,12" FontSize="10.5" FontWeight="Medium" Foreground="#8B86B4"
+                                           TextWrapping="Wrap" LineHeight="16"
+                                           Text="Works in 64-bit DirectX 11 and 12 games. Not in games with anti-cheat, such as Valorant, Fortnite or Counter-Strike 2: there the window overlay stays, so your account stays safe."/>
+
+                                <!-- Games it was turned off for, so they can be turned back on
+                                     without starting each one. -->
+                                <Grid Margin="18,0,18,12"
+                                      Visibility="{Binding HasInGameExclusions, Converter={StaticResource BoolToVis}}">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock FontSize="10.5" FontWeight="Medium" TextWrapping="Wrap"
+                                               VerticalAlignment="Center">
+                                        <Run Text="Turned off for: " Foreground="#8B86B4"/>
+                                        <Run Text="{Binding InGameExcludedSummary, Mode=OneWay}" Foreground="#A9A4CE"/>
+                                    </TextBlock>
+                                    <Button Grid.Column="1" Style="{StaticResource LinkBtn}" Content="Turn back on"
+                                            Padding="8,3" FontSize="10.5" Margin="8,0,0,0" VerticalAlignment="Center"
+                                            ToolTip="Show the in-game overlay in these games again"
+                                            Click="InGameClearExclusions_Click"/>
+                                </Grid>
+
+                                <Border Height="1" Background="#131128"/>
+
+                                <!-- Its own place and look, or the window overlay's. -->
+                                <CheckBox Style="{StaticResource RowToggle}" Margin="18,14,18,14"
+                                          IsChecked="{Binding InGameOwnLook, Mode=TwoWay}">
+                                    <StackPanel>
+                                        <TextBlock Text="Use its own position and look" FontSize="13" FontWeight="SemiBold"
+                                                   Foreground="#DBD7F2" Margin="0,0,0,2"/>
+                                        <TextBlock Text="Off: it sits where the window overlay does, at the same size and opacity"
+                                                   FontSize="10.5" FontWeight="Medium" Foreground="#8B86B4"
+                                                   TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                </CheckBox>
+
+                                <StackPanel Margin="18,0,18,16"
+                                            Visibility="{Binding InGameOwnLook, Converter={StaticResource BoolToVis}}">
+
+                                    <!-- Layout: the owner's "normal" and "straight". -->
+                                    <TextBlock Text="Layout" FontSize="12" FontWeight="SemiBold"
+                                               Foreground="#A9A4CE" Margin="0,0,0,4"/>
+                                    <TextBlock Text="One reading per line, or all of them on one straight line"
+                                               FontSize="10.5" FontWeight="Medium" Foreground="#8B86B4" Margin="0,0,0,10"/>
+                                    <Border Background="#0A0918" CornerRadius="10"
+                                            BorderBrush="#181530" BorderThickness="1" Padding="3">
+                                        <Grid>
+                                            <Border x:Name="InGameLayoutIndicator" HorizontalAlignment="Left"
+                                                    VerticalAlignment="Stretch" Background="#1C1540" CornerRadius="8">
+                                                <Border.RenderTransform>
+                                                    <TranslateTransform x:Name="InGameLayoutIndicatorTranslate"/>
+                                                </Border.RenderTransform>
+                                            </Border>
+                                            <Grid x:Name="InGameLayoutPanel">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <Button Grid.Column="0" Content="List" Style="{StaticResource SegBtn}"
+                                                        Tag="List" Click="InGameLayout_Click"
+                                                        AutomationProperties.Name="Layout: one reading per line"/>
+                                                <Button Grid.Column="1" Content="Straight" Style="{StaticResource SegBtn}"
+                                                        Tag="Bar" Click="InGameLayout_Click"
+                                                        AutomationProperties.Name="Layout: all readings on one line"/>
+                                            </Grid>
+                                        </Grid>
+                                    </Border>
+
+                                    <!-- Position. No dragging: inside a game the overlay never
+                                         takes the mouse, so corners and sliders it is. -->
+                                    <TextBlock Text="Snap to corner" FontSize="12" FontWeight="SemiBold"
+                                               Foreground="#A9A4CE" Margin="0,18,0,10"/>
+                                    <StackPanel x:Name="InGamePositionPanel" Orientation="Horizontal">
+                                        <Button Style="{StaticResource CornerBtn}"
+                                                AutomationProperties.Name="In-game overlay in the top left"
+                                                Click="InGameCorner_Click" Tag="TopLeft" Margin="0,0,8,0">
+                                            <Path Data="M 13,13 L 2,2 L 8,2 M 2,2 L 2,8"
+                                                  Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                                  StrokeThickness="1.8" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                                                  Width="16" Height="16"/>
+                                        </Button>
+                                        <Button Style="{StaticResource CornerBtn}"
+                                                AutomationProperties.Name="In-game overlay in the top right"
+                                                Click="InGameCorner_Click" Tag="TopRight" Margin="0,0,8,0">
+                                            <Path Data="M 2,13 L 13,2 L 7,2 M 13,2 L 13,8"
+                                                  Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                                  StrokeThickness="1.8" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                                                  Width="16" Height="16"/>
+                                        </Button>
+                                        <Button Style="{StaticResource CornerBtn}"
+                                                AutomationProperties.Name="In-game overlay in the bottom left"
+                                                Click="InGameCorner_Click" Tag="BottomLeft" Margin="0,0,8,0">
+                                            <Path Data="M 13,2 L 2,13 L 8,13 M 2,13 L 2,7"
+                                                  Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                                  StrokeThickness="1.8" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                                                  Width="16" Height="16"/>
+                                        </Button>
+                                        <Button Style="{StaticResource CornerBtn}"
+                                                AutomationProperties.Name="In-game overlay in the bottom right"
+                                                Click="InGameCorner_Click" Tag="BottomRight">
+                                            <Path Data="M 2,2 L 13,13 L 7,13 M 13,13 L 13,7"
+                                                  Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                                  StrokeThickness="1.8" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                                                  Width="16" Height="16"/>
+                                        </Button>
+                                    </StackPanel>
+
+                                    <TextBlock Text="Exact position" FontSize="12" FontWeight="SemiBold"
+                                               Foreground="#A9A4CE" Margin="0,18,0,4"/>
+                                    <TextBlock Text="A share of the screen, so it lands in the same place at every resolution"
+                                               FontSize="10.5" FontWeight="Medium" Foreground="#8B86B4"
+                                               Margin="0,0,0,12" TextWrapping="Wrap"/>
+                                    <Grid Margin="0,0,0,4">
+                                        <TextBlock Text="Left to right" FontSize="12" FontWeight="SemiBold" Foreground="#A9A4CE"/>
+                                        <TextBlock HorizontalAlignment="Right" FontSize="13" FontWeight="Bold" Foreground="#A78BFA">
+                                            <Run Text="{Binding InGameAnchorXPercent, Mode=OneWay}"/>
+                                            <Run Text="%" Foreground="#8B86B4" FontSize="11"/>
+                                        </TextBlock>
+                                    </Grid>
+                                    <Slider Style="{StaticResource VioletSlider}" Margin="0,0,0,15"
+                                            AutomationProperties.Name="In-game overlay position from the left"
+                                            Minimum="0" Maximum="1" SmallChange="0.01" LargeChange="0.1"
+                                            IsSnapToTickEnabled="True" TickFrequency="0.01"
+                                            Value="{Binding InGameAnchorX, Mode=TwoWay}"/>
+                                    <Grid Margin="0,0,0,4">
+                                        <TextBlock Text="Top to bottom" FontSize="12" FontWeight="SemiBold" Foreground="#A9A4CE"/>
+                                        <TextBlock HorizontalAlignment="Right" FontSize="13" FontWeight="Bold" Foreground="#A78BFA">
+                                            <Run Text="{Binding InGameAnchorYPercent, Mode=OneWay}"/>
+                                            <Run Text="%" Foreground="#8B86B4" FontSize="11"/>
+                                        </TextBlock>
+                                    </Grid>
+                                    <Slider Style="{StaticResource VioletSlider}"
+                                            AutomationProperties.Name="In-game overlay position from the top"
+                                            Minimum="0" Maximum="1" SmallChange="0.01" LargeChange="0.1"
+                                            IsSnapToTickEnabled="True" TickFrequency="0.01"
+                                            Value="{Binding InGameAnchorY, Mode=TwoWay}"/>
+
+                                    <!-- Opacity, background and size, as the window overlay has. -->
+                                    <Grid Margin="0,20,0,4">
+                                        <TextBlock Text="Opacity" FontSize="12" FontWeight="SemiBold" Foreground="#A9A4CE"/>
+                                        <TextBlock HorizontalAlignment="Right" FontSize="13" FontWeight="Bold" Foreground="#A78BFA">
+                                            <Run Text="{Binding InGameOpacityPercent, Mode=OneWay}"/>
+                                            <Run Text="%" Foreground="#8B86B4" FontSize="11"/>
+                                        </TextBlock>
+                                    </Grid>
+                                    <Slider Style="{StaticResource VioletSlider}" Margin="0,0,0,15"
+                                            AutomationProperties.Name="In-game overlay opacity"
+                                            Minimum="0.2" Maximum="1.0" SmallChange="0.05"
+                                            Value="{Binding InGameOpacity, Mode=TwoWay}"/>
+                                    <Grid Margin="0,0,0,4">
+                                        <TextBlock Text="Background" FontSize="12" FontWeight="SemiBold" Foreground="#A9A4CE"/>
+                                        <TextBlock HorizontalAlignment="Right" FontSize="13" FontWeight="Bold" Foreground="#A78BFA">
+                                            <Run Text="{Binding InGameBackgroundPercent, Mode=OneWay}"/>
+                                            <Run Text="%" Foreground="#8B86B4" FontSize="11"/>
+                                        </TextBlock>
+                                    </Grid>
+                                    <Slider Style="{StaticResource VioletSlider}" Margin="0,0,0,15"
+                                            AutomationProperties.Name="In-game overlay background"
+                                            Minimum="0.0" Maximum="1.0" SmallChange="0.05"
+                                            Value="{Binding InGameBackgroundOpacity, Mode=TwoWay}"/>
+                                    <Grid Margin="0,0,0,4">
+                                        <TextBlock Text="Size" FontSize="12" FontWeight="SemiBold" Foreground="#A9A4CE"/>
+                                        <TextBlock HorizontalAlignment="Right" FontSize="13" FontWeight="Bold" Foreground="#A78BFA">
+                                            <Run Text="{Binding InGameScalePercent, Mode=OneWay}"/>
+                                            <Run Text="%" Foreground="#8B86B4" FontSize="11"/>
+                                        </TextBlock>
+                                    </Grid>
+                                    <Slider Style="{StaticResource VioletSlider}"
+                                            AutomationProperties.Name="In-game overlay size"
+                                            Minimum="0.5" Maximum="2.0" SmallChange="0.05" LargeChange="0.25"
+                                            IsSnapToTickEnabled="True" TickFrequency="0.05"
+                                            Value="{Binding InGameScale, Mode=TwoWay}"/>
+
+                                    <Button Style="{StaticResource LinkBtn}" Content="Reset to default look"
+                                            HorizontalAlignment="Right" Margin="0,13,0,0"
+                                            AutomationProperties.Name="Reset the in-game overlay's position, layout, opacity, background and size"
+                                            Click="ResetInGameLook_Click"/>
+                                </StackPanel>
+
+                                <Border Height="1" Background="#131128"/>
+
+                                <!-- Advanced: readings of its own. -->
+                                <CheckBox Style="{StaticResource RowToggle}" Margin="18,14,18,14"
+                                          IsChecked="{Binding InGameOwnTiles, Mode=TwoWay}">
+                                    <StackPanel>
+                                        <StackPanel Orientation="Horizontal" Margin="0,0,0,2">
+                                            <TextBlock Text="Choose different readings for games" FontSize="13" FontWeight="SemiBold"
+                                                       Foreground="#DBD7F2"/>
+                                            <Border Background="#1C1540" CornerRadius="5" Padding="6,1" Margin="8,0,0,0"
+                                                    VerticalAlignment="Center">
+                                                <TextBlock Text="ADVANCED" FontSize="8.5" FontWeight="Bold" Foreground="#A78BFA"/>
+                                            </Border>
+                                        </StackPanel>
+                                        <TextBlock Text="Off: the same readings as the window overlay"
+                                                   FontSize="10.5" FontWeight="Medium" Foreground="#8B86B4"
+                                                   TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                </CheckBox>
+
+                                <StackPanel Margin="13,0,13,14"
+                                            Visibility="{Binding InGameOwnTiles, Converter={StaticResource BoolToVis}}">
+                                    <Border Background="#0D0C1C" CornerRadius="11" Padding="4"
+                                            BorderBrush="#181530" BorderThickness="1">
+                                        <!-- Only readings this PC can give: the window overlay's
+                                             list above is where a missing one is explained. -->
+                                        <ItemsControl ItemsSource="{Binding InGameTiles}">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate><UniformGrid Columns="2"/></ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemContainerStyle>
+                                                <Style TargetType="ContentPresenter">
+                                                    <Setter Property="Visibility"
+                                                            Value="{Binding IsAvailable, Converter={StaticResource BoolToVis}}"/>
+                                                </Style>
+                                            </ItemsControl.ItemContainerStyle>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <CheckBox Style="{StaticResource TileToggle}" Margin="1.5"
+                                                              IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                                              AutomationProperties.Name="{Binding Definition.Label, Mode=OneWay, StringFormat='{}{0}, in games'}"
+                                                              ToolTip="{Binding Definition.Description, Mode=OneWay}">
+                                                        <TextBlock FontSize="11.5">
+                                                            <Run Text="{Binding Definition.Label, Mode=OneWay}"
+                                                                 Foreground="#DBD7F2" FontWeight="Medium"/>
+                                                            <Run Text=" "/>
+                                                            <Run Text="{Binding DisplayUnit, Mode=OneWay}"
+                                                                 Foreground="#8B86B4" FontSize="10"/>
+                                                        </TextBlock>
+                                                    </CheckBox>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </Border>
+                                    <TextBlock Margin="5,8,5,0" FontSize="10.5" FontWeight="Medium" Foreground="#8B86B4"
+                                               TextWrapping="Wrap">
+                                        <Run Text="{Binding InGameSelectedCount, Mode=OneWay}" Foreground="#A78BFA"/>
+                                        <Run Text=" chosen, in the window overlay's order. Frame rate and 1% low are measured from the game's own frames."/>
+                                    </TextBlock>
+                                </StackPanel>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+
                     <!-- ══ SYSTEM ══ -->
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                         <TextBlock Text="&#xE713;" FontFamily="Segoe MDL2 Assets" FontSize="11"
