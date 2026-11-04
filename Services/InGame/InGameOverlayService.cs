@@ -38,6 +38,7 @@ public sealed class InGameOverlayService : IDisposable
     private System.Threading.Timer? _timer;
     private bool _suppressing;
     private GameInfo? _lastGame;
+    private (int Pid, IntPtr Handle)? _shownWindow;
     private int _ticking;
 
     private InGameOverlayService()
@@ -85,7 +86,17 @@ public sealed class InGameOverlayService : IDisposable
         GameInfo? found = pid == 0 || pid == Environment.ProcessId ? null : CheckGame(pid, settings);
         if (found is not { Verdict: not (Verdict.NotAGame or Verdict.NotOpenable) } info)
         {
-            // Nothing that counts as a game is in front: the desktop, a browser, or this panel.
+            // Nothing that counts as a game is in front: the desktop, a browser, this panel, a
+            // click on the other screen. The game the overlay was showing in keeps it for as long
+            // as the game is still on screen (owner, 4 Nov): the window overlay comes back only
+            // once the game is minimised or hidden.
+            if (_lastGame is { Verdict: Verdict.Allowed } shown && _shownWindow is { } window && window.Pid == shown.Pid
+                && !IsExcluded(shown, settings) && IsRunning(shown.Pid) && OnScreen(window.Handle))
+            {
+                DrawIn(app, frame, visible, shown);
+                return;
+            }
+
             // No game draws, and the window overlay shows.
             _writer.Write(frame with { Enabled = false });
             Suppress(app, false);
@@ -142,7 +153,18 @@ public sealed class InGameOverlayService : IDisposable
             return;
         }
 
-        // Only this game draws: any other with the overlay loaded keeps quiet.
+        // Remembered, to keep the overlay in this game while it stays on screen behind something else.
+        _shownWindow = (pid, GetForegroundWindow());
+        DrawIn(app, frame, visible, info);
+    }
+
+    /// <summary>
+    /// The game that draws: only this one, any other with the overlay loaded keeps quiet. The
+    /// window overlay hides once the game says it is drawing, and not before.
+    /// </summary>
+    private void DrawIn(App app, InGameFrame frame, bool visible, GameInfo info)
+    {
+        int pid = info.Pid;
         _writer.Write(frame with { Enabled = visible, TargetPid = (uint)pid });
 
         var status = InGameLoader.ReadStatus(pid);
@@ -305,6 +327,21 @@ public sealed class InGameOverlayService : IDisposable
         _writer.Dispose();
     }
 
+    /// Whether a game's window can be seen: there, shown, not minimised, and not hidden by Windows
+    /// (another virtual desktop, for one). A game that stops drawing while behind something else
+    /// also stops reporting, and its status going stale brings the window overlay back.
+    private static bool OnScreen(IntPtr window)
+    {
+        if (!IsWindow(window) || !IsWindowVisible(window) || IsIconic(window)) return false;
+        return DwmGetWindowAttribute(window, DWMWA_CLOAKED, out int cloaked, sizeof(int)) != 0 || cloaked == 0;
+    }
+
+    private const int DWMWA_CLOAKED = 14;
+
+    [DllImport("user32.dll")] private static extern bool IsWindow(IntPtr window);
+    [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr window);
+    [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr window);
+    [DllImport("dwmapi.dll")] private static extern int DwmGetWindowAttribute(IntPtr window, int attribute, out int value, int size);
     [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
 }
