@@ -12,6 +12,18 @@ HANDLE g_mapping = nullptr;
 const Block* g_view = nullptr;
 ULONGLONG g_nextLook = 0;
 
+// Pulse's block. The test build can be pointed at another one (PULSE_INGAME_BLOCK), so the lab's
+// tests run beside a real Pulse without touching its block; a release build only ever reads Pulse's.
+const wchar_t* BlockName() {
+#ifdef PULSE_INGAME_TESTING
+    static wchar_t name[128] = L"";
+    if (!name[0] && !GetEnvironmentVariableW(L"PULSE_INGAME_BLOCK", name, 128)) wcscpy_s(name, kBlockName);
+    return name;
+#else
+    return kBlockName;
+#endif
+}
+
 void CloseBlock() {
     if (g_view) { UnmapViewOfFile(g_view); g_view = nullptr; }
     if (g_mapping) { CloseHandle(g_mapping); g_mapping = nullptr; }
@@ -24,7 +36,7 @@ bool ReadBlock(Block& out) {
     if (!g_view) {
         if (now < g_nextLook) return false;
         g_nextLook = now + 1000;
-        g_mapping = OpenFileMappingW(FILE_MAP_READ, FALSE, kBlockName);
+        g_mapping = OpenFileMappingW(FILE_MAP_READ, FALSE, BlockName());
         if (!g_mapping) return false;
         g_view = static_cast<const Block*>(MapViewOfFile(g_mapping, FILE_MAP_READ, 0, 0, sizeof(Block)));
         if (!g_view) { CloseBlock(); return false; }
