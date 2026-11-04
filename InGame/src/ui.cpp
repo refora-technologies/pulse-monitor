@@ -215,6 +215,9 @@ void DrawBar(ImDrawList* d, const std::vector<Row>& rows, const Style& st, float
                     unitGap + Measure(g_medium, 10 * s, r.tile->unit).x;
     if (rows.size() > 1) contentW += (rows.size() - 1) * (2 * between + 1 * s);
     float panelW = 28 * s + contentW, panelH = 8 * s + lineH + 8 * s;
+    // Wider than the game's screen (many readings, or a small window): a list instead, rather
+    // than a line running off both sides.
+    if (panelW > W - 4 * s) { DrawList(d, rows, st, W, H, ax, ay); return; }
     Edges e = Touching(ax, ay);
     ImVec2 p = Place(W, H, panelW, panelH, ax, ay, s, e), q(p.x + panelW, p.y + panelH);
     Panel(d, p, q, st, e);

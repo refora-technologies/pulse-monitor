@@ -1,0 +1,30 @@
+# Fails when the .NET runtime Pulse ships has fallen behind Microsoft's newest .NET 10 release,
+# so a security patch is never missed for long. Pulse pins its runtime, and Dependabot does not
+# watch that pin. See tests/checks/dotnet_current.py.
+name: .NET is current
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'   # Mondays, 06:00 UTC
+  push:
+    paths:
+      - Pulse.csproj
+      - tests/checks/dotnet_current.py
+      - .github/workflows/dotnet-current.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dotnet-current:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+
+      - name: Compare with Microsoft's newest .NET 10
+        run: python tests/checks/dotnet_current.py

@@ -29,7 +29,7 @@ PawnIO (kernel sensor driver)
             programs that talk to it through its device interface
   Source  : https://github.com/namazso/PawnIO
 
-Newtonsoft.Json v13.0.3
+Newtonsoft.Json v13.0.4
   License : MIT License
   Source  : https://github.com/JamesNK/Newtonsoft.Json
   Copyright (c) 2007 James Newton-King
