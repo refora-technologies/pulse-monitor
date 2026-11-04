@@ -571,12 +571,29 @@ public class SettingsViewModel : BaseViewModel
         InGameGame is { } exe && SettingsService.Instance.Settings.InGameExcludedGames
             .Any(e => string.Equals(e, exe, StringComparison.OrdinalIgnoreCase));
 
-    public string InGameExcludeText => IsInGameGameExcluded ? "Turn back on for this game" : "Turn off for this game";
+    /// A game Pulse did not recognise as one: the button offers to show Pulse in it instead.
+    private static bool InGameGameUnrecognised => Services.InGame.InGameOverlayService.Instance.CurrentGameUnrecognised;
 
-    /// For a game that misbehaves with any overlay: off for that game only, remembered.
+    public string InGameExcludeText => InGameGameUnrecognised ? "Show Pulse in this game"
+                                     : IsInGameGameExcluded ? "Turn back on for this game" : "Turn off for this game";
+
+    public string InGameGameButtonTip => InGameGameUnrecognised
+        ? "Pulse shows only in programs that look like games. Say this one is, and Pulse remembers it. It still stays out of games with anti-cheat."
+        : "For a game that does not get on with overlays. Pulse remembers it, and shows the window overlay there instead.";
+
+    /// For a game that misbehaves with any overlay: off for that game only, remembered. For a
+    /// game Pulse did not recognise: the player says it is one, also remembered.
     public void ToggleInGameGameExcluded()
     {
         if (InGameGame is not { } exe) return;
+        if (InGameGameUnrecognised)
+        {
+            var included = SettingsService.Instance.Settings.InGameIncludedGames;
+            if (!included.Any(e => string.Equals(e, exe, StringComparison.OrdinalIgnoreCase))) included.Add(exe);
+            SettingsService.Instance.Save();
+            RaiseInGameExclusions();
+            return;
+        }
         var list = SettingsService.Instance.Settings.InGameExcludedGames;
         if (IsInGameGameExcluded) list.RemoveAll(e => string.Equals(e, exe, StringComparison.OrdinalIgnoreCase));
         else list.Add(exe);
@@ -600,6 +617,7 @@ public class SettingsViewModel : BaseViewModel
     {
         OnPropertyChanged(nameof(IsInGameGameExcluded));
         OnPropertyChanged(nameof(InGameExcludeText));
+        OnPropertyChanged(nameof(InGameGameButtonTip));
         OnPropertyChanged(nameof(InGameExcludedSummary));
         OnPropertyChanged(nameof(HasInGameExclusions));
     }

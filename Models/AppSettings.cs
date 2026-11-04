@@ -192,6 +192,10 @@ public class AppSettings
     /// Games the player turned it off for, by executable name ("game.exe"), compared without case.
     public List<string> InGameExcludedGames { get; set; } = new();
 
+    /// Games Pulse did not recognise and the player said are games ("Show Pulse in this game"),
+    /// by executable name. Anti-cheat still keeps the overlay out of them.
+    public List<string> InGameIncludedGames { get; set; } = new();
+
     private static readonly string SettingsPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "Refora", "Pulse", "settings.json");
@@ -376,6 +380,8 @@ public class AppSettings
         InGameTileIds           = InGameTileIds?.Where(id => !string.IsNullOrWhiteSpace(id)).Distinct().ToList() ?? new List<string>();
         InGameTileOrder         = InGameTileOrder?.Where(id => !string.IsNullOrWhiteSpace(id)).Distinct().ToList() ?? new List<string>();
         InGameExcludedGames     = InGameExcludedGames?.Where(n => !string.IsNullOrWhiteSpace(n))
+                                                      .Distinct(StringComparer.OrdinalIgnoreCase).ToList() ?? new List<string>();
+        InGameIncludedGames     = InGameIncludedGames?.Where(n => !string.IsNullOrWhiteSpace(n))
                                                       .Distinct(StringComparer.OrdinalIgnoreCase).ToList() ?? new List<string>();
     }
 

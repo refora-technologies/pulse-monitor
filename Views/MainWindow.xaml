@@ -968,7 +968,7 @@
             BorderBrush="#1C1A30" TextElement.FontFamily="{StaticResource Jakarta}"
             TextElement.Foreground="#EDE9FC">
         <Border.Background><SolidColorBrush Color="#0D0C16"/></Border.Background>
-        <Grid>
+        <Grid x:Name="ShellGrid">
             <Grid.RowDefinitions>
                 <RowDefinition Height="44"/>
                 <RowDefinition Height="*"/>
@@ -1767,7 +1767,7 @@
                                             <Button Style="{StaticResource LinkBtn}" Content="{Binding InGameExcludeText}"
                                                     HorizontalAlignment="Left" Padding="0,3" Margin="0,4,0,0" FontSize="10.5"
                                                     Visibility="{Binding HasInGameGame, Converter={StaticResource BoolToVis}}"
-                                                    ToolTip="For a game that does not get on with overlays. Pulse remembers it, and shows the window overlay there instead."
+                                                    ToolTip="{Binding InGameGameButtonTip}"
                                                     Click="InGameExcludeGame_Click"/>
                                         </StackPanel>
                                     </Grid>
@@ -2372,6 +2372,11 @@
                     </Button>
                 </Grid>
             </Border>
+
+            <!-- Over everything while a dialog is open: dims the panel, which is also blurred, so
+                 the eye goes to the question. Takes the clicks too. See ShowDialogFocused. -->
+            <Border x:Name="DialogScrim" Grid.RowSpan="3" CornerRadius="17" Background="#A6060510"
+                    Visibility="Collapsed" Opacity="0"/>
         </Grid>
     </Border>
 </Window>
