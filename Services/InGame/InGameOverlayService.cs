@@ -119,7 +119,7 @@ public sealed class InGameOverlayService : IDisposable
                     var latest = GameCheck.Check(pid, settings.InGameExcludedGames, settings.InGameIncludedGames, GetForegroundWindow());
                     if (latest.Verdict != Verdict.Allowed)
                     {
-                        LogService.Info(nameof(InGameOverlayService), $"{latest.Name} ({pid}): {latest.Verdict} on the last look before adding the overlay, {latest.Detail}.");
+                        LogService.Info(nameof(InGameOverlayService), $"Process {pid}: {latest.Verdict} on the last look before adding the overlay.");
                         _checked[pid] = (latest, DateTime.UtcNow);
                         found = latest;
                     }
@@ -130,7 +130,7 @@ public sealed class InGameOverlayService : IDisposable
                         else
                         {
                             _loadFailed.Add(pid);
-                            LogService.Warn(nameof(InGameOverlayService), $"Could not put the in-game overlay into {game.Name}: {problem}.");
+                            LogService.Warn(nameof(InGameOverlayService), $"Could not put the in-game overlay into process {pid}: {problem}.");
                         }
                     }
                 }
@@ -230,6 +230,8 @@ public sealed class InGameOverlayService : IDisposable
         Verdict.Excluded => $"Turned off for {info.Name}",
         Verdict.AntiCheat => $"Not in {info.Name}: {info.Detail}, so the window overlay is shown",
         Verdict.Unrecognised => $"Not in {info.Name}: it does not look like a game. If it is one, Pulse can show in it",
+        // Left during its few seconds' wait: it goes in once the game is back in front.
+        Verdict.Allowed => $"Getting ready in {info.Name}: it shows a few seconds after you go back to the game",
         _ => $"Not in {info.Name}: {info.Detail}",
     };
 
@@ -277,7 +279,7 @@ public sealed class InGameOverlayService : IDisposable
             _checked[pid] = (info with { Verdict = Verdict.AntiCheat, Detail = $"{found}, which started after Pulse's overlay went in" }, now);
             if (_shownGame?.Pid == pid) { _shownGame = null; _shownWindow = null; }
             LogService.Warn(nameof(InGameOverlayService),
-                $"{info.Name} ({pid}): anti-cheat started after the in-game overlay went in ({found}). It draws nothing there from now on; the window overlay is shown.");
+                $"Process {pid}: anti-cheat started after the in-game overlay went in. It draws nothing there from now on; the window overlay is shown.");
         }
     }
 
@@ -298,7 +300,11 @@ public sealed class InGameOverlayService : IDisposable
 
         var info = GameCheck.Check(pid, settings.InGameExcludedGames, settings.InGameIncludedGames, GetForegroundWindow());
         if (!_checked.ContainsKey(pid) || _checked[pid].Info.Verdict != info.Verdict)
-            LogService.Info(nameof(InGameOverlayService), $"{info.Name} ({pid}): {info.Verdict}{(info.Detail.Length > 0 ? ", " + info.Detail : "")}.");
+            // By process number and verdict only: Pulse's privacy policy promises no application,
+            // game, window or file name is ever in its log, and the reasons name files (a library
+            // loaded, a file in the game's folder). Name and reason are for the status line on
+            // screen only.
+            LogService.Info(nameof(InGameOverlayService), $"Process {pid}: {info.Verdict}.");
         _checked[pid] = (info, now);
         _firstSeen.TryAdd(pid, now);
 

@@ -51,6 +51,11 @@ you agree, so the newest version is the one to test and the one we support.
   refuses one that doesn't match. A way around that check, or around where the download is
   kept, is in scope.
 - **The files Pulse writes:** its settings, its logs, and the diagnostics file you can save.
+- **The in-game overlay:** when it is on, Pulse puts a small part of itself into the game in
+  front, and the game reads Pulse's readings from a block of memory only Pulse can write.
+  Anything that lets another program use this to get its own code into a game, change what the
+  overlay shows, or make Pulse go into a program it should have left alone, such as one with
+  anti-cheat, is in scope.
 
 Problems in the components Pulse is built on (the PawnIO driver, LibreHardwareMonitor,
-PresentMon, .NET) are welcome too. We will pass them on to their makers.
+PresentMon, Dear ImGui, .NET) are welcome too. We will pass them on to their makers.

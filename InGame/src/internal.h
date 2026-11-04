@@ -38,6 +38,7 @@ double TestLowFromClockMs();                     // the oldest frame behind the 
 void SetUpImGui();                               // context, settings and fonts
 void ShutDownImGui();
 void BuildOverlay(float width, float height, float pixelsPerDip);
+bool ShouldDraw();                                // anything to draw this frame; asked before any drawing work
 float PixelsPerDip(IDXGISwapChain* chain, float bufferWidth);  // the screen's scaling, times any stretch
 
 // render_dx11.cpp and render_dx12.cpp. Each Init takes the chain the game presents with, and

@@ -17,7 +17,7 @@ namespace {
 std::mutex g_lock;
 std::vector<std::string> g_pending;
 HANDLE g_wake = nullptr;
-char g_who[96] = "";  // "[game.exe 1234]  " in the shared log, so its lines say which game they are from
+char g_who[96] = "";  // "[pid 1234]  " in the shared log, so its lines say which game they are from
 
 DWORD WINAPI Writer(void*) {
     // PULSE_INGAME_LOG if the program was started with it (the tests), otherwise ingame.log beside
@@ -38,10 +38,9 @@ DWORD WINAPI Writer(void*) {
                 MoveFileExA(path, older, MOVEFILE_REPLACE_EXISTING);
             }
         }
-        char exe[MAX_PATH];
-        DWORD len = GetModuleFileNameA(nullptr, exe, MAX_PATH);
-        const char* name = len ? std::strrchr(exe, '\\') : nullptr;
-        std::snprintf(g_who, sizeof g_who, "[%s %lu]  ", name ? name + 1 : "game", GetCurrentProcessId());
+        // The game by its process number, never its name: Pulse's privacy policy promises its logs
+        // cannot show what you were running.
+        std::snprintf(g_who, sizeof g_who, "[pid %lu]  ", GetCurrentProcessId());
     }
     for (;;) {
         WaitForSingleObject(g_wake, 1000);
