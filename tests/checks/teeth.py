@@ -68,6 +68,13 @@ CASES = [
 # they are proven the other way round: reintroduce the fault into the current source and
 # require the guard to notice. Same standard, different direction.
 MUTATIONS = [
+    # Open the library's memory group again, and it scans the SMBus where a laptop's touchpad sits.
+    ("Services/SensorReader.cs",
+     "computer.IsMemoryEnabled      = false;",
+     "computer.IsMemoryEnabled      = s.HasFlag(SensorSubsystems.Memory);",
+     "the sensor library's memory group is never opened",
+     "a Ryzen laptop's cursor frozen until a restart as soon as Pulse started"),
+
     # Show asleep the moment the card dips, and the tiles flicker the way a reporter filmed.
     ("Services/SensorReader.cs",
      "private const long SleepShownAfterMs = 10_000;",

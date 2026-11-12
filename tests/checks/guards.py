@@ -1030,6 +1030,14 @@ def stability_132_guards(src):
           and "asleep.Remove(chosen);" in reader
           and reader.find("asleep.Remove(chosen);") < reader.find("if (chosen != null && asleep.Contains(chosen))\n"),
           "an Intel UHD driving the screen labelled asleep 926 times in four hours")
+    # The sensor library's memory group is never opened: it scans the SMBus for the RAM sticks,
+    # and on many laptops the touchpad sits on that bus. 12 Nov 2026: a Ryzen laptop's cursor
+    # froze until a restart as soon as 1.3.5 started. RAM Used comes from Windows instead.
+    check("the sensor library's memory group is never opened, so the SMBus is never scanned",
+          "computer.IsMemoryEnabled      = false;" in reader
+          and "IsMemoryEnabled      = s." not in reader
+          and "GlobalMemoryStatusEx(ref status)" in reader,
+          "a laptop's touchpad frozen until a restart by the RAM-stick scan")
     # A card that dips into sleep for a second must not flicker the tiles. Reported 18 Oct 2026
     # with a video: GPU Usage and GPU Temp switching between "asleep" and readings every few
     # seconds on an RTX 3050. Replayed against 1.3.3, 28 of 103 readings said asleep.
