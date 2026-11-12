@@ -179,7 +179,12 @@ public sealed class SensorReader : IDisposable
     {
         computer.IsCpuEnabled         = s.HasFlag(SensorSubsystems.Cpu);
         computer.IsGpuEnabled         = s.HasFlag(SensorSubsystems.Gpu);
-        computer.IsMemoryEnabled      = s.HasFlag(SensorSubsystems.Memory);
+        // Never opened, whatever is asked for. The library's memory group also looks for the
+        // RAM sticks by scanning the SMBus through the sensor driver, and on many laptops the
+        // touchpad sits on that bus: a Ryzen laptop's cursor froze until a restart as soon as
+        // 1.3.5 started (12 Nov 2026). Pulse needs none of that; RAM Used comes from Windows,
+        // the same call the library itself uses for it (ReadMemory).
+        computer.IsMemoryEnabled      = false;
         computer.IsStorageEnabled     = s.HasFlag(SensorSubsystems.Storage);
         computer.IsNetworkEnabled     = s.HasFlag(SensorSubsystems.Network);
         computer.IsBatteryEnabled     = s.HasFlag(SensorSubsystems.Battery);
@@ -378,6 +383,8 @@ public sealed class SensorReader : IDisposable
                     if (IsGpu(sub.HardwareType)) gpus.Add(sub);
                 }
             }
+
+            if (_subsystems.HasFlag(SensorSubsystems.Memory)) ReadMemory(data);
 
             // Before anything asks Windows about a card by name.
             NoteAmbiguousNames(gpus);
@@ -751,7 +758,6 @@ public sealed class SensorReader : IDisposable
         switch (hw.HardwareType)
         {
             case HardwareType.Cpu:     ReadCpu(hw, data);     break;
-            case HardwareType.Memory:  ReadMemory(hw, data);  break;
             case HardwareType.Network: ReadNetwork(hw, data); break;
             case HardwareType.Battery: ReadBattery(hw, data); break;
             case HardwareType.Storage: ReadStorage(hw, data); break;
@@ -1231,31 +1237,36 @@ public sealed class SensorReader : IDisposable
         && !name.Contains("Effective", StringComparison.OrdinalIgnoreCase)
         && !name.Contains("Average",   StringComparison.OrdinalIgnoreCase);
 
-    private void ReadMemory(IHardware hw, SensorData data)
+    /// <summary>
+    /// RAM in use and installed, from Windows: the same figures Task Manager shows, and the same
+    /// call the sensor library makes for its own "Memory Used", in the same units (GiB).
+    /// </summary>
+    /// <remarks>
+    /// Asked of Windows directly so the library's memory group is never opened. That group also
+    /// scans the SMBus for the RAM sticks, which can freeze a laptop's touchpad (see Apply).
+    /// </remarks>
+    private void ReadMemory(SensorData data)
     {
-        float? used = null, available = null;
-        ISensor? usedFrom = null;
-        foreach (var s in hw.Sensors)
-        {
-            if (s.Value is null || s.SensorType != SensorType.Data) continue;
-            var name = s.Name;
-            if (name.Contains("Used", StringComparison.OrdinalIgnoreCase)
-                && !name.Contains("Virtual", StringComparison.OrdinalIgnoreCase))
-            {
-                used = s.Value.Value;
-                usedFrom = s;
-            }
-            else if (name.Contains("Available", StringComparison.OrdinalIgnoreCase)
-                && !name.Contains("Virtual", StringComparison.OrdinalIgnoreCase))
-                available = s.Value.Value;
-        }
-        if (used.HasValue)
-            data.RamUsed = MathF.Round(used.Value, 2);
-        if (usedFrom != null)
-            Source("ram_used", Of(hw, usedFrom));
-        if (used.HasValue && available.HasValue)
-            data.TotalRamGb = MathF.Round(used.Value + available.Value, 0);
+        var status = new MEMORYSTATUSEX { dwLength = (uint)System.Runtime.InteropServices.Marshal.SizeOf<MEMORYSTATUSEX>() };
+        if (!GlobalMemoryStatusEx(ref status) || status.ullTotalPhys == 0) return;
+
+        const float GiB = 1024f * 1024f * 1024f;
+        float used = (status.ullTotalPhys - status.ullAvailPhys) / GiB;
+        float available = status.ullAvailPhys / GiB;
+        data.RamUsed = MathF.Round(used, 2);
+        data.TotalRamGb = MathF.Round(used + available, 0);
+        Source("ram_used", "Windows (GlobalMemoryStatusEx), physical memory in use");
     }
+
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    private struct MEMORYSTATUSEX
+    {
+        public uint dwLength, dwMemoryLoad;
+        public ulong ullTotalPhys, ullAvailPhys, ullTotalPageFile, ullAvailPageFile, ullTotalVirtual, ullAvailVirtual, ullAvailExtendedVirtual;
+    }
+
+    [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool GlobalMemoryStatusEx(ref MEMORYSTATUSEX status);
 
     /// <summary>
     /// Adds an adapter's throughput to the totals, skipping anything that isn't a real
