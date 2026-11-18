@@ -35,3 +35,17 @@ jobs:
           # Lets the release notes suite read the notes of the latest published release.
           GH_TOKEN: ${{ github.token }}
         run: powershell -NoProfile -ExecutionPolicy Bypass -File tests\run.ps1
+
+  # The shared core on Linux, where the Linux version will run. Its suite runs on Windows above
+  # too; here it proves the same files build and give the same answers with no Windows at all.
+  shared-core-on-linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          dotnet-version: 10.0.404
+
+      - name: Run the shared core's suite
+        run: dotnet run --project tests/suites/core -c Release
