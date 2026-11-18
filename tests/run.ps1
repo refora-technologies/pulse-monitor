@@ -90,7 +90,9 @@ $suites = @(
     @('tile availability', 'tile-availability', 'AvailabilityTest.exe', $false),
     @('stability',         'stability',         'StabilityTest.exe',    $true),
     @('in-game overlay',   'ingame',            'InGameTest.exe',       $true),
-    @('release notes',     'release-notes',     'NotesTest.exe',        $true)
+    @('release notes',     'release-notes',     'NotesTest.exe',        $true),
+    # The shared core, on plain .NET with no Windows: what the Linux version will build on.
+    @('shared core',       'core',              'CoreTest.exe',         $false)
 )
 
 # The release notes suite checks a notes file: the one given, or the latest published.
@@ -113,7 +115,8 @@ foreach ($s in $suites) {
         Write-Output $build
         continue
     }
-    $out = Join-Path $dir 'bin\Release\net10.0-windows'
+    # Every suite is a Windows program except the shared core's, which is plain .NET on purpose.
+    $out = Join-Path $dir $(if ($folder -eq 'core') { 'bin\Release\net10.0' } else { 'bin\Release\net10.0-windows' })
     if ($needsPulse) { Copy-Item (Join-Path $pulseOut '*.dll') $out -Force }
 
     $arguments = @()

@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The shared core: what every version of Pulse has in common, with no Windows in it. The tile
+       catalogue, how a tile shows a reading (its number, colour and bar), and the frame rate and
+       1% low arithmetic. The Linux version will reference this project (Linux track, step 1).
+
+       The files live where they always have, in Models\, and the Windows app compiles them as it
+       always has, so nothing changes for it and its tests still find them in Pulse.dll. This
+       project compiles the same files for plain .NET, so a shared file that reaches for Windows
+       stops this build, and tests\run.ps1 builds it on every run. CA1416 is the platform check:
+       a call to an API that exists only on Windows is an error here, not a warning. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>Pulse.Core</AssemblyName>
+    <RootNamespace>Pulse</RootNamespace>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <WarningsAsErrors>$(WarningsAsErrors);CA1416</WarningsAsErrors>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\Models\SensorCategory.cs" Link="Models\SensorCategory.cs" />
+    <Compile Include="..\Models\SensorTileDefinition.cs" Link="Models\SensorTileDefinition.cs" />
+    <Compile Include="..\Models\NetworkUnits.cs" Link="Models\NetworkUnits.cs" />
+    <Compile Include="..\Models\TileReading.cs" Link="Models\TileReading.cs" />
+    <Compile Include="..\Models\FrameMath.cs" Link="Models\FrameMath.cs" />
+  </ItemGroup>
+
+</Project>

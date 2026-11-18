@@ -40,6 +40,13 @@ WATCHED = [
     "Services/LogService.cs",
 ]
 
+# And every file the guards read, taken from guards.py itself. A guard reading a file left out of
+# the scratch copy fails there whether or not its fault is put back, so its "catches it" proves
+# nothing: five guards added on 18 Nov 2026 were like that until this was added.
+WATCHED += sorted({p for p in re.findall(r'src\.text\("([^"]+)"\)',
+                                         (Path(__file__).resolve().parent / "guards.py").read_text(encoding="utf-8-sig"))
+                   if p not in WATCHED})
+
 CASES = [
     ("e8b4781", "no environment variables in Exec parameters",
      "the uninstall kill filter that matched no process, shipped in 1.1.0 to 1.2.0"),
@@ -420,9 +427,9 @@ MUTATIONS = [
      "network speed reading five percent low against Task Manager"),
 
     # Convert the number but leave the label, or the other way round, and one of them lies.
-    ("ViewModels/OverlayViewModel.cs",
-     "NetworkUnits.Convert(_value.Value, bits: true)",
-     "_value.Value",
+    ("Models/TileReading.cs",
+     "NetworkUnits.Convert(value, bits: true)",
+     "value",
      "the unit shown and the value shown are decided together",
      "a tile labelled Mbps showing a number in MB/s"),
 
@@ -590,6 +597,25 @@ def main():
             shutil.rmtree(scratch, ignore_errors=True)
 
     print("\nReintroducing each fault into the current source:\n")
+
+    # First the copy as it is, undamaged: every guard a mutation names must pass there, or its
+    # failure after the damage would prove nothing. That is how a guard reading a file missing
+    # from the copy looked like it had teeth.
+    scratch = Path(tempfile.mkdtemp(prefix="pulse-teeth-"))
+    try:
+        for watched in WATCHED:
+            source = REPO / watched
+            if source.exists():
+                (scratch / watched).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, scratch / watched)
+        baseline = run_guards(scratch)
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
+    for fragment in sorted({m[3] for m in MUTATIONS}):
+        named = [(name, ok) for name, ok in baseline.items() if fragment in name]
+        if not named or not all(ok for _, ok in named):
+            print(f"  FAIL  '{fragment}' does not pass on the undamaged copy, so damaging it proves nothing")
+            failed += 1
 
     for rel, find, replace, fragment, bug in MUTATIONS:
         scratch = Path(tempfile.mkdtemp(prefix="pulse-teeth-"))
