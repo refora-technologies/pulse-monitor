@@ -117,7 +117,16 @@ foreach ($s in $suites) {
     }
     # Every suite is a Windows program except the shared core's, which is plain .NET on purpose.
     $out = Join-Path $dir $(if ($folder -eq 'core') { 'bin\Release\net10.0' } else { 'bin\Release\net10.0-windows' })
-    if ($needsPulse) { Copy-Item (Join-Path $pulseOut '*.dll') $out -Force }
+    if ($needsPulse) {
+        Copy-Item (Join-Path $pulseOut '*.dll') $out -Force
+        # The sensor library sits in a runtimes subfolder of Pulse's output, which a suite loading
+        # Pulse.dll from beside itself does not look in. The logging suite starts a sensor host from
+        # its own exe, and that host could never load it: it died with FileNotFoundException on every
+        # run, unnoticed because the suite's checks need no readings (found 18 Nov 2026 in Windows'
+        # Application log).
+        $lhm = Join-Path $pulseOut 'runtimes\win-x64\lib\net10.0\LibreHardwareMonitorLib.dll'
+        if (Test-Path $lhm) { Copy-Item $lhm $out -Force }
+    }
 
     $arguments = @()
     if ($folder -eq 'release-notes' -and $notesFile) { $arguments += $notesFile }
