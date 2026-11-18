@@ -411,11 +411,30 @@ def wiring_guards(src):
     check("the five advanced readings are marked advanced",
           sorted(advanced) == sorted(["cpu_core_max", "cpu_cores", "gpu_hotspot", "gpu_mem_clock", "gpu_voltage"]),
           "readings most people never need, shown to everyone")
-    check("the settings lists hide them until asked, leaving no gap",
+    # Since 18 Nov the advanced readings are added from the Sensors page, where each is shown
+    # with its value, and never listed among the ordinary tiles.
+    settings_page_vm = src.text("ViewModels/SettingsViewModel.cs") or ""
+    check("the advanced readings are added from the Sensors page, and the lists leave no gap",
           main_xaml.count('Value="{Binding IsShown, Converter={StaticResource BoolToVis}}"') == 1
           and main_xaml.count('Value="{Binding IsListedInGame, Converter={StaticResource BoolToVis}}"') == 1
-          and "public bool ShowAdvancedTiles { get; set; } = false;" in (src.text("Models/AppSettings.cs") or ""),
-          "the advanced readings on show out of the box, or holes in the grid where they were hidden")
+          and "public bool IsShown => !Definition.IsAdvanced;" in settings_page_vm
+          and 'ItemsSource="{Binding AdvancedReadings}"' in main_xaml,
+          "the advanced readings among the ordinary tiles, or nowhere to add them")
+    # The page's switches are the tile lists' own items, so the page and the lists are one
+    # setting and cannot disagree.
+    sensors_vm = src.text("ViewModels/SensorsViewModel.cs") or ""
+    check("the Sensors page's switches are the tile lists' own",
+          "public TileSelectionItem Overlay { get; }" in sensors_vm
+          and 'IsChecked="{Binding Overlay.IsSelected, Mode=TwoWay}"' in main_xaml
+          and 'IsChecked="{Binding InGame.IsSelected, Mode=TwoWay}"' in main_xaml,
+          "a reading switched on in one place and off in the other")
+    # The page asks for every sensor only while it is on screen: closing it, going back, or the
+    # panel being hidden all stop it.
+    main_cs = src.text("Views/MainWindow.xaml.cs") or ""
+    check("the Sensors page stops asking when it is not on screen",
+          "HardwareService.Instance.WatchSensors(false);" in sensors_vm
+          and "if (args.NewValue is not true && SensorsPage.Visibility == Visibility.Visible) ShowSensors(false);" in main_cs,
+          "every sensor read and sent while nobody is looking at the page")
     # The hot spot is caught before the general temperature case, so whatever order a driver
     # lists its sensors in, it never becomes GPU Temp, which would read ten degrees high.
     hot = reader.find('s.Name.Equals("GPU Hot Spot"')
