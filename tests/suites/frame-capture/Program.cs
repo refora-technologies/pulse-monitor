@@ -114,6 +114,13 @@ class Program
         Check("rows are counted per process only while watching",
               fps.Replace("\r\n", "\n").Contains("if (_watchingFrames)\n            lock (_rowsByPid)"),
               "otherwise every frame from every process pays for a lock all session");
+        Check("an ordinary window in front while a video plays elsewhere is not logged",
+              watch.Contains("if (!fills && !tied) return;") && watch.Contains("GameCheck.CoversItsScreen(_foregroundWindow)"),
+              "logged twice in the test build's first hour, noise among the lines meant for games");
+        var isRelated = familyType.GetMethod("IsRelated")!;
+        Check("a child of the program in front counts as tied to it, an unrelated one does not",
+              (bool)isRelated.Invoke(family, new object[] { kid, self })!
+              && !(bool)isRelated.Invoke(family, new object[] { 4_000_000_000u, self })!);
         Check("a program that cannot be identified is said, not silently skipped",
               fps.Contains("could not be identified, so its frame rate is not measured"),
               "it used to return false and say nothing");
