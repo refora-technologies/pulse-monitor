@@ -444,6 +444,20 @@ def wiring_guards(src):
           and "SpecialFolder.ApplicationData" not in log_service and "SpecialFolder.ApplicationData" not in app_settings,
           "test lines in the owner's real log, written while their Pulse was running")
 
+    # The Sensors page (1.3.7) walks everything the library holds. A card the reading left
+    # asleep goes as asleep with no values, never the values it had before it slept; the tree is
+    # built only while the page asks, and stops by itself if it stops asking.
+    host = src.text("Services/SensorHost.cs") or ""
+    check("the Sensors page never shows a sleeping card's old values as live",
+          "Asleep = IsGpu(hw.HardwareType) && !_readThisPoll.Contains(id)," in reader
+          and "if (!node.Asleep)" in reader
+          and reader.count("NoteRead(") >= 3,
+          "a card's readings from before it slept shown on the Sensors page as current")
+    check("the tree is sent only while the page asks, and stops by itself",
+          "if (treeOn && pollStarted - treeAskedAt > SensorCommand.TreeLapseMs)" in host
+          and "if (sendTree)" in host,
+          "a closed panel or a dead Pulse leaving every sensor read and sent forever")
+
     check("the core bars fit the in-game block",
           "public const int MaxCoreBars = 64;" in reader and "public const int MaxCores = 64;" in writer,
           "more cores read than the block has room for, cut off without a word")
