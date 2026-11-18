@@ -1,9 +1,18 @@
-using System.IO;
 using Newtonsoft.Json;
 
 namespace Pulse.Models;
 
-public class AppSettings
+/// <summary>
+/// Every setting, its default, and the repair of values nobody could have meant.
+/// </summary>
+/// <remarks>
+/// Split in two on 18 Nov 2026 for the Linux version. This half is the shared core
+/// (Core/Pulse.Core.csproj): the settings themselves and the file format, so every Pulse reads
+/// and writes the same settings.json. AppSettings.Windows.cs is where the file lives on Windows,
+/// how it is read patiently and saved safely, and the keyboard shortcuts, whose key names are
+/// WPF's.
+/// </remarks>
+public partial class AppSettings
 {
     public List<string> ActiveTileIds { get; set; } = new() { "cpu_usage", "cpu_temp", "gpu_usage", "gpu_temp", "ram_used" };
 
@@ -109,25 +118,6 @@ public class AppSettings
     public string ShortcutToggleControlPanel { get; set; } = "Alt+Shift+V";
     public string ShortcutToggleCompactMode { get; set; } = "Alt+Shift+C";
 
-    /// The parsed combination for an action. Anything unreadable comes back as unset.
-    public Shortcut ShortcutFor(ShortcutAction action) => Shortcut.Parse(action switch
-    {
-        ShortcutAction.ToggleOverlay      => ShortcutToggleOverlay,
-        ShortcutAction.ToggleControlPanel => ShortcutToggleControlPanel,
-        ShortcutAction.ToggleCompactMode  => ShortcutToggleCompactMode,
-        _ => "",
-    });
-
-    public void SetShortcut(ShortcutAction action, Shortcut shortcut)
-    {
-        var text = shortcut.ToString();
-        switch (action)
-        {
-            case ShortcutAction.ToggleOverlay:      ShortcutToggleOverlay      = text; break;
-            case ShortcutAction.ToggleControlPanel: ShortcutToggleControlPanel = text; break;
-            case ShortcutAction.ToggleCompactMode:  ShortcutToggleCompactMode  = text; break;
-        }
-    }
     public bool ShowMaxValues { get; set; } = false;
 
     /// Whether the settings lists show the advanced readings (SensorTileDefinition.IsAdvanced).
@@ -200,9 +190,6 @@ public class AppSettings
     /// by executable name. Anti-cheat still keeps the overlay out of them.
     public List<string> InGameIncludedGames { get; set; } = new();
 
-    // %APPDATA%\Refora\Pulse in Pulse; a folder of their own for the test suites (DataFolder).
-    internal static readonly string SettingsPath = Path.Combine(Pulse.Services.DataFolder.Root, "settings.json");
-
     /// <summary>
     /// Newtonsoft defaults to ObjectCreationHandling.Auto, which reuses the list created
     /// by a property initialiser and *appends* the saved values to it instead of
@@ -215,8 +202,6 @@ public class AppSettings
         ObjectCreationHandling = ObjectCreationHandling.Replace,
     };
 
-    private static string BackupPath => SettingsPath + ".bak";
-
     /// <summary>
     /// True when a settings file exists but could not be read, so these are defaults standing
     /// in for it. Such settings are never written to disk; see Load.
@@ -225,88 +210,21 @@ public class AppSettings
     public bool ReadFailed { get; private set; }
 
     /// <summary>
-    /// Reads the saved settings, falling back to the backup, then to defaults.
+    /// Settings from the text of a settings file, repaired, or null when the text holds none.
     /// </summary>
-    /// <remarks>
-    /// Three different reasons for having no settings, and only two of them are safe to write
-    /// over. A missing file is a first run. A file that is there but is not valid JSON has
-    /// nothing in it to protect. But a file that is there and could not be read right now, which
-    /// is most likely at logon when a scanner or a slow disk has it, still holds everything the
-    /// user set up. Pulse used to treat that the same as a first run: the startup task check
-    /// then saved, which moved the real file to the backup and wrote defaults in its place, and
-    /// the next save overwrote the backup too.
-    ///
-    /// So an unreadable file is asked again a couple of times, briefly. If it still cannot be
-    /// read, Pulse runs on defaults with ReadFailed set, and SettingsService refuses to save
-    /// them. Losing this session's changes is recoverable; losing the saved ones is not.
-    /// </remarks>
-    public static AppSettings Load()
+    /// Throws when the text is not JSON at all; the caller says which file that was.
+    public static AppSettings? FromJson(string text)
     {
-        // The backup is only reached if the main file is missing or unreadable, which is
-        // what an interrupted write leaves behind.
-        var (main, mainState) = TryLoadPatiently(SettingsPath);
-        if (main != null) return main;
-
-        var (backup, backupState) = TryLoadPatiently(BackupPath);
-        if (backup != null) return backup;
-
-        var defaults = new AppSettings
-        {
-            ReadFailed = mainState == ReadState.Unreadable || backupState == ReadState.Unreadable,
-        };
-
-        if (defaults.ReadFailed)
-            Services.LogService.Warn(nameof(AppSettings),
-                "Saved settings exist but could not be read. Running on defaults, which will not be saved over them.");
-
-        return defaults;
+        var settings = JsonConvert.DeserializeObject<AppSettings>(text, LoadSettings);
+        settings?.Sanitise();
+        return settings;
     }
 
-    internal enum ReadState { Missing, Read, Corrupt, Unreadable }
+    /// The settings as the file holds them: indented, so someone can read and repair it by hand.
+    public string ToJson() => JsonConvert.SerializeObject(this, Formatting.Indented);
 
-    private static (AppSettings? Settings, ReadState State) TryLoadPatiently(string path)
-    {
-        for (int attempt = 1; ; attempt++)
-        {
-            var result = TryLoad(path);
-            if (result.State != ReadState.Unreadable || attempt == 3) return result;
-
-            // Short, because this is on the way to the first window. At logon a file held by a
-            // scanner is usually released in well under a second.
-            Thread.Sleep(250 * attempt);
-        }
-    }
-
-    internal static (AppSettings? Settings, ReadState State) TryLoad(string path)
-    {
-        string text;
-        try
-        {
-            if (!File.Exists(path)) return (null, ReadState.Missing);
-            text = File.ReadAllText(path);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            // Worth recording: this is the path where a user silently loses every
-            // preference, and without a trace it looks like Pulse simply forgot them.
-            Services.LogService.Error(nameof(AppSettings), $"Could not read settings from {path}", ex);
-            return (null, ReadState.Unreadable);
-        }
-
-        try
-        {
-            var settings = JsonConvert.DeserializeObject<AppSettings>(text, LoadSettings);
-            if (settings is null) return (null, ReadState.Corrupt);
-
-            settings.Sanitise();
-            return (settings, ReadState.Read);
-        }
-        catch (Exception ex)
-        {
-            Services.LogService.Error(nameof(AppSettings), $"Settings in {path} could not be understood", ex);
-            return (null, ReadState.Corrupt);
-        }
-    }
+    /// The parts of the repair that belong to one platform: on Windows, the keyboard shortcuts.
+    partial void SanitisePlatform();
 
     /// <summary>
     /// Repairs anything the app cannot sensibly run with. A hand-edited, truncated or
@@ -348,28 +266,8 @@ public class AppSettings
 
         if (SelectedMonitorIndex < 0) SelectedMonitorIndex = 0;
 
-        // A shortcut that cannot be read, or that names a combination Pulse would have refused
-        // if it had been typed in, becomes unset rather than being repaired into something
-        // nobody chose. Rewritten from the parsed value so the stored text is normalised too:
-        // "shift + alt + x" saved by hand comes back as "Alt+Shift+X".
-        foreach (var action in new[] { ShortcutAction.ToggleOverlay,
-                                       ShortcutAction.ToggleControlPanel,
-                                       ShortcutAction.ToggleCompactMode })
-        {
-            SetShortcut(action, ShortcutFor(action));
-        }
-
-        // Two rows holding the same combination cannot both work: whichever registers second
-        // is refused by Windows. The later row loses it, matching what the panel does when the
-        // same thing is assigned twice.
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var action in new[] { ShortcutAction.ToggleOverlay,
-                                       ShortcutAction.ToggleControlPanel,
-                                       ShortcutAction.ToggleCompactMode })
-        {
-            var text = ShortcutFor(action).ToString();
-            if (text.Length > 0 && !seen.Add(text)) SetShortcut(action, Shortcut.None);
-        }
+        // Keyboard shortcuts are Windows key names, so the Windows half repairs them.
+        SanitisePlatform();
 
         if (OverlayPosition is not ("TopLeft" or "TopRight" or "BottomLeft" or "BottomRight" or "Custom"))
             OverlayPosition = "TopRight";
@@ -393,40 +291,5 @@ public class AppSettings
     private static double Clamp(double value, double min, double max, double fallback) =>
         double.IsFinite(value) && value >= min && value <= max ? value : fallback;
 
-    /// <summary>
-    /// Writes via a temporary file and File.Replace, so a crash or power loss mid-write
-    /// cannot leave a truncated settings file — previously the only copy was overwritten in
-    /// place, and losing it reset every preference silently.
-    /// </summary>
-    /// <returns>
-    /// Whether the file was actually written. This used to return nothing, so a failure was
-    /// logged and then dropped: the change applied in memory, the panel showed it, and it was
-    /// gone at the next launch with no explanation. "Pulse keeps forgetting my settings" is not
-    /// something anyone could have diagnosed from the outside.
-    /// </returns>
-    public bool Save()
-    {
-        try
-        {
-            var directory = Path.GetDirectoryName(SettingsPath)!;
-            Directory.CreateDirectory(directory);
 
-            var json = JsonConvert.SerializeObject(this, Formatting.Indented);
-            var temp = SettingsPath + ".tmp";
-
-            File.WriteAllText(temp, json);
-
-            if (File.Exists(SettingsPath))
-                File.Replace(temp, SettingsPath, BackupPath, ignoreMetadataErrors: true);
-            else
-                File.Move(temp, SettingsPath);
-
-            return true;
-        }
-        catch (Exception ex)
-        {
-            Services.LogService.Error(nameof(AppSettings), "Could not save settings", ex);
-            return false;
-        }
-    }
 }

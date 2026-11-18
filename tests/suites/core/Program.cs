@@ -29,6 +29,7 @@ class Program
         TileBars();
         TileNumbers();
         Catalogue();
+        Settings();
         Console.WriteLine($"\n{_pass} passed, {_fail} failed");
         return _fail == 0 ? 0 : 1;
     }
@@ -121,6 +122,49 @@ class Program
         Check("network in megabits when asked: 1 MB/s is 8.4 Mbps",
               TileReading.FormatValue(Tile("net_download"), 1f, true, false, 0) == "8.4");
         Check("millivolts whole", TileReading.FormatValue(Tile("gpu_voltage"), 631.25f, false, false, 0) == "631");
+    }
+
+    static void Settings()
+    {
+        Console.WriteLine();
+        Console.WriteLine("Settings and their file:");
+        var defaults = new AppSettings();
+        Check("out of the box: five tiles, the in-game look of its own, advanced readings hidden",
+              defaults.ActiveTileIds.Count == 5 && defaults.InGameOwnLook && !defaults.ShowAdvancedTiles);
+
+        // Newtonsoft's default appends saved lists to the defaults; the five default tiles then
+        // came back on every launch. The file's list must replace them.
+        var one = AppSettings.FromJson("{ \"ActiveTileIds\": [\"ram_used\"] }");
+        Check("a saved list replaces the default, never adds to it",
+              one.ActiveTileIds.SequenceEqual(new[] { "ram_used" }), string.Join(",", one.ActiveTileIds));
+
+        var bad = AppSettings.FromJson("{ \"OverlayOpacity\": 0, \"PollingIntervalSeconds\": -1, \"OverlayPosition\": \"Middle\", "
+                                     + "\"InGameLayout\": \"Sideways\", \"OverlayAnchorFx\": 2, \"OverlayAnchorFy\": 0.5, \"OverlayScale\": \"NaN\" }");
+        Check("values nobody could have meant fall back to the defaults",
+              bad.OverlayOpacity == 0.85 && bad.PollingIntervalSeconds == 2.0 && bad.OverlayPosition == "TopRight"
+              && bad.InGameLayout == "List" && bad.OverlayScale == 1.0,
+              $"{bad.OverlayOpacity} {bad.PollingIntervalSeconds} {bad.OverlayPosition} {bad.InGameLayout} {bad.OverlayScale}");
+        Check("a position outside the screen is no position at all", bad.OverlayAnchorFx == -1 && bad.OverlayAnchorFy == -1);
+
+        var ids = AppSettings.FromJson("{ \"ActiveTileIds\": [\"cpu_temp\", \"\", \"cpu_temp\", \"a_tile_from_a_newer_pulse\"] }");
+        Check("blanks and repeats go, a tile from a newer Pulse stays",
+              ids.ActiveTileIds.SequenceEqual(new[] { "cpu_temp", "a_tile_from_a_newer_pulse" }), string.Join(",", ids.ActiveTileIds));
+
+        var mine = new AppSettings { OverlayOpacity = 0.42, NetworkUnitBits = true, InGameTileIds = new() { "fps", "cpu_cores" } };
+        var back = AppSettings.FromJson(mine.ToJson());
+        Check("written and read back, the same settings",
+              back.OverlayOpacity == 0.42 && back.NetworkUnitBits && back.InGameTileIds.SequenceEqual(new[] { "fps", "cpu_cores" }));
+        Check("written readably, one setting a line",
+              mine.ToJson().Split('\n').Any(line => line.Trim() == "\"OverlayOpacity\": 0.42,"));
+        Check("an empty file holds no settings", AppSettings.FromJson("null") == null);
+
+        bool threw = false;
+        try { AppSettings.FromJson("not json"); } catch { threw = true; }
+        Check("text that is not JSON is refused, for the caller to say which file it was", threw);
+
+        // Shortcut keys are each platform's own; the shared core leaves the text as written.
+        var keys = AppSettings.FromJson("{ \"ShortcutToggleOverlay\": \"shift + alt + x\" }");
+        Check("shortcut text is left to the platform to repair", keys.ShortcutToggleOverlay == "shift + alt + x");
     }
 
     static void Catalogue()
