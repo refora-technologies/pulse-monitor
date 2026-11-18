@@ -48,6 +48,15 @@ internal sealed class ProcessFamily
     /// Windows' desktop compositor, or Pulse itself: both draw all the time and neither is a game.
     public bool IsCompositor(uint pid) => _compositors.Contains(pid) || pid == (uint)Environment.ProcessId;
 
+    /// Whether a process is tied to the one in front: started by it, started it, or started by
+    /// the same program. How a game drawing from a second process looks.
+    public bool IsRelated(uint pid, uint front)
+    {
+        if (!_parentOf.TryGetValue(pid, out var parent)) return false;
+        _parentOf.TryGetValue(front, out var frontParent);
+        return parent == front || pid == frontParent || (parent != 0 && parent == frontParent);
+    }
+
     /// How a process relates to the one in front, in words for the log.
     public string Relation(uint pid, uint front)
     {

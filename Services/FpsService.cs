@@ -443,6 +443,7 @@ public class FpsService : IDisposable
     /// The process that owns the window in front, measured or not, and whether it is the
     /// frame Windows draws around a Store app's window rather than the app itself.
     private uint _rawForegroundPid;
+    private IntPtr _foregroundWindow;
     private bool _foregroundIsFrameHost;
 
     /// <summary>
@@ -494,6 +495,14 @@ public class FpsService : IDisposable
                           .Take(3)
                           .ToList();
         if (drawing.Count == 0 || drawing[0].Value / seconds < GameRatePerSecond) return;
+
+        // Only what looks like a game going wrong: the program in front fills its screen, or a
+        // process tied to it is the one drawing. Without this, an ordinary window in front while
+        // a video played elsewhere was logged as a missing frame rate, twice in the first hour
+        // of the 1.3.7 test build (18 Nov 2026), and the lines meant for a game were noise.
+        bool fills = InGame.GameCheck.CoversItsScreen(_foregroundWindow);
+        bool tied = drawing.Any(r => r.Value / seconds >= GameRatePerSecond && family.IsRelated(r.Key, watch));
+        if (!fills && !tied) return;
 
         _missingFramesSaid.Add(watch);
         _missingFrameReports++;
@@ -1152,6 +1161,7 @@ public class FpsService : IDisposable
         if (hwnd == IntPtr.Zero) return;
         GetWindowThreadProcessId(hwnd, out uint pid);
         _rawForegroundPid = pid;
+        _foregroundWindow = hwnd;
 
         // Nothing worth measuring is focused, so stop measuring rather than reporting whatever
         // the shell happens to be doing.
