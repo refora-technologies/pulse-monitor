@@ -216,6 +216,15 @@ public static class SensorCommand
     public const string Describe      = "describe";
 
     /// <summary>
+    /// The Sensors page: "on" to have the host send its whole sensor tree with every reading,
+    /// "off" to stop. Pulse repeats "on" every few seconds while the page is open, and the host
+    /// stops by itself after <see cref="TreeLapseMs"/> without one, so a panel that closed
+    /// without saying so, or a Pulse that died, never leaves it on.
+    /// </summary>
+    public const string Tree          = "tree";
+    public const long   TreeLapseMs   = 10_000;
+
+    /// <summary>
     /// The start of the host's answer to <see cref="Describe"/>: this, a space, and the report
     /// as one JSON string.
     /// </summary>
@@ -264,6 +273,9 @@ public static class SensorCommand
     /// An empty id means "choose automatically", which is why this is not simply omitted.
     public static string Gpu(string? id) =>
         Line(new { cmd = SelectGpu, flags = id ?? "" });
+
+    public static string SensorTree(bool on) =>
+        Line(new { cmd = Tree, flags = on ? "on" : "off" });
 
     public static string RescanHardware() =>
         Line(new { cmd = Rescan });

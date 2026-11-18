@@ -61,6 +61,7 @@ class Program
         Framing();
         Rubbish();
         Commands();
+        Trees(asm);
         Adapters.Run(asm, (n, ok, d) => Check(n, ok, d));
         Picker.Run(asm, (n, ok, d) => Check(n, ok, d));
 
@@ -357,6 +358,66 @@ class Program
     }
 
     // ── commands going the other way ─────────────────────────────────────────────────
+    // The Sensors page's tree (1.3.7): its own line beside the reading, sent only while asked.
+    static void Trees(Assembly asm)
+    {
+        Console.WriteLine("\nThe Sensors page's tree:");
+        var treeT = asm.GetType("Pulse.Services.SensorTree")!;
+        var nodeT = asm.GetType("Pulse.Services.SensorNode")!;
+        var rowT  = asm.GetType("Pulse.Services.SensorRow")!;
+        var lineT = asm.GetType("Pulse.Services.SensorTreeLine")!;
+
+        object Row(string id, string name, string type, float? v, string tile)
+        {
+            var r = Activator.CreateInstance(rowT)!;
+            Set(r, "Id", id); Set(r, "Name", name); Set(r, "Type", type); Set(r, "Value", v); Set(r, "Tile", tile);
+            return r;
+        }
+
+        var tree = Activator.CreateInstance(treeT)!;
+        var cpu = Activator.CreateInstance(nodeT)!;
+        Set(cpu, "Id", "/intelcpu/0"); Set(cpu, "Name", "Intel Core i5 \u00e9"); Set(cpu, "Type", "Cpu");
+        var rows = (System.Collections.IList)Get(cpu, "Sensors");
+        rows.Add(Row("/intelcpu/0/temperature/10", "CPU Package", "Temperature", 62.5f, "cpu_temp"));
+        rows.Add(Row("/intelcpu/0/load/1", "CPU Core Max", "Load", float.NaN, null));
+        rows.Add(Row("/intelcpu/0/clock/1", "P-Core #1", "Clock", null, null));
+        var card = Activator.CreateInstance(nodeT)!;
+        Set(card, "Id", "/gpu-nvidia/0"); Set(card, "Name", "RTX"); Set(card, "Type", "GpuNvidia"); Set(card, "Asleep", true);
+        var hw = (System.Collections.IList)Get(tree, "Hardware");
+        hw.Add(cpu); hw.Add(card);
+
+        var line = (string)lineT.GetMethod("Write")!.Invoke(null, new[] { tree });
+        Check("a tree is one line, ending in a newline", line != null && line.EndsWith("\n") && line.IndexOf('\n') == line.Length - 1);
+        Check("and starts with its own prefix, so the reading parser rejects it",
+              line.StartsWith("#pulse-sensor-tree ") && _proto.GetMethod("TryParse")!.Invoke(null, new object[] { line }) == null);
+        Check("and is plain ASCII on the wire", line.All(c => c < 128));
+
+        var back = lineT.GetMethod("TryRead")!.Invoke(null, new object[] { line.TrimEnd('\n') });
+        var backHw = (System.Collections.IList)Get(back, "Hardware");
+        var backCpu = backHw[0];
+        var backRows = (System.Collections.IList)Get(backCpu, "Sensors");
+        Check("read back: the hardware, its name, its sensors",
+              backHw.Count == 2 && (string)Get(backCpu, "Name") == "Intel Core i5 \u00e9" && backRows.Count == 3);
+        Check("a sensor keeps its value and the tile it feeds",
+              (float?)Get(backRows[0], "Value") == 62.5f && (string)Get(backRows[0], "Tile") == "cpu_temp");
+        Check("not-a-number travels as no value, never as a reading", Get(backRows[1], "Value") == null);
+        Check("a sleeping card says so", (bool)Get(backHw[1], "Asleep"));
+        Check("anything else is not a tree",
+              lineT.GetMethod("TryRead")!.Invoke(null, new object[] { "{\"Data\":{}}" }) == null
+              && lineT.GetMethod("TryRead")!.Invoke(null, new object[] { "#pulse-sensor-tree {broken" }) == null);
+
+        var on  = (string)_cmd.GetMethod("SensorTree")!.Invoke(null, new object[] { true });
+        var off = (string)_cmd.GetMethod("SensorTree")!.Invoke(null, new object[] { false });
+        // A nullable tuple, boxed: the tuple itself when there is one.
+        (string Cmd, double Seconds, string Text)? parse(string l) =>
+            ((string, double, string)?)_cmd.GetMethod("TryParse")!.Invoke(null, new object[] { l });
+        var pOn = parse(on); var pOff = parse(off);
+        Check("the page's on and off reach the host as such",
+              pOn is { } a && a.Cmd == "tree" && a.Text == "on" && pOff is { } b && b.Text == "off");
+        Check("the host stops by itself when the page stops asking, after ten seconds",
+              (long)_cmd.GetField("TreeLapseMs")!.GetValue(null)! == 10_000);
+    }
+
     static void Commands()
     {
         Console.WriteLine("\nCommands to the host must survive the same journey:");

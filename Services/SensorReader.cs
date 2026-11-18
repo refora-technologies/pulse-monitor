@@ -168,6 +168,98 @@ public sealed class SensorReader : IDisposable
         return text.ToString();
     }
 
+    /// <summary>
+    /// Everything the library holds, for the Sensors page, as the last reading left it.
+    /// </summary>
+    /// <remarks>
+    /// Touches no hardware, like <see cref="Describe"/>: it walks what the last reading updated.
+    /// A graphics adapter that reading did not touch, because it was asleep, is sent as asleep
+    /// with no sensors rather than with the values it had before it slept. A sensor a tile was
+    /// read from is marked with that tile, from the record each reading keeps of its sources,
+    /// so the page needs no second copy of the rules for choosing sensors. RAM is Windows' own
+    /// figure (ReadMemory), because the library's memory group is never opened.
+    /// </remarks>
+    public SensorTree Tree(SensorData data)
+    {
+        var tree = new SensorTree();
+        if (!IsReady) return tree;
+
+        var tileOf = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var (tile, how) in _sources)
+            if (SourceIdentifier.Match(how) is { Success: true } m) tileOf.TryAdd(m.Groups[1].Value, tile);
+
+        void Add(IHardware hw)
+        {
+            if (hw.HardwareType == HardwareType.Network && !_countedAdapters.Contains(hw.Name)) return;
+
+            var id = hw.Identifier.ToString();
+            var node = new SensorNode
+            {
+                Id     = id,
+                Name   = hw.Name,
+                Type   = hw.HardwareType.ToString(),
+                Asleep = IsGpu(hw.HardwareType) && !_readThisPoll.Contains(id),
+            };
+            if (!node.Asleep)
+            {
+                foreach (var sensor in hw.Sensors.OrderBy(x => x.SensorType).ThenBy(x => x.Index))
+                {
+                    var sensorId = sensor.Identifier.ToString();
+                    node.Sensors.Add(new SensorRow
+                    {
+                        Id    = sensorId,
+                        Name  = sensor.Name,
+                        Type  = sensor.SensorType.ToString(),
+                        Value = sensor.Value,
+                        Tile  = tileOf.GetValueOrDefault(sensorId),
+                    });
+                }
+            }
+            tree.Hardware.Add(node);
+            foreach (var sub in hw.SubHardware) Add(sub);
+        }
+
+        try
+        {
+            foreach (var hw in _computer.Hardware) Add(hw);
+        }
+        catch (Exception ex)
+        {
+            // The library's tree, walked between polls; a page is not worth a fault over.
+            Log("warn", $"The sensor tree could not be walked: {ex.GetType().Name}");
+        }
+
+        if (data.RamUsed is { } used && data.TotalRamGb > 0)
+        {
+            tree.Hardware.Add(new SensorNode
+            {
+                Id = "/ram", Name = "Memory", Type = "Memory",
+                Sensors =
+                {
+                    new SensorRow { Id = "/ram/load", Name = "Memory", Type = "Load", Value = MathF.Round(used / data.TotalRamGb * 100f, 1) },
+                    new SensorRow { Id = "/ram/used", Name = "Memory Used", Type = "Data", Value = used, Tile = "ram_used" },
+                    new SensorRow { Id = "/ram/available", Name = "Memory Available", Type = "Data", Value = MathF.Max(0, data.TotalRamGb - used) },
+                },
+            });
+        }
+
+        return tree;
+    }
+
+    /// The identifier at the end of a source line ("CPU > CPU Package = 62 [/intelcpu/0/temperature/10]").
+    private static readonly System.Text.RegularExpressions.Regex SourceIdentifier =
+        new(@"\[(/[^\]\s]+)\]", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    /// Hardware updated by the last reading, so the tree can tell a card that was read from one
+    /// that was left asleep.
+    private readonly HashSet<string> _readThisPoll = new(StringComparer.Ordinal);
+
+    private void NoteRead(IHardware hw)
+    {
+        _readThisPoll.Add(hw.Identifier.ToString());
+        foreach (var sub in hw.SubHardware) NoteRead(sub);
+    }
+
     public void SetSubsystems(SensorSubsystems subsystems)
     {
         if (subsystems == _subsystems) return;
@@ -357,6 +449,7 @@ public sealed class SensorReader : IDisposable
         try
         {
             var gpus = new List<IHardware>();
+            _readThisPoll.Clear();
 
             var asleep = new HashSet<IHardware>();
 
@@ -376,6 +469,7 @@ public sealed class SensorReader : IDisposable
                 // visits its children, so the children must not be Accept'ed again below or
                 // every subhardware sensor is read twice per poll.
                 hw.Accept(_visitor);
+                NoteRead(hw);
                 ReadHardware(hw, data);
                 if (IsGpu(hw.HardwareType)) gpus.Add(hw);
 
@@ -462,6 +556,7 @@ public sealed class SensorReader : IDisposable
             if (chosen != null && asleep.Contains(chosen) && !IsDiscrete(chosen))
             {
                 chosen.Accept(_visitor);
+                NoteRead(chosen);
                 asleep.Remove(chosen);
             }
 

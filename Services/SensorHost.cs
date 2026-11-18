@@ -73,7 +73,11 @@ public static class SensorHost
         using var reader = new SensorReader(Log);
 
         double interval = ReadInterval(args);
-        reader.SetSubsystems(ReadSubsystems(args));
+
+        // What Pulse's tiles need, and what is opened: more while the Sensors page is open.
+        var wanted = ReadSubsystems(args);
+        var opened = wanted;
+        reader.SetSubsystems(opened);
         reader.SetSelectedGpu(ReadOption(args, "--gpu="));
 
         try
@@ -108,6 +112,10 @@ public static class SensorHost
         SensorSubsystems? newSubsystems = null;
         string? newGpu = null;
         bool gpuPending = false, rescanPending = false, describePending = false;
+
+        // The Sensors page: on while Pulse keeps asking, off after TreeLapseMs without a word.
+        bool treeOn = false;
+        long treeAskedAt = 0;
 
         // Ends the wait between polls early. Only a report request uses it: someone is looking
         // at "Saving..." in the control panel, and at a one-minute refresh they would otherwise
@@ -153,6 +161,13 @@ public static class SensorHost
                             case SensorCommand.Describe:
                                 describePending = true;
                                 nudge.Set();
+                                break;
+
+                            case SensorCommand.Tree:
+                                bool wasOn = treeOn;
+                                treeOn = command.Value.Text == "on";
+                                treeAskedAt = Environment.TickCount64;
+                                if (treeOn && !wasOn) nudge.Set();   // the page wants something to show now
                                 break;
 
                             case SensorCommand.Quit:
@@ -210,7 +225,19 @@ public static class SensorHost
             lock (pending)
             {
                 if (newInterval is { } seconds)      { interval = Clamp(seconds); newInterval = null; }
-                if (newSubsystems is { } subsystems) { reader.SetSubsystems(subsystems); newSubsystems = null; }
+                if (newSubsystems is { } subsystems) { wanted = subsystems; newSubsystems = null; }
+
+                if (treeOn && pollStarted - treeAskedAt > SensorCommand.TreeLapseMs)
+                {
+                    treeOn = false;
+                    Log("info", "The Sensors page stopped asking; the sensor tree is no longer sent.");
+                }
+
+                // The page shows everything this PC reports, so while it is open the groups it
+                // needs are opened as well as the tiles' own. Never the library's memory group:
+                // RAM is read from Windows (SensorReader.Apply says why).
+                var want = treeOn ? wanted | TreeSubsystems : wanted;
+                if (want != opened) { opened = want; reader.SetSubsystems(opened); }
                 if (gpuPending)                      { reader.SetSelectedGpu(newGpu); gpuPending = false; }
                 if (rescanPending)                   { rescan = true; rescanPending = false; }
             }
@@ -253,13 +280,23 @@ public static class SensorHost
                 catch (Exception ex) { report = SensorCommand.ReportLine($"The report could not be built: {ex.GetType().Name}: {ex.Message}"); }
             }
 
+            bool sendTree;
+            lock (pending) sendTree = treeOn;
+            string? treeLine = null;
+            if (sendTree)
+            {
+                try { treeLine = SensorTreeLine.Write(reader.Tree(snapshot.Data)); }
+                catch (Exception ex) { Log("warn", $"The sensor tree could not be built: {ex.GetType().Name}"); }
+            }
+
             var line = SensorProtocol.Serialize(snapshot);
-            if (line != null || report != null)
+            if (line != null || report != null || treeLine != null)
             {
                 try
                 {
-                    if (line != null)   stdout.Write(line);
-                    if (report != null) stdout.Write(report);
+                    if (line != null)     stdout.Write(line);
+                    if (report != null)   stdout.Write(report);
+                    if (treeLine != null) stdout.Write(treeLine);
                     stdout.Flush();
                 }
                 catch (Exception ex)
@@ -320,6 +357,12 @@ public static class SensorHost
 
         return null;
     }
+
+    /// The groups the Sensors page shows, opened only while it is open. Memory is Pulse's own
+    /// reading from Windows, not the library's memory group.
+    private const SensorSubsystems TreeSubsystems =
+        SensorSubsystems.Cpu | SensorSubsystems.Gpu | SensorSubsystems.Memory |
+        SensorSubsystems.Storage | SensorSubsystems.Network | SensorSubsystems.Battery;
 
     private static void TrySetUtf8()
     {

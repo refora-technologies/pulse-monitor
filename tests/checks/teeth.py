@@ -125,6 +125,20 @@ MUTATIONS = [
      "only Pulse itself writes to the real Pulse folder",
      "test lines in the real log"),
 
+    # Send a card's sensors whatever state it is in, and the page shows its old values as live.
+    ("Services/SensorReader.cs",
+     "if (!node.Asleep)",
+     "if (true)",
+     "the Sensors page never shows a sleeping card's old values as live",
+     "a sleeping card's last readings shown as current on the Sensors page"),
+
+    # Forget the lapse, and a panel that closed without saying so leaves the tree on forever.
+    ("Services/SensorHost.cs",
+     "if (treeOn && pollStarted - treeAskedAt > SensorCommand.TreeLapseMs)",
+     "if (false)",
+     "the tree is sent only while the page asks",
+     "every sensor read and sent forever after the panel went away"),
+
     # Resize from the grip and leave the slider where it was.
     ("Views/OverlayWindow.xaml.cs",
      "ViewModels.SettingsViewModel.Instance.FollowOverlayScale();",
@@ -142,7 +156,7 @@ MUTATIONS = [
     # Let built-in graphics on screen be treated as asleep again, and the chip drawing the screen
     # reads "asleep" for a fraction of a second, hundreds of times a day.
     ("Services/SensorReader.cs",
-     "            if (chosen != null && asleep.Contains(chosen) && !IsDiscrete(chosen))\n            {\n                chosen.Accept(_visitor);\n                asleep.Remove(chosen);\n            }\n",
+     "            if (chosen != null && asleep.Contains(chosen) && !IsDiscrete(chosen))\n            {\n                chosen.Accept(_visitor);\n                NoteRead(chosen);\n                asleep.Remove(chosen);\n            }\n",
      "",
      "built-in graphics on screen are read even while asleep",
      "an Intel UHD driving the screen labelled asleep 926 times in four hours"),
