@@ -146,6 +146,13 @@ MUTATIONS = [
      "the Sensors page stops asking when it is not on screen",
      "every sensor read and sent while the panel is hidden"),
 
+    # Anchor under any taskbar again, and a demoted one takes the overlay's topmost with it.
+    ("Views/OverlayWindow.xaml.cs",
+     "if (taskbar != IntPtr.Zero && (GetWindowLong(taskbar, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0)",
+     "if (taskbar != IntPtr.Zero)",
+     "the overlay anchors under the taskbar only while the taskbar is on top",
+     "the overlay behind everything while something is full screen on its display"),
+
     # Resize from the grip and leave the slider where it was.
     ("Views/OverlayWindow.xaml.cs",
      "ViewModels.SettingsViewModel.Instance.FollowOverlayScale();",

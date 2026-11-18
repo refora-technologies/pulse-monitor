@@ -346,7 +346,7 @@ public partial class OverlayWindow : Window
         {
             Interval = TimeSpan.FromSeconds(1)
         };
-        _topmostTimer.Tick += (_, _) => ForceTopmost();
+        _topmostTimer.Tick += (_, _) => { ForceTopmost(); WatchCovered(); };
 
         // Only runs while the overlay is actually on screen. ForceTopmost returns
         // immediately when hidden, so ticking then was pure wakeups for nothing.
@@ -397,11 +397,25 @@ public partial class OverlayWindow : Window
         // we'd get dragged down too. The taskbar isn't meaningfully visible under a
         // full-monitor window anyway, so there's nothing to protect there — claim the
         // absolute top slot instead, which is what actually wins against a game.
+        //
+        // And only while that taskbar is itself topmost. Windows takes a taskbar out of the
+        // topmost band while a full-screen window is on its display, foreground or not, and a
+        // window placed beneath one that is not topmost stops being topmost itself (SetWindowPos,
+        // documented). With two displays that happens without the foreground ever being full
+        // screen: a video full screen on the overlay's display while you work on the other one
+        // anchored the overlay under a demoted taskbar, and it fell behind everything until the
+        // next foreground change happened to be full screen (owner, 18 Nov 2026: "sometimes the
+        // overlay stays behind"). A taskbar that is not on top has nothing to protect anyway.
         var insertAfter = HWND_TOPMOST;
+        _anchoredUnderTaskbar = false;
         if (!IsForegroundWindowFullScreen())
         {
             var taskbar = FindTaskbarOnOurMonitor(hwnd);
-            if (taskbar != IntPtr.Zero) insertAfter = taskbar;
+            if (taskbar != IntPtr.Zero && (GetWindowLong(taskbar, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0)
+            {
+                insertAfter = taskbar;
+                _anchoredUnderTaskbar = true;
+            }
         }
 
         SetWindowPos(hwnd, insertAfter, 0, 0, 0, 0,
@@ -411,6 +425,107 @@ public partial class OverlayWindow : Window
     /// The window we are currently parked beneath, so the call isn't repeated on every
     /// foreground change and timer tick for as long as one surface stays open.
     private IntPtr _anchoredBehind;
+
+    /// Whether the last re-claim put the overlay just under the taskbar rather than at the top.
+    private bool _anchoredUnderTaskbar;
+
+    // ── When the overlay is covered anyway ────────────────────────────────────────────
+
+    /// When the overlay was first seen covered in this episode, on the tick clock; 0 when not.
+    private long _coveredSince;
+    private bool _coveredSaid;
+    private int  _coveredReports;
+
+    /// How long the overlay must stay covered, after re-claiming its place every second, before
+    /// that is worth a line: a window opening over it for a moment is not a fault.
+    private const long CoveredAfterMs = 3000;
+
+    /// At most this many lines in one run, so a machine where something always wins cannot
+    /// fill the log.
+    private const int MaxCoveredReports = 20;
+
+    /// <summary>
+    /// Says, once per episode, when the overlay stays covered although it has just re-claimed
+    /// its place: what is over it and in what state both are. By process number only, never a
+    /// name or a title (the privacy page's promise).
+    /// </summary>
+    /// <remarks>
+    /// Written for the owner's report of 18 Nov 2026 that the overlay sometimes stays behind,
+    /// which nothing in the log could explain. Checked right after <see cref="ForceTopmost"/>, so
+    /// it sees only what that could not fix. Windows that let clicks through (other overlays,
+    /// NVIDIA's included) and Windows' own taskbar, which the overlay sits under on purpose, are
+    /// not counted.
+    /// </remarks>
+    private void WatchCovered()
+    {
+        var hwnd = new WindowInteropHelper(this).Handle;
+        bool topmost = false, fills = false;
+        var cover = IsVisible && hwnd != IntPtr.Zero ? CoveringWindow(hwnd, out topmost, out fills) : IntPtr.Zero;
+        if (cover == IntPtr.Zero)
+        {
+            _coveredSince = 0;
+            _coveredSaid  = false;
+            return;
+        }
+
+        long now = Environment.TickCount64;
+        if (_coveredSince == 0) { _coveredSince = now; return; }
+        if (_coveredSaid || now - _coveredSince < CoveredAfterMs || _coveredReports >= MaxCoveredReports) return;
+
+        _coveredSaid = true;
+        _coveredReports++;
+        GetWindowThreadProcessId(cover, out uint pid);
+        bool ourTopmost = (GetWindowLong(hwnd, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0;
+        static string YesNo(bool b) => b ? "yes" : "no";
+        LogService.Warn(nameof(OverlayWindow),
+            $"The overlay has been covered for {(now - _coveredSince) / 1000} s by a window of process {pid} "
+            + $"(topmost: {YesNo(topmost)}, fills its screen: {YesNo(fills)}). The overlay: topmost {YesNo(ourTopmost)}, "
+            + $"under the taskbar {YesNo(_anchoredUnderTaskbar)}, foreground full screen {YesNo(IsForegroundWindowFullScreen())}.");
+    }
+
+    /// The nearest visible window above the overlay that overlaps it, or zero.
+    private static IntPtr CoveringWindow(IntPtr hwnd, out bool topmost, out bool fills)
+    {
+        topmost = fills = false;
+        if (!GetWindowRect(hwnd, out var ours)) return IntPtr.Zero;
+        uint self = (uint)Environment.ProcessId;
+
+        int guard = 0;
+        for (var w = GetWindow(hwnd, GW_HWNDPREV); w != IntPtr.Zero && guard++ < 512; w = GetWindow(w, GW_HWNDPREV))
+        {
+            if (!IsWindowVisible(w)) continue;
+            if (DwmGetWindowAttribute(w, DWMWA_CLOAKED, out int cloaked, sizeof(int)) == 0 && cloaked != 0) continue;
+
+            int ex = GetWindowLong(w, GWL_EXSTYLE);
+            if ((ex & WS_EX_TRANSPARENT) != 0) continue;   // lets clicks through: another overlay
+
+            GetWindowThreadProcessId(w, out uint pid);
+            if (pid == self) continue;
+
+            if (!GetWindowRect(w, out var r)) continue;
+            if (r.Right <= ours.Left || r.Left >= ours.Right || r.Bottom <= ours.Top || r.Top >= ours.Bottom) continue;
+
+            var name = new System.Text.StringBuilder(64);
+            if (GetClassName(w, name, name.Capacity) > 0 && name.ToString() is "Shell_TrayWnd" or "Shell_SecondaryTrayWnd")
+                continue;   // the taskbar, which the overlay sits under on purpose
+
+            topmost = (ex & WS_EX_TOPMOST) != 0;
+            var info = new MONITORINFO { cbSize = (uint)Marshal.SizeOf<MONITORINFO>() };
+            if (GetMonitorInfo(MonitorFromWindow(w, MONITOR_DEFAULTTONEAREST), ref info))
+            {
+                var m = info.rcMonitor;
+                fills = r.Left <= m.Left && r.Top <= m.Top && r.Right >= m.Right && r.Bottom >= m.Bottom;
+            }
+            return w;
+        }
+        return IntPtr.Zero;
+    }
+
+    private const uint GW_HWNDPREV  = 3;
+    private const int DWMWA_CLOAKED = 14;
+    [DllImport("user32.dll")] static extern IntPtr GetWindow(IntPtr hWnd, uint uCmd);
+    [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr hWnd);
+    [DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr hwnd, int attribute, out int value, int size);
 
     private void SlipBehind(IntPtr hwnd, IntPtr surface)
     {
