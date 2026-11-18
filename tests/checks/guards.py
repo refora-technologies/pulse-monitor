@@ -477,6 +477,20 @@ def wiring_guards(src):
           and "if (sendTree)" in host,
           "a closed panel or a dead Pulse leaving every sensor read and sent forever")
 
+    # The overlay sometimes stayed behind (18 Nov 2026). Anchoring beneath a taskbar
+    # Windows had taken out of the topmost band, because something was full screen on that
+    # display, made the overlay lose topmost itself. And when it is covered anyway, the log says
+    # by what, by process number only.
+    overlay_cs = src.text("Views/OverlayWindow.xaml.cs") or ""
+    check("the overlay anchors under the taskbar only while the taskbar is on top",
+          "if (taskbar != IntPtr.Zero && (GetWindowLong(taskbar, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0)" in overlay_cs,
+          "the overlay falling behind everything while something is full screen on its display")
+    check("a covered overlay is logged once per episode, by process number only",
+          "_topmostTimer.Tick += (_, _) => { ForceTopmost(); WatchCovered(); };" in overlay_cs
+          and "by a window of process {pid}" in overlay_cs
+          and "GetWindowText" not in overlay_cs,
+          "an overlay stuck behind with nothing in the log to say why")
+
     check("the core bars fit the in-game block",
           "public const int MaxCoreBars = 64;" in reader and "public const int MaxCores = 64;" in writer,
           "more cores read than the block has room for, cut off without a word")
