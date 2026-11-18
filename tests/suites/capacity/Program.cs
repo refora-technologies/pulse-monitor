@@ -138,26 +138,26 @@ class Program
     {
         Console.WriteLine("\nWith no capacity known, the tile must show no capacity:");
 
-        var source = FindSource("ViewModels/OverlayViewModel.cs");
-        if (source == null) { Check("OverlayViewModel source found", false, ""); return; }
+        // The rules live in the shared core since 18 Nov 2026 (Models/TileReading.cs), where the
+        // core suite also runs them; the Windows tile hands them the capacity it knows.
+        var source = FindSource("Models/TileReading.cs");
+        if (source == null) { Check("TileReading source found", false, ""); return; }
 
-        // These are assertions about the rules, because exercising the real TileViewModel means
-        // constructing HardwareService and starting the sensor host.
         Check("an unknown capacity draws no bar",
               source.Contains("if (max <= 0) return 0;")
-              && !source.Contains("if (max <= 0) max = Definition.BarMax;"),
+              && !source.Contains("if (max <= 0) max = definition.BarMax;"),
               "BarFraction must not fall back to the catalogue figure");
 
         Check("an unknown capacity colours nothing",
-              source.Contains("if (capacity <= 0 || Definition.BarMax <= 0) return (0, 0);"),
+              source.Contains("if (capacity <= 0 || definition.BarMax <= 0) return (0, 0);"),
               "Thresholds must not fall back to absolute catalogue values");
 
         Check("a capacity below a gigabyte keeps a decimal",
-              source.Contains("max:F1"),
+              source.Contains("capacity:F1"),
               "otherwise a few hundred megabytes prints as a total of 0");
 
         Check("a capacity of zero is never printed",
-              source.Contains("if (max >= 1)") && source.Contains("if (max >  0)"),
+              source.Contains("if (capacity >= 1)") && source.Contains("if (capacity >  0)"),
               "both branches require a positive capacity");
     }
 
@@ -311,7 +311,7 @@ class Program
 
         // A zero danger threshold is the existing "no opinion" convention, already used by the
         // clock and frame rate tiles, so this needed no new mechanism.
-        var overlay = FindSource("ViewModels/OverlayViewModel.cs");
+        var overlay = FindSource("Models/TileReading.cs");
         Check("a zero threshold means no colour at all",
               overlay != null && overlay.Contains("if (danger == 0) return 0;"),
               "the same convention the clock tiles already use");
@@ -849,10 +849,10 @@ class Program
               "a machine with no battery shows nothing, not zero");
 
         // The colouring itself, at the values that matter.
-        var vm = FindSource("ViewModels/OverlayViewModel.cs");
+        var vm = FindSource("Models/TileReading.cs");
         Check("the comparison is inverted for it",
-              vm != null && vm.Contains("if (Definition.LowerIsWorse)")
-              && vm.Contains("if (_value <= danger) return 3;"),
+              vm != null && vm.Contains("if (definition.LowerIsWorse)")
+              && vm.Contains("if (value <= danger) return 3;"),
               "8% must not be the same colour as 80%");
 
         // Reading and routing.
@@ -1047,9 +1047,9 @@ class Program
             Check($"{why} shows the chosen unit", src != null && src.Contains(marker));
         }
 
-        var vm = FindSource("ViewModels/OverlayViewModel.cs");
+        var vm = FindSource("Models/TileReading.cs");
         Check("and the value is converted to match it",
-              vm != null && vm.Contains("NetworkUnits.Convert(_value.Value, bits: true)"),
+              vm != null && vm.Contains("NetworkUnits.Convert(value, bits: true)"),
               "a label saying Mbps over a number in MB/s is worse than either");
 
         Check("the reading itself is left in one unit",

@@ -473,8 +473,10 @@ class Program
               fps.Contains("_lowSamples.Count >= LowMaxSamples"),
               "above about 667 fps the retained window can never be three seconds long");
 
+        // The arithmetic is the shared core's since 18 Nov 2026 (Models/FrameMath.cs).
         Check("the boundary is taken at exactly the 99th percentile",
-              fps.Contains("(int)Math.Ceiling(0.99 * count) - 1"),
+              Source("Models/FrameMath.cs").Contains("(int)Math.Ceiling(0.99 * count) - 1")
+              && fps.Contains("OnePercentLowFps = FrameMath.OnePercentLow(times, count);"),
               "nearest rank, so the index does not drift with the window size");
 
         // The index, worked through at sizes where an off-by-one would show.
@@ -571,17 +573,18 @@ class Program
         Console.WriteLine("The 1% low is the 99th percentile of frame times, and nothing else:");
 
         var src = Source("Services/FpsService.cs");
+        var math = Source("Models/FrameMath.cs");   // the shared core's arithmetic, since 18 Nov 2026
 
         Check("the percentile is taken by nearest rank",
-              src.Contains("(int)Math.Ceiling(0.99 * count) - 1"),
+              math.Contains("(int)Math.Ceiling(0.99 * count) - 1"),
               "the convention RTSS and CapFrameX use, so the numbers are comparable");
 
         Check("frame times are sorted, not frame rates",
-              src.Contains("Array.Sort(times, 0, count)") && src.Contains("times[next++] = sample.Ms"),
+              math.Contains("Array.Sort(times, 0, count)") && src.Contains("times[next++] = sample.Ms"),
               "computing a rate per frame and taking the lowest 1% of those is a different sum");
 
         Check("and converted to a rate exactly once",
-              src.Contains("OnePercentLowFps = boundaryMs > 0"),
+              math.Contains("return boundaryMs > 0 ? (float)(1000.0 / boundaryMs) : null;"),
               "at the end, from the boundary frame time");
 
         Check("the averaging convention is gone",

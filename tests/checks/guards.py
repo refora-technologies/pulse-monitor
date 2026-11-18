@@ -582,8 +582,12 @@ def presentation_guards(src):
               "1_048_576f * 8f / 1_000_000f" in units,
               "eight would read five percent low against the thing people compare with")
 
+    # The number is written by the shared core since 18 Nov 2026, given the same setting the
+    # unit is read from.
+    reading = src.text("Models/TileReading.cs") or ""
     check("the unit shown and the value shown are decided together",
-          "NetworkUnits.Convert(_value.Value, bits: true)" in vm
+          "NetworkUnits.Convert(value, bits: true)" in reading
+          and "settings.NetworkUnitBits" in vm
           and "NetworkUnits.Label(SettingsService.Instance.Settings.NetworkUnitBits)" in vm,
           "a label in one unit over a number in the other is worse than either")
 

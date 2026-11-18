@@ -137,33 +137,8 @@ public class TileViewModel : BaseViewModel
         {
             if (!_value.HasValue) return _isAsleep ? "asleep" : "--";
 
-            // Megabits, when asked for. Written where the number is formatted rather than
-            // where it is measured: the reading itself stays in one unit, so nothing that
-            // compares, stores or sends it has to know which the user prefers.
-            if (Definition.IsNetworkSpeed && SettingsService.Instance.Settings.NetworkUnitBits)
-                return NetworkUnits.Convert(_value.Value, bits: true).ToString("F1");
-
-            var formatted = Definition.Unit switch
-            {
-                "GHz"  => $"{_value:F2}",
-                "GB"   => $"{_value:F1}",
-                "%"    => $"{_value:F0}",
-                "MB/s" => $"{_value:F2}",
-                _      => $"{_value:F0}"
-            };
-
-            if (Definition.HasKnownMax && SettingsService.Instance.Settings.ShowMaxValues)
-            {
-                var max = KnownMax;
-
-                // One decimal below a gigabyte. Integrated graphics can hold a few hundred
-                // megabytes of dedicated memory, and rounding that to whole gigabytes printed
-                // a capacity of "0".
-                if (max >= 1) return $"{formatted} / {max:F0}";
-                if (max >  0) return $"{formatted} / {max:F1}";
-            }
-
-            return formatted;
+            var settings = SettingsService.Instance.Settings;
+            return TileReading.FormatValue(Definition, _value.Value, settings.NetworkUnitBits, settings.ShowMaxValues, KnownMax);
         }
     }
 
@@ -191,63 +166,12 @@ public class TileViewModel : BaseViewModel
         return brush;
     }
 
-    /// <summary>
-    /// Warning and danger points for this tile.
-    ///
-    /// For capacity tiles these scale with the hardware actually fitted. The catalogue
-    /// values assume 16 GB of RAM and 6 GB of VRAM, so on a 64 GB machine 14.5 GB used —
-    /// under a quarter of it — was being coloured as dangerous, and on a 24 GB card the
-    /// same nonsense at 5.5 GB. The ratios are taken from those defaults, roughly three
-    /// quarters full for a warning and ninety percent for danger.
-    /// </summary>
-    private (float Warn, float Danger) Thresholds
-    {
-        get
-        {
-            if (!Definition.HasKnownMax) return (Definition.WarnThreshold, Definition.DangerThreshold);
-
-            double capacity = KnownMax;
-
-            // No capacity means no opinion. The catalogue thresholds are proportions of an
-            // assumed 16 GB and 6 GB, so applying them to hardware whose size we do not know
-            // is colouring by guesswork: a machine reporting no VRAM capacity would have shown
-            // a warning at 4.5 GB of some total nobody had measured.
-            if (capacity <= 0 || Definition.BarMax <= 0) return (0, 0);
-
-            double scale = capacity / Definition.BarMax;
-            return ((float)(Definition.WarnThreshold * scale), (float)(Definition.DangerThreshold * scale));
-        }
-    }
-
-    /// 0 = neutral, 1 = normal, 2 = warning, 3 = danger.
     /// The colour state the window overlay draws the value in: 0 neutral, 1 normal, 2 warm, 3 hot.
     /// The in-game overlay is sent the same, so both show the same colour for the same reading.
+    /// Decided by the shared core (Models/TileReading.cs), against the hardware's real capacity.
     internal int ColourState => State;
 
-    private int State
-    {
-        get
-        {
-            if (!_value.HasValue) return 0;
-
-            var (warn, danger) = Thresholds;
-            if (danger == 0) return 0;
-
-            // Battery is the one reading where a small number is the bad one. Every other tile
-            // counts upward into trouble: hotter, busier, fuller. Colouring 8% the same calm
-            // white as 80% would be the tile refusing to say the one thing it is for.
-            if (Definition.LowerIsWorse)
-            {
-                if (_value <= danger) return 3;
-                if (_value <= warn)   return 2;
-                return 1;
-            }
-
-            if (_value >= danger) return 3;
-            if (_value >= warn)   return 2;
-            return 1;
-        }
-    }
+    private int State => TileReading.State(Definition, _value, KnownMax);
 
     public WpfColor ValueColor => State switch
     {
@@ -265,21 +189,7 @@ public class TileViewModel : BaseViewModel
         _ => NeutralBrush,
     };
 
-    public double BarFraction
-    {
-        get
-        {
-            if (!_value.HasValue || !Definition.HasBar) return 0;
-
-            // A capacity tile with no known capacity draws no bar. Falling back to the
-            // catalogue figure filled the bar against an invented total, so a machine whose
-            // video memory we could not measure still showed a confident half-full gauge.
-            double max = Definition.HasKnownMax ? KnownMax : Definition.BarMax;
-            if (max <= 0) return 0;
-
-            return Math.Clamp((double)_value.Value / max, 0, 1);
-        }
-    }
+    public double BarFraction => TileReading.BarFraction(Definition, _value, KnownMax);
 
     public TileViewModel(SensorTileDefinition def) { Definition = def; }
 

@@ -61,6 +61,10 @@
     <EmbeddedResource Remove="tests\**" />
     <!-- The in-game overlay is C++, built by InGame\build-ingame.ps1, not by this project. -->
     <None Remove="InGame\**" />
+    <!-- The shared core is a project of its own over files that live in Models\ and are compiled
+         here as they always were; its own folder holds only its project and build output. -->
+    <Compile Remove="Core\**" />
+    <None Remove="Core\**" />
   </ItemGroup>
 
   <ItemGroup>
