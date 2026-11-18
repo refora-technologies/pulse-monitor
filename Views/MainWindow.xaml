@@ -973,8 +973,8 @@
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="58"/>
-                    <ColumnDefinition Width="58"/>
+                    <ColumnDefinition Width="64"/>
+                    <ColumnDefinition Width="64"/>
                 </Grid.ColumnDefinitions>
                 <TextBlock Text="{Binding Label}" FontSize="12" FontWeight="Medium" Foreground="#DBD7F2" VerticalAlignment="Center"/>
                 <TextBlock Grid.Column="1" VerticalAlignment="Center" Margin="10,0,8,0">
@@ -2434,8 +2434,8 @@
                         <Grid Margin="2,0,2,7">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="58"/>
-                                <ColumnDefinition Width="58"/>
+                                <ColumnDefinition Width="64"/>
+                                <ColumnDefinition Width="64"/>
                             </Grid.ColumnDefinitions>
                             <TextBlock Text="PULSE'S READINGS" FontSize="10" FontWeight="Bold" Foreground="#A9A4CE"/>
                             <TextBlock Grid.Column="1" Text="Overlay" FontSize="9.5" FontWeight="SemiBold" Foreground="#8B86B4"
