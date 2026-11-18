@@ -121,6 +121,8 @@ public sealed class SensorsViewModel : BaseViewModel
         {
             if (r.Id is "fps" or "fps_1low") continue;   // on their own timer, see OnFrameRate
             bool asleep = data.GpuAsleep && r.Overlay.Definition.Category == SensorCategory.GPU && r.Id != "gpu_vram";
+            // CPU Cores draws a bar per core on the overlay; here, in words, how many.
+            if (r.Id == "cpu_cores") { r.ShowText(data.CpuCoreLoads is { Length: > 0 } c ? c.Length.ToString() : "--", "cores"); continue; }
             r.Show(data.GetById(r.Id), asleep);
         }
     }
@@ -163,7 +165,15 @@ public sealed class SensorsViewModel : BaseViewModel
         foreach (var r in Readings.Concat(AdvancedReadings))
             r.IsVisible = words.Length == 0 || r.Label.Contains(words, StringComparison.OrdinalIgnoreCase);
         foreach (var g in Groups) g.Filter(words);
+
+        // A section with nothing left in it is hidden, rather than left as an empty frame.
+        AnyReadingShown  = Readings.Any(r => r.IsVisible);
+        AnyAdvancedShown = AdvancedReadings.Any(r => r.IsVisible);
     }
+
+    private bool _anyReadingShown = true, _anyAdvancedShown = true;
+    public bool AnyReadingShown  { get => _anyReadingShown;  private set => Set(ref _anyReadingShown, value); }
+    public bool AnyAdvancedShown { get => _anyAdvancedShown; private set => Set(ref _anyAdvancedShown, value); }
 }
 
 /// <summary>
@@ -186,7 +196,8 @@ public sealed class PulseReading : BaseViewModel
     public string Id => Overlay.Definition.Id;
     public string Label => Overlay.Definition.Label;
     public string Description => Overlay.Definition.Description ?? "";
-    public string Unit => Overlay.DisplayUnit;
+    private string? _unit;
+    public string Unit => _unit ?? Overlay.DisplayUnit;
 
     /// Whether the in-game list has this reading, so it can have an In game switch.
     public bool HasInGame => InGame != null;
@@ -200,6 +211,13 @@ public sealed class PulseReading : BaseViewModel
 
     private bool _isVisible = true;
     public bool IsVisible { get => _isVisible; set => Set(ref _isVisible, value); }
+
+    /// A reading that is not one number, written as given.
+    public void ShowText(string value, string unit)
+    {
+        Value = value;
+        if (_unit != unit) { _unit = unit; OnPropertyChanged(nameof(Unit)); }
+    }
 
     /// Written the way the overlay writes it, by the shared core.
     public void Show(float? value, bool asleep)
@@ -270,7 +288,9 @@ public sealed class SensorGroup : BaseViewModel
         bool any = false;
         foreach (var r in Rows)
         {
-            r.IsVisible = groupMatches || r.Name.Contains(words, StringComparison.OrdinalIgnoreCase);
+            // By name or by kind: "clock" finds every clock, whatever its sensor is called.
+            r.IsVisible = groupMatches || r.Name.Contains(words, StringComparison.OrdinalIgnoreCase)
+                                       || r.Kind.Contains(words, StringComparison.OrdinalIgnoreCase);
             any |= r.IsVisible;
         }
         IsVisible = groupMatches || any;
@@ -302,6 +322,9 @@ public sealed class SensorLine : BaseViewModel
 
     private float? _min, _max;
     private string _type = "";
+
+    /// The kind of reading, as the sensor library names it ("Temperature", "Clock", "Load").
+    public string Kind => _type;
 
     public void Update(SensorRow sensor)
     {
