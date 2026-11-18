@@ -110,6 +110,7 @@ public partial class MainWindow : Window
             // The GPU list isn't known until the first sensor poll completes, so rebuild
             // the picker when it arrives (and if an eGPU is plugged in later).
             Pulse.Services.HardwareService.Instance.GpuListChanged += OnGpuListChanged;
+            Pulse.Services.HardwareService.Instance.ActiveGpuChanged += OnActiveGpuChanged;
 
             PollRatePanel.SizeChanged += (_, _) => UpdateSegIndicator(false);
             NetUnitPanel.SizeChanged  += (_, _) => UpdateNetUnitIndicator(false);
@@ -717,6 +718,10 @@ public partial class MainWindow : Window
     private void OnGpuListChanged(object? sender, EventArgs e)
         => Dispatcher.BeginInvoke(PopulateGpuButtons);
 
+    /// Only the line under the picker: the entries are the same, so nothing is rebuilt.
+    private void OnActiveGpuChanged(object? sender, EventArgs e)
+        => Dispatcher.BeginInvoke(() => _vm?.RefreshGpuSourceHint());
+
     /// Guards against a second export starting while one is still gathering.
     private bool _exportingDiagnostics;
 
@@ -1262,6 +1267,7 @@ public partial class MainWindow : Window
         // rather than closed in normal use, so this runs when Pulse exits, but detaching is
         // still right: a window left attached would be kept alive by the singleton.
         Pulse.Services.HardwareService.Instance.GpuListChanged -= OnGpuListChanged;
+        Pulse.Services.HardwareService.Instance.ActiveGpuChanged -= OnActiveGpuChanged;
 
         // SystemEvents is static and lives as long as the process, so this one leaks harder
         // than the singleton above: every panel ever opened would stay alive, and each would

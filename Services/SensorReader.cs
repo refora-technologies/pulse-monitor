@@ -83,7 +83,10 @@ public sealed class SensorReader : IDisposable
     public static SensorSubsystems? SubsystemFor(string tileId) => tileId switch
     {
         "cpu_usage" or "cpu_temp" or "cpu_clock" or "cpu_power" => SensorSubsystems.Cpu,
-        "gpu_usage" or "gpu_temp" or "gpu_clock" or "gpu_power" or "gpu_vram" => SensorSubsystems.Gpu,
+        "gpu_usage" or "gpu_clock" or "gpu_power" or "gpu_vram" => SensorSubsystems.Gpu,
+        // Built-in graphics with no temperature of their own show the processor's, the die the
+        // two share (ApplyWindowsTemperature), so this tile needs the processor read as well.
+        "gpu_temp"      => SensorSubsystems.Gpu | SensorSubsystems.Cpu,
         "ram_used"      => SensorSubsystems.Memory,
         "disk_activity" => SensorSubsystems.Storage,
         "battery"       => SensorSubsystems.Battery,
@@ -401,6 +404,51 @@ public sealed class SensorReader : IDisposable
             // Read GPU fields from a single chosen device so temp/power/clock/usage never get
             // mixed across an iGPU and a dGPU on the same poll.
             var chosen = SelectGpu(gpus);
+            snapshot.CoveringFor = "";
+
+            // How long the chosen card has been asleep, kept here rather than where it is read,
+            // because in Automatic the built-in graphics may be read in its place and that must
+            // not restart the card's count.
+            if (chosen != null && asleep.Contains(chosen) && IsDiscrete(chosen))
+            {
+                var cardId = chosen.Identifier.ToString();
+                if (_asleepSince is null || _asleepCard != cardId) { _asleepSince = Environment.TickCount64; _asleepCard = cardId; }
+            }
+            else
+            {
+                _asleepSince = null;
+            }
+
+            // Automatic shows the built-in graphics while the card sleeps, and goes back to the
+            // card the moment it wakes (owner's decision, 12 Nov 2026). A GPU picked by hand is
+            // never swapped: whoever picked it wants that one, asleep included.
+            //
+            // Not at the first instant of sleep. A laptop card dips into sleep for a second at a
+            // time, over and over (see SleepShownAfterMs), and switching on every dip would swap
+            // every GPU tile's readings back and forth. Until the card has slept that long its
+            // last readings stand, as they always did. A card that has never been read since
+            // Pulse started has no last readings to stand, so the switch is immediate.
+            bool pinnedHonoured = chosen != null && _pinnedGpuId is { } pin && chosen.Identifier.ToString() == pin;
+            if (chosen != null && !pinnedHonoured && _asleepSince is { } since
+                && BuiltInGraphics(gpus) is { } builtIn)
+            {
+                bool heldForCard = _held is { } h && h.Card == _asleepCard;
+                if (!heldForCard || Environment.TickCount64 - since >= SleepShownAfterMs)
+                {
+                    if (_coveringFor != chosen.Name)
+                    {
+                        _coveringFor = chosen.Name;
+                        Log("info", $"{chosen.Name} is asleep; showing {builtIn.Name} until it wakes.");
+                    }
+                    snapshot.CoveringFor = chosen.Name;
+                    chosen = builtIn;
+                }
+            }
+            if (snapshot.CoveringFor.Length == 0 && _coveringFor is { } was)
+            {
+                _coveringFor = null;
+                Log("info", $"No longer showing other graphics in place of {was}.");
+            }
 
             // Graphics built into the processor, when they are the ones on screen, are read even
             // while Windows calls them asleep. They dip into that state for a fraction of a second
@@ -425,11 +473,10 @@ public sealed class SensorReader : IDisposable
                 // slept, and showing those would be an old number dressed as a live one.
                 snapshot.ActiveGpuName = chosen.Name;
                 chosenIsDiscrete = IsDiscrete(chosen);
-                ApplyVideoMemory(chosen, data);
+                ApplyVideoMemory(chosen, chosenIsDiscrete, data);
 
                 var id = chosen.Identifier.ToString();
-                if (_asleepSince is null || _asleepCard != id) { _asleepSince = Environment.TickCount64; _asleepCard = id; }
-                long asleepMs = Environment.TickCount64 - _asleepSince.Value;
+                long asleepMs = _asleepSince is { } since2 ? Environment.TickCount64 - since2 : 0;
 
                 if (asleepMs < SleepShownAfterMs && _held is { } held && held.Card == id)
                 {
@@ -454,12 +501,11 @@ public sealed class SensorReader : IDisposable
             else if (chosen != null)
             {
                 snapshot.ActiveGpuName = chosen.Name;
-                ReadGpu(chosen, data);
-
                 chosenIsDiscrete = IsDiscrete(chosen);
+                ReadGpu(chosen, chosenIsDiscrete, data);
+
                 ApplyWindowsTemperature(chosen.Name, chosenIsDiscrete, data);
 
-                _asleepSince = null;
                 _held = new HeldReading(chosen.Identifier.ToString(),
                     data.GpuTemp, data.GpuPower, data.GpuClock, data.GpuUsage, data.GpuTempIsDie);
             }
@@ -588,12 +634,21 @@ public sealed class SensorReader : IDisposable
 
     /// <summary>
     /// Chooses which GPU every GPU tile reads from. An explicit user choice always wins.
-    /// Otherwise we prefer the adapter with real dedicated video memory, because that is what
-    /// actually distinguishes a discrete GPU from integrated graphics. Vendor alone is not a
+    /// Otherwise a graphics card is preferred over graphics built into the processor, then the
+    /// adapter with more dedicated video memory, then the vendor. Vendor alone is not a
     /// reliable signal: an AMD APU's Radeon iGPU reports as HardwareType.GpuAmd exactly like a
     /// discrete Radeon does, which previously caused Pulse to lock onto the integrated GPU on
     /// Ryzen laptops that also have an NVIDIA card.
     /// </summary>
+    /// <remarks>
+    /// Card first, and memory only after it, since 1.3.7. Memory alone came from the card's own
+    /// sensors, and a card that was asleep when Pulse started has never been read, so it
+    /// reported none: a Ryzen laptop with an RTX 3050 then chose its built-in Radeon (512 MB)
+    /// over the card, and only went to the card once something woke it (reported 10 Nov 2026,
+    /// looked deliberate and was not). Whether an adapter is a card comes from what Windows
+    /// holds about it, which does not wake it. Showing the built-in graphics while the card
+    /// sleeps is now a decision of its own, made in Read.
+    /// </remarks>
     private IHardware? SelectGpu(List<IHardware> gpus)
     {
         if (gpus.Count == 0) return null;
@@ -606,17 +661,23 @@ public sealed class SensorReader : IDisposable
         }
 
         IHardware? best = null;
+        bool  bestCard = false;
         float bestVram = -1f;
         int   bestVendor = -1;
 
         foreach (var g in gpus)
         {
+            bool  card   = IsDiscrete(g);
             float vram   = GetDedicatedVramMb(g);
             int   vendor = VendorRank(g);
 
-            if (vram > bestVram || (vram == bestVram && vendor > bestVendor))
+            bool better = best is null
+                       || (card && !bestCard)
+                       || (card == bestCard && (vram > bestVram || (vram == bestVram && vendor > bestVendor)));
+            if (better)
             {
                 best       = g;
+                bestCard   = card;
                 bestVram   = vram;
                 bestVendor = vendor;
             }
@@ -624,6 +685,34 @@ public sealed class SensorReader : IDisposable
 
         return best;
     }
+
+    /// <summary>
+    /// The graphics built into the processor, which Automatic shows while the card sleeps, or
+    /// null on a machine that has none.
+    /// </summary>
+    /// <remarks>
+    /// The one with the most memory of its own if there were ever two, which no laptop has.
+    /// Its sleep state does not matter: built-in graphics are read even while Windows calls
+    /// them asleep, for the reason given where that is done.
+    /// </remarks>
+    private IHardware? BuiltInGraphics(List<IHardware> gpus)
+    {
+        IHardware? best = null;
+        float bestVram = -1f;
+
+        foreach (var g in gpus)
+        {
+            if (IsDiscrete(g)) continue;
+            float vram = GetDedicatedVramMb(g);
+            if (vram > bestVram) { best = g; bestVram = vram; }
+        }
+
+        return best;
+    }
+
+    /// The card Automatic is showing the built-in graphics in place of, so the change is logged
+    /// once each way rather than every poll.
+    private string? _coveringFor;
 
     /// <summary>
     /// Whether an adapter is a real graphics card rather than graphics built into the
@@ -866,7 +955,7 @@ public sealed class SensorReader : IDisposable
         }
     }
 
-    private void ReadGpu(IHardware hw, SensorData data)
+    private void ReadGpu(IHardware hw, bool discrete, SensorData data)
     {
         // GPU Usage comes from the vendor's own "GPU Core" load in preference to the D3D 3D
         // engine counter, and this is a deliberate reversal of what it used to be.
@@ -956,22 +1045,19 @@ public sealed class SensorReader : IDisposable
         _vendorGpuLoadFrom = coreLoadFrom is null ? null : Of(hw, coreLoadFrom);
         if ((d3dEngineFrom ?? coreLoadFrom) is { } usageFrom) Source("gpu_usage", Of(hw, usageFrom));
 
-        ApplyVideoMemory(hw, data);
+        ApplyVideoMemory(hw, discrete, data);
     }
 
     /// <summary>
-    /// How much dedicated memory an adapter must have before that is the pool worth showing.
+    /// How much dedicated memory built-in graphics must have before the sensor library's own
+    /// figure, which is that slice alone, is worth showing when Windows' counters are missing.
     /// </summary>
     /// <remarks>
     /// Its only job is to tell a framebuffer stub from a real pool. An Intel UHD reports 128 MB
     /// and uses none of it, with everything it touches coming from the shared pool; an AMD
-    /// Vega 8 reports 2,033 MB and genuinely uses it, and Task Manager shows that as its
-    /// Dedicated GPU memory. Both were measured. The boundary sits well above the first and far
-    /// below the second, and low enough that an APU configured with a 512 MB slice in its BIOS
-    /// still reads as having a real pool.
-    ///
-    /// Deliberately not the same question as discrete versus integrated, and deliberately not
-    /// the same constant: the Vega 8 is integrated and has two gigabytes.
+    /// Vega 8 reports 2,033 MB and genuinely uses it. Both were measured. The boundary sits well
+    /// above the first and far below the second, and low enough that an APU configured with a
+    /// 512 MB slice in its BIOS still reads as having a real pool.
     /// </remarks>
     private const float RealDedicatedPoolMb = 256f;
 
@@ -986,11 +1072,16 @@ public sealed class SensorReader : IDisposable
     /// The library is kept as a fallback because these counters are absent on old Windows and
     /// on machines whose counter registry has been damaged.
     ///
-    /// Which pool is shown follows what the adapter actually has. A card with real dedicated
-    /// memory shows that; graphics with none shows the shared pool, which is where its memory
-    /// genuinely is, and the tile is renamed so nobody has to guess which they are looking at.
+    /// A graphics card shows its own memory. Built-in graphics show their own and what they
+    /// borrow from system memory together, which is what Task Manager calls "GPU memory", and
+    /// the tile is renamed to that so nobody has to guess which they are looking at.
+    ///
+    /// Together since 1.3.7 (owner's decision, 12 Nov 2026). Before, built-in graphics showed
+    /// one pool or the other by the size of their own slice: a Radeon with a 512 MB slice read
+    /// 0.5 of 0.5 GB, full, while it was using more from system memory, and an Intel UHD showed
+    /// only the borrowed part. Two laptops, two rules, and neither the whole figure.
     /// </remarks>
-    private void ApplyVideoMemory(IHardware hw, SensorData data)
+    private void ApplyVideoMemory(IHardware hw, bool discrete, SensorData data)
     {
         var adapter = FindAdapter(hw.Name);
 
@@ -1001,7 +1092,7 @@ public sealed class SensorReader : IDisposable
         // reading came from. The sensor library's own figure stands, under its ordinary name.
         if (adapter is null) return;
 
-        bool useShared = dedicatedTotalMb < RealDedicatedPoolMb;
+        bool combined = !discrete;
         var usage = _gpuMemory.Read(adapter.Value.CounterKey);
 
         // Usage, capacity and the name of the pool are one measurement and are decided
@@ -1014,27 +1105,33 @@ public sealed class SensorReader : IDisposable
         // shared capacity, and a name belonging to neither.
         if (usage is not { } used)
         {
-            // The capacity still applies when the adapter really has dedicated memory, since
-            // that is what the library's figure is measuring.
-            if (!useShared && dedicatedTotalMb > 0) data.TotalVramGb = dedicatedTotalMb / 1024f;
+            // The capacity still applies where the library's figure is a real pool of the
+            // adapter's own, since that is what it is measuring: a card's memory, or built-in
+            // graphics with a real slice. An Intel stub has nothing worth a total.
+            if ((discrete || dedicatedTotalMb >= RealDedicatedPoolMb) && dedicatedTotalMb > 0)
+                data.TotalVramGb = dedicatedTotalMb / 1024f;
             return;
         }
 
-        float bytes = useShared ? used.SharedBytes : used.DedicatedBytes;
+        // Both halves or nothing for built-in graphics. Half of a sum shown under the sum's
+        // name would be the same three-quarters-of-a-measurement this method exists to avoid.
+        float bytes = !combined ? used.DedicatedBytes
+                    : used.DedicatedBytes >= 0 && used.SharedBytes >= 0 ? used.DedicatedBytes + used.SharedBytes
+                    : -1f;
         if (bytes >= 0) data.GpuVram = MathF.Round(bytes / (1024f * 1024f * 1024f), 2);
         if (bytes >= 0)
-            Source("gpu_vram", $"Windows GPU memory counters for {hw.Name}, {(useShared ? "shared" : "dedicated")} pool "
+            Source("gpu_vram", $"Windows GPU memory counters for {hw.Name}, {(combined ? "own and borrowed together" : "dedicated")} "
                              + $"(dedicated {dedicatedTotalMb:0} MB, shared {sharedTotalMb:0} MB)");
 
-        // The capacity of whichever pool is being shown. Zero still means "not known" and is
-        // never drawn, so an adapter Windows cannot describe leaves the tile without a total
-        // rather than with an invented one.
-        float totalMb = useShared ? sharedTotalMb : dedicatedTotalMb;
-        if (totalMb > 0) data.TotalVramGb = totalMb / 1024f;
+        // The capacity of what is being shown. Zero still means "not known" and is never
+        // drawn, so an adapter Windows cannot describe leaves the tile without a total rather
+        // than with an invented one.
+        float totalMb = combined ? dedicatedTotalMb + sharedTotalMb : dedicatedTotalMb;
+        if (totalMb > 0 && (bytes >= 0 || !combined)) data.TotalVramGb = totalMb / 1024f;
 
         // Said out loud so the tile can be named honestly. Only claimed when there is a
         // reading to label; otherwise the tile keeps its ordinary name and shows nothing.
-        data.VramIsShared = useShared && data.GpuVram is not null;
+        data.VramIsShared = combined && data.GpuVram is not null;
     }
 
     /// <summary>
@@ -1051,10 +1148,14 @@ public sealed class SensorReader : IDisposable
     /// Task Manager shows 71 for a Vega 8, Windows holds 71; where Task Manager shows N/A for
     /// Intel graphics, Windows holds nothing and Pulse shows nothing too.
     ///
-    /// That last part is the rule. A driver with no temperature to give is not a gap to be
-    /// filled from somewhere else in the machine. The earlier attempt did fill it, with the
-    /// processor die, and it was right on the AMD laptop and wrong on the Intel one, where it
-    /// put a number on screen that Task Manager does not show at all.
+    /// Where Windows has nothing either, the processor's temperature is shown, named GPU Die
+    /// Temp, because built-in graphics are on the processor's own chip and that is the die's
+    /// temperature. Intel graphics are the case: Task Manager shows N/A for them, and until
+    /// 1.3.7 Pulse showed nothing too, on the rule that a gap is not filled from elsewhere in
+    /// the machine. The owner decided otherwise on 12 Nov 2026, with Automatic now showing the
+    /// built-in graphics while the card sleeps: a laptop that switches to them should not lose
+    /// its temperature tile, and the die reading is a true one under a name that says what it
+    /// is. Only for built-in graphics; a card is a separate chip and never gets this.
     ///
     /// The adapter's own sensor is still preferred when it has one. A discrete card reads its
     /// own die directly, that is the figure its vendor's own tools show, and it needs no
@@ -1083,6 +1184,12 @@ public sealed class SensorReader : IDisposable
         data.GpuTemp ??= DisplayAdapters.Temperature(adapter.Luid);
         if (!hadOwnTemp && data.GpuTemp is not null)
             Source("gpu_temp", $"Windows, from the display driver for {adapterName} (the card has no temperature sensor of its own)");
+
+        if (!discrete && data.GpuTemp is null && data.CpuTemp is { } die)
+        {
+            data.GpuTemp = die;
+            Source("gpu_temp", $"the processor's temperature, the die {adapterName} is part of (neither it nor Windows gives one of its own)");
+        }
 
         // Said out loud so the tile can be named honestly, and only while there is something
         // to name. On graphics that are part of the processor this reading is the die's, which

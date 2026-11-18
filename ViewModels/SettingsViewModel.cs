@@ -1188,6 +1188,8 @@ public class SettingsViewModel : BaseViewModel
     /// rather than describing the rule in the abstract, because after a card is switched off
     /// the only thing anyone wants to know is which one took over.
     /// </summary>
+    public void RefreshGpuSourceHint() => OnPropertyChanged(nameof(GpuSourceHint));
+
     public string GpuSourceHint
     {
         get
@@ -1196,6 +1198,12 @@ public class SettingsViewModel : BaseViewModel
 
             if (active.Length == 0)
                 return "Auto picks the GPU with dedicated video memory, which is the discrete one on a laptop.";
+
+            // Automatic is reading the built-in graphics because the card is asleep. Said so,
+            // or it looks as if Auto picked the wrong one.
+            if (HardwareService.Instance.CoveringFor is { Length: > 0 } sleeping && (SelectedGpuId ?? "").Length == 0)
+                return $"Currently reading {active}, because {sleeping} is asleep. "
+                     + "Auto goes back to it as soon as it wakes.";
 
             // Pinned to something that is not here. Worth saying out loud, because the
             // dropdown is showing a different adapter than the one they chose and the reason
