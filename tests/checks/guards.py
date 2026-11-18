@@ -434,7 +434,8 @@ def wiring_guards(src):
     # can set must not move where it writes.
     data_folder = src.text("Services/DataFolder.cs") or ""
     log_service = src.text("Services/LogService.cs") or ""
-    app_settings = src.text("Models/AppSettings.cs") or ""
+    # Where settings.json lives is the Windows half of the settings since 18 Nov 2026.
+    app_settings = (src.text("Models/AppSettings.cs") or "") + (src.text("Models/AppSettings.Windows.cs") or "")
     check("only Pulse itself writes to the real Pulse folder; the tests get their own",
           'GetName().Name, "Pulse", StringComparison.Ordinal' in data_folder
           and "GetEnvironmentVariable" not in data_folder

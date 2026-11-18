@@ -26,6 +26,14 @@
     <Compile Include="..\Models\NetworkUnits.cs" Link="Models\NetworkUnits.cs" />
     <Compile Include="..\Models\TileReading.cs" Link="Models\TileReading.cs" />
     <Compile Include="..\Models\FrameMath.cs" Link="Models\FrameMath.cs" />
+    <!-- The settings and their file format. Where the file lives, and the shortcut keys, are
+         each platform's own (AppSettings.Windows.cs on Windows). -->
+    <Compile Include="..\Models\AppSettings.cs" Link="Models\AppSettings.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The same version as Pulse.csproj, so both read and write settings.json alike. -->
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
   </ItemGroup>
 
 </Project>
