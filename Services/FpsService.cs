@@ -209,6 +209,7 @@ public class FpsService : IDisposable
             RefreshForegroundTarget();
             ExpireIfStale();      // frames stopping is silent; nothing else would notice
             ReportSilentCapture();
+            WatchForMissingFrames();
             Updated?.Invoke(this, EventArgs.Empty);
         };
 
@@ -409,6 +410,103 @@ public class FpsService : IDisposable
             + "Either nothing on this machine is presenting frames, or the trace session "
             + "is being starved of events. Abandoned trace sessions from other tools are the usual cause; "
             + $"'logman query -ets' lists them and ours is called {TraceSessionName}.");
+    }
+
+    // -- Why a game's frame rate did not appear ------------------------------------------
+    //
+    // Reported 6 Oct 2026: the frame rate sometimes stays blank when a game starts, rarely,
+    // and it could not be made to happen again. The log said nothing, so there was nothing to
+    // go on. These lines are for the next time. Process numbers only, never names: the log is
+    // sent with bug reports, and which games someone plays is theirs (the privacy page says
+    // the logs hold no names).
+
+    /// How long the program in front may draw nothing, while others draw, before it is said.
+    /// Long enough for a game's loading screen to start presenting.
+    private const long MissingFramesAfterMs = 10_000;
+
+    /// A rate only a game, a video or an animation reaches. Below it, another process drawing
+    /// while the one in front draws nothing is ordinary: a clock, a cursor, a tray icon.
+    private const double GameRatePerSecond = 20;
+
+    /// At most this many of these lines in one run, so a strange machine cannot fill the log.
+    private const int MaxMissingFrameReports = 10;
+
+    /// Rows per process since the program being watched came to the front. Counted only while
+    /// watching, which is the first ten seconds after a change, so it costs nothing otherwise.
+    private readonly Dictionary<uint, int> _rowsByPid = new();
+    private volatile bool _watchingFrames;
+    private uint _watchedPid;
+    private long _watchedSince;
+    private readonly HashSet<uint> _missingFramesSaid = new();
+    private int _missingFrameReports;
+
+    /// The process that owns the window in front, measured or not, and whether it is the
+    /// frame Windows draws around a Store app's window rather than the app itself.
+    private uint _rawForegroundPid;
+    private bool _foregroundIsFrameHost;
+
+    /// <summary>
+    /// Says, once per program, why the program in front has no frame rate when another
+    /// process is drawing at a game's pace.
+    /// </summary>
+    /// <remarks>
+    /// The likeliest causes all look the same on screen and different here: the game draws
+    /// from a second process its launcher or the window's owner started; the window belongs to
+    /// Windows' frame for Store apps, which Pulse skips; or nothing at all reaches the
+    /// capture. Each process drawing is described by how it relates to the one in front,
+    /// which is what tells those apart without naming anything.
+    /// </remarks>
+    private void WatchForMissingFrames()
+    {
+        uint watch = _foregroundPid != 0 ? _foregroundPid
+                   : _foregroundIsFrameHost ? _rawForegroundPid
+                   : 0;
+
+        if (!_captureWanted || _process is null || watch == 0)
+        {
+            _watchingFrames = false;
+            _watchedPid = 0;
+            return;
+        }
+
+        long now = AwakeClock.Milliseconds;
+        if (watch != _watchedPid)
+        {
+            _watchedPid   = watch;
+            _watchedSince = now;
+            lock (_rowsByPid) _rowsByPid.Clear();
+            _watchingFrames = !_missingFramesSaid.Contains(watch) && _missingFrameReports < MaxMissingFrameReports;
+            return;
+        }
+
+        if (!_watchingFrames || now - _watchedSince < MissingFramesAfterMs) return;
+        _watchingFrames = false;
+
+        Dictionary<uint, int> rows;
+        lock (_rowsByPid) { rows = new Dictionary<uint, int>(_rowsByPid); _rowsByPid.Clear(); }
+
+        double seconds = (now - _watchedSince) / 1000.0;
+        if (rows.TryGetValue(watch, out var own) && own > 0 && _foregroundPid == watch) return;
+
+        var family = ProcessFamily.Snapshot();
+        var drawing = rows.Where(r => r.Key != watch && !family.IsCompositor(r.Key))
+                          .OrderByDescending(r => r.Value)
+                          .Take(3)
+                          .ToList();
+        if (drawing.Count == 0 || drawing[0].Value / seconds < GameRatePerSecond) return;
+
+        _missingFramesSaid.Add(watch);
+        _missingFrameReports++;
+
+        string front = _foregroundPid == watch
+            ? $"the program in front (pid {watch})"
+            : $"the window in front, which Windows frames for a Store app and Pulse does not measure (pid {watch})";
+        string others = string.Join("; ", drawing.Select(r =>
+            $"pid {r.Key} at {r.Value / seconds:0}/s, {family.Relation(r.Key, watch)}"));
+
+        LogService.Warn(nameof(FpsService),
+            $"No frame rate for {front}: it drew {(own > 0 ? $"{own / seconds:0.#}/s" : "nothing")} "
+            + $"in {seconds:0}s while others drew. Busiest: {others}.");
     }
 
     /// <summary>
@@ -667,7 +765,15 @@ public class FpsService : IDisposable
         // others) either fails outright or reads "16.667" as sixteen thousand — FPS would
         // be blank or absurd for a large share of users.
         if (!uint.TryParse(fields[_headerProcessIdIndex], NumberStyles.Integer,
-                           CultureInfo.InvariantCulture, out var pid) || pid != _foregroundPid) return;
+                           CultureInfo.InvariantCulture, out var pid)) return;
+
+        // Every process, for the first seconds after something new comes to the front, so a
+        // game whose frame rate never appears can be explained (WatchForMissingFrames).
+        if (_watchingFrames)
+            lock (_rowsByPid)
+                _rowsByPid[pid] = _rowsByPid.TryGetValue(pid, out var n) ? n + 1 : 1;
+
+        if (pid != _foregroundPid) return;
         // Finite, positive, and within reach of reality. "ms <= 0" alone is not enough:
         // double.TryParse accepts "NaN" and "Infinity", and every comparison against NaN is
         // false, so a single such row passed the guard, poisoned the average and put a
@@ -1013,29 +1119,39 @@ public class FpsService : IDisposable
         "dwm",
     };
 
-    private static bool IsWorthMeasuring(uint pid)
+    private bool IsWorthMeasuring(uint pid)
     {
+        _foregroundIsFrameHost = false;
         if (pid == 0) return false;
         if (pid == (uint)Environment.ProcessId) return false;
 
         try
         {
             using var process = Process.GetProcessById((int)pid);
-            return !IgnoredProcessNames.Contains(process.ProcessName);
+            var name = process.ProcessName;
+            _foregroundIsFrameHost = name.Equals("ApplicationFrameHost", StringComparison.OrdinalIgnoreCase);
+            return !IgnoredProcessNames.Contains(name);
         }
-        catch
+        catch (Exception ex)
         {
             // Gone already, or not ours to inspect. Measuring something we cannot identify is
-            // worse than measuring nothing.
+            // worse than measuring nothing, but it used to be silent, and a game Pulse cannot
+            // identify is a game with no frame rate and no reason given. Said once per program.
+            if (_unidentified.Add(pid) && _unidentified.Count <= MaxMissingFrameReports)
+                LogService.Info(nameof(FpsService),
+                    $"The program in front (pid {pid}) could not be identified, so its frame rate is not measured: {ex.GetType().Name}.");
             return false;
         }
     }
+
+    private readonly HashSet<uint> _unidentified = new();
 
     private void RefreshForegroundTarget()
     {
         var hwnd = GetForegroundWindow();
         if (hwnd == IntPtr.Zero) return;
         GetWindowThreadProcessId(hwnd, out uint pid);
+        _rawForegroundPid = pid;
 
         // Nothing worth measuring is focused, so stop measuring rather than reporting whatever
         // the shell happens to be doing.
