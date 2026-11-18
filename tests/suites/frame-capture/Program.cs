@@ -43,6 +43,7 @@ class Program
         BothOnePercentLows();
         DisplayedFrames();
         SessionsDoNotAccumulate();
+        WhyNoFrameRate();
 
         Console.WriteLine($"\n{_pass} passed, {_fail} failed");
         return _fail == 0 ? 0 : 1;
@@ -58,6 +59,67 @@ class Program
             dir = dir.Parent;
         }
         return "";
+    }
+
+    // ── why a game's frame rate did not appear ──────────────────────────────────────
+    //
+    // Reported 6 Oct 2026: the frame rate sometimes stays blank when a game starts, rarely,
+    // and it could not be made to happen again. Since 1.3.7 the log says why the next time,
+    // by process number and how the processes relate, never by name.
+    static void WhyNoFrameRate()
+    {
+        Console.WriteLine();
+        Console.WriteLine("When a game's frame rate does not appear, the log says why, without names:");
+
+        // Asked of this machine: this test, a child it starts, and the compositor.
+        using var child = Process.Start(new ProcessStartInfo("cmd.exe", "/c ping -n 4 127.0.0.1 >nul")
+            { CreateNoWindow = true, UseShellExecute = false })!;
+        var familyType = _asm.GetType("Pulse.Services.ProcessFamily")!;
+        var family = familyType.GetMethod("Snapshot", BindingFlags.Public | BindingFlags.Static)!.Invoke(null, null)!;
+        var relation = familyType.GetMethod("Relation")!;
+        var compositor = familyType.GetMethod("IsCompositor")!;
+        string Rel(uint pid, uint front) => (string)relation.Invoke(family, new object[] { pid, front })!;
+
+        uint self = (uint)Environment.ProcessId, kid = (uint)child.Id;
+        Check("a process started by the one in front is recognised",
+              Rel(kid, self) == "started by the program in front",
+              $"a child of this test, pid {kid}");
+        Check("and the one that started it",
+              Rel(self, kid) == "the program that started the one in front");
+        Check("a process that has gone says so",
+              Rel(4_000_000_000, self) == "gone by now");
+        try { child.Kill(true); } catch { }
+
+        var dwm = Process.GetProcessesByName("dwm");
+        Check("the desktop compositor is never taken for the game",
+              dwm.Length > 0 && (bool)compositor.Invoke(family, new object[] { (uint)dwm[0].Id })!,
+              "it presents all the time, at the refresh rate");
+        foreach (var p in dwm) p.Dispose();
+
+        var fps = Source("Services/FpsService.cs");
+        int start = fps.IndexOf("private void WatchForMissingFrames()", StringComparison.Ordinal);
+        int end = start < 0 ? -1 : fps.IndexOf("/// How long to wait before trying again", start, StringComparison.Ordinal);
+        var watch = start >= 0 && end > start ? fps.Substring(start, end - start) : "";
+
+        Check("the line is written from process numbers and relations only",
+              watch.Length > 0 && !watch.Contains("ProcessName") && !watch.Contains("MainModule")
+              && watch.Contains("family.Relation(r.Key, watch)"),
+              "the log goes out with bug reports, and which games someone plays is theirs");
+        Check("once per program, and a few times a run at most",
+              watch.Contains("_missingFramesSaid.Add(watch);") && fps.Contains("MaxMissingFrameReports = 10;"),
+              "a strange machine must not fill the log");
+        Check("only when something else draws at a game's pace",
+              watch.Contains("drawing[0].Value / seconds < GameRatePerSecond") && fps.Contains("GameRatePerSecond = 20;"),
+              "a clock or a cursor drawing beside a quiet window is ordinary");
+        Check("rows are counted per process only while watching",
+              fps.Replace("\r\n", "\n").Contains("if (_watchingFrames)\n            lock (_rowsByPid)"),
+              "otherwise every frame from every process pays for a lock all session");
+        Check("a program that cannot be identified is said, not silently skipped",
+              fps.Contains("could not be identified, so its frame rate is not measured"),
+              "it used to return false and say nothing");
+        Check("a Store app's frame in front is watched too",
+              fps.Contains("_foregroundIsFrameHost ? _rawForegroundPid"),
+              "Windows owns that window, the game draws from its own process, and Pulse skips the frame");
     }
 
     // ── not breaking other people's tools ───────────────────────────────────────────
