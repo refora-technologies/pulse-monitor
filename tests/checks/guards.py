@@ -777,7 +777,7 @@ def honesty_guards(src):
               "data.GpuAsleep ? cpuW" in reader,
               "CPU+GPU Power reading -- on every laptop on battery")
 
-        # Deliberately not renamed the way GPU Die Temp and Shared VRAM are. The name stays
+        # Deliberately not renamed the way GPU Die Temp and GPU Memory are. The name stays
         # true on one chip, since the package reading is the processor and graphics together,
         # and "Package Power" is the precise term that means nothing to most people. What the
         # reader does need is the reason it matches CPU Power there, which the tooltip gives.
@@ -1046,6 +1046,37 @@ def stability_132_guards(src):
           grace is not None and int(grace.group(1).replace("_", "")) >= 5000
           and "asleepMs < SleepShownAfterMs && _held is { } held" in reader,
           "GPU Usage and GPU Temp flickering between asleep and readings every few seconds")
+
+    # Automatic prefers a graphics card by what Windows says about it, not by memory read from
+    # the card's own sensors. A card asleep since Pulse started has never been read and reports
+    # none, and a Ryzen laptop's Radeon (512 MB) was then chosen over its RTX 3050 until
+    # something woke the card. Reported 10 Nov 2026.
+    check("Automatic prefers a graphics card even while it has never been read",
+          "bool  card   = IsDiscrete(g);" in reader
+          and "|| (card && !bestCard)" in reader,
+          "a laptop showing its built-in Radeon instead of the card it was bought for")
+
+    # Automatic shows the built-in graphics while the card sleeps, and back when it wakes
+    # (12 Nov 2026). Three things make that right: a GPU picked by hand is never swapped,
+    # a dip into sleep does not swap (the card's last reading stands for SleepShownAfterMs, as
+    # before), and reading the built-in graphics does not restart the card's sleep count, or
+    # every other poll would go back to the card.
+    switch = reader[reader.find("bool pinnedHonoured"):reader.find("if (chosen != null && asleep.Contains(chosen) && !IsDiscrete(chosen))")]
+    check("Automatic shows the built-in graphics while the card sleeps, never a GPU picked by hand",
+          "!pinnedHonoured && _asleepSince is { } since" in switch
+          and "BuiltInGraphics(gpus) is { } builtIn" in switch
+          and "chosen = builtIn;" in switch,
+          "a laptop card asleep on battery leaving every GPU tile on asleep, or a chosen GPU swapped")
+    check("only after the card has slept, not on a dip",
+          "!heldForCard || Environment.TickCount64 - since >= SleepShownAfterMs" in switch,
+          "every GPU tile swapping between two chips each time the card dips for a second")
+    check("reading the built-in graphics does not restart the card's sleep count",
+          reader.count("_asleepSince = null;") == 1
+          and reader.find("_asleepSince = null;") < reader.find("bool pinnedHonoured"),
+          "the readings swapping back to the asleep card every other poll")
+    check("the line under the picker says why the built-in graphics are being read",
+          "snapshot.CoveringFor = chosen.Name;" in reader,
+          "Auto looking as if it picked the wrong GPU")
     i = reader.find("private bool IsAsleep(IHardware gpu)")
     check("sleep changes are logged only for a graphics card",
           "if (IsDiscrete(gpu))" in reader[i:i + 1500],

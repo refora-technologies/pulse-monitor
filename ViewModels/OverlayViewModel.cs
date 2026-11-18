@@ -70,11 +70,11 @@ public class TileViewModel : BaseViewModel
     /// What the tile is called on screen, which for video memory depends on where the memory is.
     /// </summary>
     /// <remarks>
-    /// Graphics built into a processor have essentially no memory of their own and draw from
-    /// system RAM instead. Showing that figure under "VRAM Used" would be claiming it is the
-    /// card's own memory, which is the shape of mistake this project has already had to remove
-    /// once. Windows calls the two pools "Dedicated GPU memory" and "Shared GPU memory", and the
-    /// tile follows whichever one it is actually showing.
+    /// Graphics built into a processor have little or no memory of their own and borrow from
+    /// system RAM, and the tile shows the two together. Showing that figure under "VRAM Used"
+    /// would be claiming it is a card's own memory, which is the shape of mistake this project
+    /// has already had to remove once. Task Manager calls the two together "GPU memory", and
+    /// the tile uses its name.
     ///
     /// Graphics temperature works the same way. On graphics that are part of the processor the
     /// temperature is the die's, so it reads exactly the same as CPU Temp, because it is the
@@ -86,7 +86,7 @@ public class TileViewModel : BaseViewModel
     /// </remarks>
     public string DisplayLabel => Definition.Id switch
     {
-        "gpu_vram" when HardwareService.Instance.VramIsShared         => "Shared VRAM",
+        "gpu_vram" when HardwareService.Instance.VramIsShared         => "GPU Memory",
         "gpu_temp" when HardwareService.Instance.GpuTempIsDie => "GPU Die Temp",
 
         // CPU+GPU Power is deliberately not renamed on a processor with built-in graphics,

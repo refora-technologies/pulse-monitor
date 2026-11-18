@@ -161,8 +161,17 @@ public class HardwareService : IDisposable
     /// Name of the GPU the GPU tiles are currently reading from.
     public string ActiveGpuName { get; private set; } = "";
 
+    /// The card that is asleep while Automatic reads the built-in graphics in its place, or
+    /// empty. For the line under the GPU picker.
+    public string CoveringFor { get; private set; } = "";
+
     /// Raised when the set of detected GPUs changes (first reading, or an eGPU appearing).
     public event EventHandler? GpuListChanged;
+
+    /// Raised when the GPU being read changes, or why: Automatic going to the built-in
+    /// graphics while the card sleeps, and back. The list itself is unchanged then, so the
+    /// event above does not fire, and the line under the picker would go on naming the card.
+    public event EventHandler? ActiveGpuChanged;
 
     /// <summary>
     /// True once sensors have been opened successfully. While false every tile reads "--",
@@ -1069,6 +1078,7 @@ public class HardwareService : IDisposable
 
         bool gpusChanged   = false;
         bool stateChanged  = false;
+        bool activeChanged = false;
 
         if (snapshot.Ready)
         {
@@ -1093,7 +1103,9 @@ public class HardwareService : IDisposable
                 gpusChanged   = true;
             }
 
+            activeChanged = ActiveGpuName != snapshot.ActiveGpuName || CoveringFor != snapshot.CoveringFor;
             ActiveGpuName = snapshot.ActiveGpuName;
+            CoveringFor   = snapshot.CoveringFor;
         }
         else if (snapshot.Fault is { Length: > 0 } fault && fault != HardwareFault)
         {
@@ -1108,6 +1120,7 @@ public class HardwareService : IDisposable
         {
             SensorsUpdated?.Invoke(this, data);
             if (gpusChanged)  GpuListChanged?.Invoke(this, EventArgs.Empty);
+            if (activeChanged) ActiveGpuChanged?.Invoke(this, EventArgs.Empty);
             if (stateChanged) HardwareStateChanged?.Invoke(this, EventArgs.Empty);
         });
     }

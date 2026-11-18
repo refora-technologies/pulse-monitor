@@ -105,7 +105,8 @@ public class SensorTileDefinition
                 Description = "How much power the graphics card is drawing right now." },
         new() { Id = "gpu_vram",     Label = "VRAM Used",     Unit = "GB",   Category = SensorCategory.GPU,     HasBar = true,  BarMax = 6,   WarnThreshold = 4.5f, DangerThreshold = 5.5f, HasKnownMax = true,
                 Description = "Video memory in use, out of what the card has. Graphics built into the "
-                            + "processor borrow system memory instead, and the tile is renamed to say so." },
+                            + "processor also borrow system memory, so there the tile shows the two together, "
+                            + "renamed GPU Memory." },
         new() { Id = "ram_used",     Label = "RAM Used",      Unit = "GB",   Category = SensorCategory.Memory,  HasBar = true,  BarMax = 16,  WarnThreshold = 12,   DangerThreshold = 14.5f, HasKnownMax = true,
                 Description = "System memory in use, out of what is installed." },
 

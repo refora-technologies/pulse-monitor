@@ -346,10 +346,12 @@ class Program
     //       /gpu-intel-integrated no Temperature sensor
     //       /intelcpu/0           no graphics temperature anywhere
     //       Task Manager          N/A
-    //       Pulse                 "--", which is correct there
+    //       Pulse until 1.3.7     "--"
     //
-    // So the reading exists on one vendor and genuinely does not on the other, and the code
-    // must produce a number in the first case without inventing one in the second.
+    // So the reading exists on one vendor and genuinely does not on the other. Since 1.3.7 the
+    // second shows the processor's temperature, named GPU Die Temp, because the graphics are on
+    // that die (12 Nov 2026). Only built-in graphics, and only when neither
+    // they nor Windows give a reading of their own.
     static void IntegratedGraphicsTemperature()
     {
         Console.WriteLine();
@@ -371,10 +373,21 @@ class Program
               src.Contains("??= DisplayAdapters.Temperature"),
               "a discrete card reads its own die and needs no second opinion");
 
-        // The rule that made this necessary: no invented substitute.
-        Check("no processor temperature is put on the graphics tile",
-              !src.Contains("data.GpuTemp = data.CpuTemp;") && !src.Contains("_cpuGraphicsTemp"),
-              "Task Manager shows nothing for graphics with no sensor, and so must Pulse");
+        Check("the processor's temperature fills in only for built-in graphics with none at all",
+              src.Contains("if (!discrete && data.GpuTemp is null && data.CpuTemp is { } die)"),
+              "a card is a separate chip, and the adapter's own or Windows' reading comes first");
+
+        Check("and it is filled in before the die flag is set, so the tile is named for it",
+              src.IndexOf("data.CpuTemp is { } die", StringComparison.Ordinal)
+              < src.IndexOf("data.GpuTempIsDie = !discrete && data.GpuTemp is not null;", StringComparison.Ordinal),
+              "filled in after it, the die's reading would show under the name GPU Temp");
+
+        Check("the GPU Temp tile opens the processor's sensors too",
+              src.Contains("\"gpu_temp\"      => SensorSubsystems.Gpu | SensorSubsystems.Cpu,"),
+              "with only that tile on, the processor would not be read and Intel would show --");
+
+        Check("no processor temperature is put on the graphics tile any other way",
+              !src.Contains("data.GpuTemp = data.CpuTemp;") && !src.Contains("_cpuGraphicsTemp"));
 
         Check("nothing reported means nothing shown",
               adp.Contains("if (perf.Temperature == 0) return null;"),
@@ -593,22 +606,35 @@ class Program
     //
     //   RTX 3050       dedicated 6,001 MB total, 452 used    -> obviously dedicated
     //
-    // So an integrated GPU can have a large dedicated pool, and the choice cannot be made from
-    // whether a GPU is integrated. It is made from whether it has a pool worth showing.
+    // Until 1.3.7 the tile showed one pool or the other by the size of the dedicated one, so
+    // each built-in graphics showed part of what it uses: a Radeon with a 512 MB slice read
+    // full while it was borrowing more, and the Intel showed only the borrowed part. Since
+    // 1.3.7 built-in graphics show both together, Task Manager's "GPU memory" (12 Nov
+    // 2026), and a graphics card still shows its own memory.
     static void WhichPoolIsShown()
     {
         Console.WriteLine();
-        Console.WriteLine("The tile shows the pool the adapter actually uses, and says which:");
+        Console.WriteLine("Built-in graphics show own and borrowed memory together, a card its own:");
 
         var src = FindSource("Services/SensorReader.cs");
         if (src == null) { Check("SensorReader source found", false); return; }
 
-        Check("the choice is made from the dedicated pool's size",
-              src.Contains("bool useShared = dedicatedTotalMb < RealDedicatedPoolMb;"),
-              "not from the vendor, and not from integrated versus discrete");
+        Check("the choice is made from whether the graphics are a card",
+              src.Contains("bool combined = !discrete;"),
+              "the pool size gave each built-in graphics a different part of the figure");
 
-        Check("the boundary separates a stub from a real pool",
-              src.Contains("RealDedicatedPoolMb = 256f"),
+        Check("and the reading is given the same answer the picker uses",
+              src.Contains("ApplyVideoMemory(hw, discrete, data);")
+              && src.Contains("ApplyVideoMemory(chosen, chosenIsDiscrete, data);"),
+              "two answers to one question is how a tile ends up named for the wrong thing");
+
+        Check("built-in graphics add both halves, or show neither",
+              src.Contains("used.DedicatedBytes >= 0 && used.SharedBytes >= 0 ? used.DedicatedBytes + used.SharedBytes"),
+              "half a sum under the sum's name is a nonsense the tile cannot show");
+
+        Check("the stub boundary only decides the fallback without counters",
+              src.Contains("RealDedicatedPoolMb = 256f")
+              && src.Contains("if ((discrete || dedicatedTotalMb >= RealDedicatedPoolMb) && dedicatedTotalMb > 0)"),
               "Intel reports 128 MB and uses none; an AMD APU reports 2,033 MB and uses it");
 
         Check("and it is not the same constant as the discrete test",
@@ -627,16 +653,16 @@ class Program
               src.Contains("if (usage is not { } used)"),
               "dedicated usage under a shared capacity is a nonsense the tile cannot show");
 
-        Check("the capacity shown is the capacity of the pool shown",
-              src.Contains("float totalMb = useShared ? sharedTotalMb : dedicatedTotalMb;"),
-              "showing shared usage against a dedicated total would be a nonsense fraction");
+        Check("the capacity shown is the capacity of what is shown",
+              src.Contains("float totalMb = combined ? dedicatedTotalMb + sharedTotalMb : dedicatedTotalMb;"),
+              "a sum against one pool's total would be a nonsense fraction");
 
         Check("an unknown capacity is still left unknown",
-              src.Contains("if (totalMb > 0) data.TotalVramGb = totalMb / 1024f;"),
+              src.Contains("if (totalMb > 0 && (bytes >= 0 || !combined)) data.TotalVramGb = totalMb / 1024f;"),
               "zero means no answer, and is never drawn");
 
-        Check("the shared flag is only raised when there is a reading to label",
-              src.Contains("data.VramIsShared = useShared && data.GpuVram is not null;"),
+        Check("the flag is only raised when there is a reading to label",
+              src.Contains("data.VramIsShared = combined && data.GpuVram is not null;"),
               "an empty tile keeps its ordinary name");
 
         Check("a duplicate adapter entry is disambiguated by which one has counters",
@@ -662,9 +688,9 @@ class Program
 
         // The name on screen.
         var vm = FindSource("ViewModels/OverlayViewModel.cs");
-        Check("the tile is named for the pool it shows",
-              vm != null && vm.Contains("=> \"Shared VRAM\""),
-              "Windows calls them Dedicated and Shared GPU memory; the tile follows");
+        Check("the tile is named for what it shows",
+              vm != null && vm.Contains("=> \"GPU Memory\""),
+              "Task Manager calls own and borrowed together GPU memory; the tile follows");
 
         Check("only tiles whose reading changed meaning are renamed",
               vm != null && vm.Contains("\"gpu_vram\" when HardwareService.Instance.VramIsShared")

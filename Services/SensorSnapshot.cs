@@ -37,6 +37,16 @@ public sealed class SensorSnapshot
     /// The adapter the GPU readings above were taken from, for display.
     public string ActiveGpuName { get; set; } = "";
 
+    /// <summary>
+    /// The card that is asleep while Automatic shows the built-in graphics in its place, or
+    /// empty when it is not doing that.
+    /// </summary>
+    /// <remarks>
+    /// So the line under the GPU picker can say why it is reading the built-in graphics and
+    /// that it goes back by itself, rather than looking as if Auto chose the wrong adapter.
+    /// </remarks>
+    public string CoveringFor { get; set; } = "";
+
     /// False while the host has sensors open but nothing readable yet.
     public bool Ready { get; set; }
 

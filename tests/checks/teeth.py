@@ -75,6 +75,27 @@ MUTATIONS = [
      "the sensor library's memory group is never opened",
      "a Ryzen laptop's cursor frozen until a restart as soon as Pulse started"),
 
+    # Rank by memory alone again, and a card asleep since start loses to built-in graphics.
+    ("Services/SensorReader.cs",
+     "|| (card && !bestCard)",
+     "|| false",
+     "Automatic prefers a graphics card even while it has never been read",
+     "a Ryzen laptop showing its built-in Radeon instead of its RTX 3050"),
+
+    # Swap a GPU picked by hand too, and someone's choice is overridden.
+    ("Services/SensorReader.cs",
+     "!pinnedHonoured && _asleepSince is { } since",
+     "_asleepSince is { } since",
+     "never a GPU picked by hand",
+     "a GPU chosen in settings swapped for another while it sleeps"),
+
+    # Swap on the first instant of sleep, and every dip swaps every GPU tile.
+    ("Services/SensorReader.cs",
+     "!heldForCard || Environment.TickCount64 - since >= SleepShownAfterMs",
+     "true",
+     "only after the card has slept, not on a dip",
+     "GPU tiles swapping between two chips each time the card dips"),
+
     # Show asleep the moment the card dips, and the tiles flicker the way a reporter filmed.
     ("Services/SensorReader.cs",
      "private const long SleepShownAfterMs = 10_000;",
@@ -251,8 +272,8 @@ MUTATIONS = [
     # adapter as a graphics card, then renames its temperature tile to say it is part of the
     # processor.
     ("Services/SensorReader.cs",
-     "chosenIsDiscrete = IsDiscrete(chosen);\n                ApplyWindowsTemperature",
-     "chosenIsDiscrete = !FindAdapter(chosen.Name)?.Integrated ?? true;\n                ApplyWindowsTemperature",
+     "chosenIsDiscrete = IsDiscrete(chosen);\n                ReadGpu(chosen, chosenIsDiscrete, data);",
+     "chosenIsDiscrete = !FindAdapter(chosen.Name)?.Integrated ?? true;\n                ReadGpu(chosen, chosenIsDiscrete, data);",
      "one answer decides discrete or integrated, and it is passed to everything",
      "the picker and the tile labels answering the same question differently"),
 
