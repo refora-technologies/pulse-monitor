@@ -2431,6 +2431,7 @@
                     <StackPanel Margin="22,4,22,16">
 
                         <!-- Pulse's readings, ordinary then advanced, each with its switches. -->
+                        <StackPanel Visibility="{Binding AnyReadingShown, Converter={StaticResource BoolToVis}}">
                         <Grid Margin="2,0,2,7">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*"/>
@@ -2448,11 +2449,14 @@
                                 Padding="14,6" Margin="0,0,0,10">
                             <ItemsControl ItemsSource="{Binding Readings}" ItemTemplate="{StaticResource PulseReadingRow}"/>
                         </Border>
+                        </StackPanel>
+                        <StackPanel Visibility="{Binding AnyAdvancedShown, Converter={StaticResource BoolToVis}}">
                         <TextBlock Text="ADVANCED" FontSize="10" FontWeight="Bold" Foreground="#A9A4CE" Margin="2,6,0,7"/>
                         <Border Background="#111020" CornerRadius="13" BorderBrush="#1C1A30" BorderThickness="1"
                                 Padding="14,6" Margin="0,0,0,22">
                             <ItemsControl ItemsSource="{Binding AdvancedReadings}" ItemTemplate="{StaticResource PulseReadingRow}"/>
                         </Border>
+                        </StackPanel>
 
                         <!-- Everything the PC reports: one card per piece of hardware. -->
                         <Grid Margin="2,0,2,7">
