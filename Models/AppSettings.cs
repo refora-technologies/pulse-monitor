@@ -200,9 +200,8 @@ public class AppSettings
     /// by executable name. Anti-cheat still keeps the overlay out of them.
     public List<string> InGameIncludedGames { get; set; } = new();
 
-    private static readonly string SettingsPath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "Refora", "Pulse", "settings.json");
+    // %APPDATA%\Refora\Pulse in Pulse; a folder of their own for the test suites (DataFolder).
+    internal static readonly string SettingsPath = Path.Combine(Pulse.Services.DataFolder.Root, "settings.json");
 
     /// <summary>
     /// Newtonsoft defaults to ObjectCreationHandling.Auto, which reuses the list created

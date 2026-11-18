@@ -1,9 +1,9 @@
 ﻿// Tests Pulse's real LogService by reflecting into the built assembly.
 //
-// LogService writes to %APPDATA%\Refora\Pulse\logs, which is the user's genuine log folder,
-// and the path is resolved through the shell so it cannot be redirected. The harness
-// therefore moves the real folder aside first and puts it back at the end, and verifies the
-// restore. Nothing of the user's is destroyed.
+// Inside Pulse, LogService writes to %APPDATA%\Refora\Pulse\logs. Loaded by anything else,
+// these tests included, it writes to a folder of its own under %TEMP% (Services/DataFolder.cs),
+// so nothing here can touch the real log or the Pulse writing to it. The folder is still moved
+// aside and put back around the tests, which keeps them independent of an earlier run.
 
 using System;
 using System.Collections.Generic;
@@ -25,7 +25,10 @@ class Program
         if (ok) _pass++; else _fail++;
     }
 
-    static string LogDir => Path.Combine(
+    static string LogDir => Path.GetDirectoryName(
+        (string)_log.GetProperty("LogPath", BindingFlags.Public | BindingFlags.Static)!.GetValue(null)!)!;
+
+    static string RealLogDir => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Refora", "Pulse", "logs");
 
     static void Info(string src, string msg) => _log.GetMethod("Info")!.Invoke(null, new object[] { src, msg });
@@ -87,6 +90,13 @@ class Program
             return (int)host.GetMethod("Run")!.Invoke(null, new object[] { args })!;
 
         _log = pulse.GetType("Pulse.Services.LogService")!;
+
+        // Outside Pulse, Pulse's code writes to a folder of its own (DataFolder). This is what
+        // keeps every suite out of the real log while the real Pulse is writing to it.
+        Check("the tests log to a folder of their own, never the real Pulse log",
+              !string.Equals(Path.GetFullPath(LogDir).TrimEnd('\\'), Path.GetFullPath(RealLogDir).TrimEnd('\\'),
+                             StringComparison.OrdinalIgnoreCase),
+              LogDir);
 
         // ── protect the user's real logs ──────────────────────────────────────────────
         string backup = Path.Combine(Path.GetTempPath(), "pulse-logs-backup-" + Guid.NewGuid().ToString("N"));

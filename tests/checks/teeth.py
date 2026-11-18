@@ -111,6 +111,13 @@ MUTATIONS = [
      "a sleeping card's advanced readings say asleep",
      "a sleeping card's hot spot and voltage shown as if live"),
 
+    # Point the log back at the real folder, and every suite writes test lines into it.
+    ("Services/LogService.cs",
+     'Path.Combine(DataFolder.Root, "logs")',
+     'Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Refora", "Pulse", "logs")',
+     "only Pulse itself writes to the real Pulse folder",
+     "test lines in the owner's real log"),
+
     # Resize from the grip and leave the slider where it was.
     ("Views/OverlayWindow.xaml.cs",
      "ViewModels.SettingsViewModel.Instance.FollowOverlayScale();",

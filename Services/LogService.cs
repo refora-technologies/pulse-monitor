@@ -39,9 +39,8 @@ public static class LogService
 
     private static readonly object Gate = new();
 
-    private static readonly string Directory = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "Refora", "Pulse", "logs");
+    // %APPDATA%\Refora\Pulse\logs in Pulse; a folder of their own for the test suites (DataFolder).
+    private static readonly string Directory = Path.Combine(DataFolder.Root, "logs");
 
     public static string LogPath => Path.Combine(Directory, "pulse.log");
 
