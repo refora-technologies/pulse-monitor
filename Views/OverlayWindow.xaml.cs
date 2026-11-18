@@ -637,6 +637,7 @@ public partial class OverlayWindow : Window
         var settings = SettingsService.Instance.Settings;
         settings.OverlayScale = _vm.OverlayScale;
         SettingsService.Instance.Save();
+        ViewModels.SettingsViewModel.Instance.FollowOverlayScale();
     }
 
     /// Quick access to Settings while free-dragging — the overlay is click-through

@@ -1451,6 +1451,25 @@
                                         AutomationProperties.Name="Overlay background"
                                         Minimum="0.0" Maximum="1.0" SmallChange="0.05"
                                         Value="{Binding BackgroundOpacity, Mode=TwoWay}"/>
+                            </StackPanel>
+
+                            <!-- Size. The same setting as the grip in the overlay's corner,
+                                 which only shows in Free Drag mode, and the same range. -->
+                            <StackPanel Margin="18,0,18,15">
+                                <Grid Margin="0,0,0,4">
+                                    <TextBlock Text="Size" FontSize="13" FontWeight="SemiBold" Foreground="#DBD7F2"/>
+                                    <TextBlock HorizontalAlignment="Right" FontSize="15" FontWeight="Bold" Foreground="#A78BFA">
+                                        <Run Text="{Binding OverlayScalePercent, Mode=OneWay}"/>
+                                        <Run Text="%" Foreground="#8B86B4" FontSize="11"/>
+                                    </TextBlock>
+                                </Grid>
+                                <TextBlock Text="How large the overlay is on screen"
+                                           FontSize="10.5" FontWeight="Medium" Foreground="#8B86B4" Margin="0,0,0,12"/>
+                                <Slider Style="{StaticResource VioletSlider}"
+                                        AutomationProperties.Name="Overlay size"
+                                        Minimum="0.75" Maximum="1.5" SmallChange="0.05" LargeChange="0.25"
+                                        IsSnapToTickEnabled="True" TickFrequency="0.05"
+                                        Value="{Binding OverlayScale, Mode=TwoWay}"/>
 
                                 <Button Style="{StaticResource LinkBtn}" Content="Reset to default look"
                                         HorizontalAlignment="Right" Margin="0,13,0,0"

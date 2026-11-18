@@ -83,10 +83,7 @@ public sealed class SensorReader : IDisposable
     public static SensorSubsystems? SubsystemFor(string tileId) => tileId switch
     {
         "cpu_usage" or "cpu_temp" or "cpu_clock" or "cpu_power" => SensorSubsystems.Cpu,
-        "gpu_usage" or "gpu_clock" or "gpu_power" or "gpu_vram" => SensorSubsystems.Gpu,
-        // Built-in graphics with no temperature of their own show the processor's, the die the
-        // two share (ApplyWindowsTemperature), so this tile needs the processor read as well.
-        "gpu_temp"      => SensorSubsystems.Gpu | SensorSubsystems.Cpu,
+        "gpu_usage" or "gpu_temp" or "gpu_clock" or "gpu_power" or "gpu_vram" => SensorSubsystems.Gpu,
         "ram_used"      => SensorSubsystems.Memory,
         "disk_activity" => SensorSubsystems.Storage,
         "battery"       => SensorSubsystems.Battery,
