@@ -1201,6 +1201,14 @@
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate><UniformGrid Columns="2"/></ItemsPanelTemplate>
                             </ItemsControl.ItemsPanel>
+                            <!-- The advanced readings stay out of the grid until asked for. On the
+                                 container, not the template, so a hidden one leaves no gap. -->
+                            <ItemsControl.ItemContainerStyle>
+                                <Style TargetType="ContentPresenter">
+                                    <Setter Property="Visibility"
+                                            Value="{Binding IsShown, Converter={StaticResource BoolToVis}}"/>
+                                </Style>
+                            </ItemsControl.ItemContainerStyle>
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
                                     <!-- Drop target. The border only becomes visible while a
@@ -1268,6 +1276,11 @@
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
                     </Border>
+                    <Button Style="{StaticResource LinkBtn}" Content="{Binding AdvancedToggleText}"
+                            HorizontalAlignment="Left" Margin="6,0,0,8" Padding="2,3" FontSize="10.5"
+                            AutomationProperties.Name="{Binding AdvancedToggleText}"
+                            ToolTip="Readings most people never need: each core, the busiest core, and more of the graphics card"
+                            Click="ToggleAdvancedTiles_Click"/>
                     <!-- Why a tile cannot read, and what would fix it. Opened by clicking a
                          dimmed tile; one at a time, under the grid, so the user's eye has
                          not far to travel and focus never leaves this window. -->
@@ -2006,7 +2019,7 @@
                                             <ItemsControl.ItemContainerStyle>
                                                 <Style TargetType="ContentPresenter">
                                                     <Setter Property="Visibility"
-                                                            Value="{Binding IsAvailable, Converter={StaticResource BoolToVis}}"/>
+                                                            Value="{Binding IsListedInGame, Converter={StaticResource BoolToVis}}"/>
                                                 </Style>
                                             </ItemsControl.ItemContainerStyle>
                                             <ItemsControl.ItemTemplate>
@@ -2052,6 +2065,11 @@
                                             </ItemsControl.ItemTemplate>
                                         </ItemsControl>
                                     </Border>
+                                    <Button Style="{StaticResource LinkBtn}" Content="{Binding InGameAdvancedToggleText}"
+                                            HorizontalAlignment="Left" Margin="1,6,0,0" Padding="2,3" FontSize="10.5"
+                                            AutomationProperties.Name="{Binding InGameAdvancedToggleText}"
+                                            ToolTip="Readings most people never need: each core, the busiest core, and more of the graphics card"
+                                            Click="ToggleAdvancedTiles_Click"/>
                                     <Grid Margin="5,8,0,0">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*"/>

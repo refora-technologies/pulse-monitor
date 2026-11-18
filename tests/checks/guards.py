@@ -401,6 +401,36 @@ def wiring_guards(src):
           "ViewModels.SettingsViewModel.Instance.FollowOverlayScale();" in overlay_win,
           "the slider showing one size while the overlay is another")
 
+    # Advanced readings (1.3.7): asked for by the main reporter, kept out of sight for everyone
+    # else. Hidden on the list's container, not its template, or the grid keeps an empty cell.
+    catalogue = src.text("Models/SensorTileDefinition.cs") or ""
+    reader    = src.text("Services/SensorReader.cs") or ""
+    snapshot  = src.text("Services/SensorSnapshot.cs") or ""
+    writer    = src.text("Services/InGame/InGameBlockWriter.cs") or ""
+    advanced = re.findall(r'Id = "(\w+)"[^\n]*IsAdvanced = true', catalogue)
+    check("the five advanced readings are marked advanced",
+          sorted(advanced) == sorted(["cpu_core_max", "cpu_cores", "gpu_hotspot", "gpu_mem_clock", "gpu_voltage"]),
+          "readings most people never need, shown to everyone")
+    check("the settings lists hide them until asked, leaving no gap",
+          main_xaml.count('Value="{Binding IsShown, Converter={StaticResource BoolToVis}}"') == 1
+          and main_xaml.count('Value="{Binding IsListedInGame, Converter={StaticResource BoolToVis}}"') == 1
+          and "public bool ShowAdvancedTiles { get; set; } = false;" in (src.text("Models/AppSettings.cs") or ""),
+          "the advanced readings on show out of the box, or holes in the grid where they were hidden")
+    # The hot spot is caught before the general temperature case, so whatever order a driver
+    # lists its sensors in, it never becomes GPU Temp, which would read ten degrees high.
+    hot = reader.find('s.Name.Equals("GPU Hot Spot"')
+    general = reader.find("case SensorType.Temperature when data.GpuTemp is null:")
+    check("the hot spot never becomes GPU Temp",
+          0 <= hot < general,
+          "GPU Temp reading the hottest point, ten to fifteen degrees high, on a driver that lists it first")
+    check("a sleeping card's advanced readings say asleep, like its others",
+          "d.GpuHotSpot = d.GpuMemClock = d.GpuVoltage = null;" in snapshot
+          and '"gpu_hotspot", "gpu_mem_clock", "gpu_voltage" }' in reader,
+          "the last readings before sleep shown as live ones")
+    check("the core bars fit the in-game block",
+          "public const int MaxCoreBars = 64;" in reader and "public const int MaxCores = 64;" in writer,
+          "more cores read than the block has room for, cut off without a word")
+
 
 # ── the wire format ─────────────────────────────────────────────────────────────────
 

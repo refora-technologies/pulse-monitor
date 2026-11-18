@@ -27,6 +27,18 @@ public class SensorData
     public float? BatteryLevel { get; set; }
     public float? Fps { get; set; }
     public float? Fps1Low { get; set; }
+
+    // Advanced readings (SensorTileDefinition.IsAdvanced).
+    public float? CpuCoreMax { get; set; }
+    public float? GpuHotSpot { get; set; }
+    public float? GpuMemClock { get; set; }
+    public float? GpuVoltage { get; set; }
+
+    /// <summary>
+    /// How busy each logical processor is, 0 to 100, in Windows' order. Null when not read.
+    /// </summary>
+    /// For the CPU Cores tile, whose single value is the busiest of these (CpuCoreMax).
+    public float[]? CpuCoreLoads { get; set; }
     public float TotalRamGb { get; set; }
     public float TotalVramGb { get; set; }
 
@@ -83,6 +95,11 @@ public class SensorData
         "battery"      => BatteryLevel,
         "fps"          => Fps,
         "fps_1low"     => Fps1Low,
+        "cpu_core_max" => CpuCoreMax,
+        "cpu_cores"    => CpuCoreMax,
+        "gpu_hotspot"  => GpuHotSpot,
+        "gpu_mem_clock"=> GpuMemClock,
+        "gpu_voltage"  => GpuVoltage,
         _ => null
     };
 }
@@ -1009,6 +1026,8 @@ public class HardwareService : IDisposable
             data.CpuPower     = previous.CpuPower;
             data.CpuClock     = previous.CpuClock;
             data.CpuUsage     = previous.CpuUsage;
+            data.CpuCoreMax   = previous.CpuCoreMax;
+            data.CpuCoreLoads = previous.CpuCoreLoads;
             data.RamUsed      = previous.RamUsed;
             data.NetUpload    = previous.NetUpload;
             data.NetDownload  = previous.NetDownload;

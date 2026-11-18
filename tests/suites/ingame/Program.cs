@@ -89,7 +89,8 @@ class Program
               $"C++ {Assert(@"sizeof\(Tile\) == (\d+)")}, C# {Const(w, "TileSize")}");
         Check("block size agrees", Assert(@"sizeof\(Block\) == (\d+)") == Const(w, "BlockSize"),
               $"C++ {Assert(@"sizeof\(Block\) == (\d+)")}, C# {Const(w, "BlockSize")}");
-        foreach (var (field, constant) in new[] { ("enabled", "OffEnabled"), ("scale", "OffScale"), ("targetPid", "OffTarget"), ("tiles", "OffTiles") })
+        foreach (var (field, constant) in new[] { ("enabled", "OffEnabled"), ("scale", "OffScale"), ("targetPid", "OffTarget"), ("tiles", "OffTiles"),
+                                                  ("coreCount", "OffCoreCount"), ("cores", "OffCores") })
         {
             int cpp = Assert($@"offsetof\(Block, {field}\) == (\d+)");
             Check($"offset of {field} agrees", cpp == Const(w, constant), $"C++ {cpp}, C# {Const(w, constant)}");
@@ -106,8 +107,10 @@ class Program
               Const(w, "TileUnit") == 64 && Const(w, "TileState") == 76 && Const(w, "TileHasBar") == 77 && Const(w, "TileBar") == 80 &&
               Regex.IsMatch(h, @"char id\[16\];[^\n]*\n\s*char label\[24\];[^\n]*\n\s*char value\[24\];[^\n]*\n\s*char unit\[12\];"));
         Check("the name and version agree",
-              h.Contains("Local\\\\PulseIngame-v3") && (string)w.GetField("Name", Any)!.GetValue(null)! == @"Local\PulseIngame-v3" &&
-              Regex.IsMatch(h, @"kVersion = 3;"));
+              h.Contains("Local\\\\PulseIngame-v4") && (string)w.GetField("Name", Any)!.GetValue(null)! == @"Local\PulseIngame-v4" &&
+              Regex.IsMatch(h, @"kVersion = 4;"));
+        Check("room for the same number of cores on both sides",
+              Regex.IsMatch(h, @"kMaxCores = 64;") && Const(w, "MaxCores") == 64);
     }
 
     static string RepoRoot()
@@ -150,12 +153,13 @@ class Program
     static byte[] Encode(object frame) =>
         (byte[])T("Pulse.Services.InGame.InGameBlockWriter").GetMethod("Encode", Any)!.Invoke(null, new[] { frame })!;
 
-    static object Frame(bool enabled, bool bar, float scale, float ax, float ay, float panel, float overlay, IList<object> tiles, uint target)
+    static object Frame(bool enabled, bool bar, float scale, float ax, float ay, float panel, float overlay, IList<object> tiles, uint target,
+                        float[] cores = null)
     {
         var tileType = T("Pulse.Services.InGame.InGameTile");
         var list = (System.Collections.IList)Activator.CreateInstance(typeof(List<>).MakeGenericType(tileType))!;
         foreach (var t in tiles) list.Add(t);
-        return Activator.CreateInstance(T("Pulse.Services.InGame.InGameFrame"), enabled, bar, scale, ax, ay, panel, overlay, list, target)!;
+        return Activator.CreateInstance(T("Pulse.Services.InGame.InGameFrame"), enabled, bar, scale, ax, ay, panel, overlay, list, target, cores)!;
     }
 
     static string Text(byte[] b, int at, int size)
@@ -173,8 +177,9 @@ class Program
         };
         var b = Encode(Frame(true, true, 1.25f, 1f, 0.5f, 0.4f, 0.85f, tiles, 4242));
 
-        Check("block is 2088 bytes", b.Length == 2088, b.Length.ToString());
-        Check("magic and version", BitConverter.ToUInt32(b, 0) == 0x504C5345 && BitConverter.ToUInt32(b, 4) == 3);
+        Check("block is 2160 bytes", b.Length == 2160, b.Length.ToString());
+        Check("magic and version", BitConverter.ToUInt32(b, 0) == 0x504C5345 && BitConverter.ToUInt32(b, 4) == 4);
+        Check("no cores when the CPU Cores tile is not shown", BitConverter.ToUInt32(b, 2088) == 0);
         Check("sequence left for the writer", BitConverter.ToUInt32(b, 8) == 0);
         Check("tile count", BitConverter.ToUInt32(b, 12) == 2);
         Check("enabled and the straight layout", b[24] == 1 && b[25] == 1);
@@ -193,7 +198,20 @@ class Program
 
         var many = Enumerable.Range(0, 30).Select(i => Tile($"t{i}", "L", "1", "", 0, false, 0)).ToList();
         var full = Encode(Frame(true, false, 1, 0, 0, 1, 1, many, 1));
-        Check("more tiles than fit: the first 24, and no overrun", BitConverter.ToUInt32(full, 12) == 24 && full.Length == 2088);
+        Check("more tiles than fit: the first 24, and no overrun", BitConverter.ToUInt32(full, 12) == 24 && full.Length == 2160);
+
+        // The CPU Cores tile's bars: each core a whole percentage, nothing out of range, at most 64.
+        var coreTiles = new List<object> { Tile("cpu_cores", "CPU Cores", "55", "", 1, false, 0f) };
+        var withCores = Encode(Frame(true, false, 1, 0, 0, 1, 1, coreTiles, 1, new[] { 12.4f, 99.6f, 0f, 55f }));
+        Check("each core's load follows the tiles",
+              BitConverter.ToUInt32(withCores, 2088) == 4 && withCores[2092] == 12 && withCores[2093] == 100 &&
+              withCores[2094] == 0 && withCores[2095] == 55);
+        var odd = Encode(Frame(true, false, 1, 0, 0, 1, 1, coreTiles, 1, new[] { -5f, 250f, float.NaN }));
+        Check("a load outside 0 to 100, or none at all, is held inside it",
+              odd[2092] == 0 && odd[2093] == 100 && odd[2094] == 0);
+        var lots = Encode(Frame(true, false, 1, 0, 0, 1, 1, coreTiles, 1, Enumerable.Repeat(50f, 100).ToArray()));
+        Check("more cores than fit: the first 64, and no overrun",
+              BitConverter.ToUInt32(lots, 2088) == 64 && lots.Length == 2160 && lots[2092 + 63] == 50);
 
         var wild = Encode(Frame(true, false, 1, 0, 0, 1, 1, new List<object> { Tile("x", "X", "1", "", 0, true, 7f) }, 1));
         Check("a bar beyond full is held at full", BitConverter.ToSingle(wild, 72 + 80) == 1f);

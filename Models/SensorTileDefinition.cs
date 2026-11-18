@@ -41,6 +41,18 @@ public class SensorTileDefinition
     /// direction crossing one means.
     public bool LowerIsWorse { get; set; }
 
+    /// <summary>
+    /// True for the readings most people never need, kept out of sight in the settings lists
+    /// until someone asks for them.
+    /// </summary>
+    /// <remarks>
+    /// Asked for by the main reporter, 6 Oct 2026: per-core use and more of the card's sensors,
+    /// the kind of thing overclocking tools show, but behind an Advanced section so Pulse stays
+    /// simple for everyone else. The five were chosen by the owner on 18 Nov from what a real
+    /// laptop reported, not from what the sensor library can name.
+    /// </remarks>
+    public bool IsAdvanced { get; set; }
+
     /// True only for tiles where Pulse knows a real hardware capacity (total RAM/VRAM),
     /// as opposed to warn/danger thresholds, which are just our own guessed defaults and
     /// would be misleading if shown as a "max".
@@ -150,5 +162,36 @@ public class SensorTileDefinition
                 Description = "The processor and graphics power together. With a separate graphics card "
                             + "that is two readings added up. Where the graphics are built into the "
                             + "processor they are one chip drawing one amount, so this matches CPU Power." },
+
+        // Advanced, from here on: hidden in the settings lists until "Show advanced readings".
+
+        // The busiest core rather than the average. A game held back by one thread shows CPU
+        // Usage at 30 or 40 percent with one core flat out, which is the thing this tile is for.
+        // Measured 18 Nov 2026: 51.6 here while CPU Usage read 37. Its colours start later than
+        // CPU Usage's, because one core running full is ordinary in a game rather than a warning
+        // about the whole processor.
+        new() { Id = "cpu_core_max", Label = "Busiest Core",  Unit = "%",    Category = SensorCategory.CPU,     HasBar = true,  BarMax = 100, WarnThreshold = 85,   DangerThreshold = 95, IsAdvanced = true,
+                Description = "How busy the processor's busiest core is. Near full while CPU Usage is low means "
+                            + "a game is held back by one core." },
+
+        // One bar per core, in one tile, rather than a tile per core: twelve to thirty-two tiles
+        // would bury everything else. Each logical processor is a bar, as Windows counts them.
+        // The tile's own value is the busiest of them, so its colour agrees with Busiest Core.
+        new() { Id = "cpu_cores",    Label = "CPU Cores",     Unit = "",     Category = SensorCategory.CPU,     HasBar = false, WarnThreshold = 70,  DangerThreshold = 90, IsAdvanced = true,
+                Description = "How busy each of the processor's cores is, one bar each, in the order Windows "
+                            + "numbers them." },
+
+        // The hottest point on the graphics chip, which runs ten to fifteen degrees above GPU
+        // Temp (measured 18 Nov: 59 against 52 at idle). Its colours are GPU Temp's moved up by
+        // that gap, so the two tiles turn amber at about the same moment.
+        new() { Id = "gpu_hotspot",  Label = "GPU Hot Spot",  Unit = "°C",   Category = SensorCategory.GPU,     HasBar = false, WarnThreshold = 85,  DangerThreshold = 100, IsAdvanced = true,
+                Description = "The hottest point on the graphics chip, which runs warmer than GPU Temp. Not "
+                            + "every card reports one." },
+        new() { Id = "gpu_mem_clock",Label = "GPU Memory Clock", Unit = "MHz", Category = SensorCategory.GPU,   HasBar = false, WarnThreshold = 0,   DangerThreshold = 0, IsAdvanced = true,
+                Description = "The speed the graphics card's own memory is running at." },
+        // Millivolts, as overclocking tools show it: a change of a few millivolts is what people
+        // look for, and 0.63 V would hide it.
+        new() { Id = "gpu_voltage",  Label = "GPU Voltage",   Unit = "mV",   Category = SensorCategory.GPU,     HasBar = false, WarnThreshold = 0,   DangerThreshold = 0, IsAdvanced = true,
+                Description = "The voltage the graphics chip is running at right now." },
     };
 }

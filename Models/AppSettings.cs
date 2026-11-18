@@ -129,6 +129,10 @@ public class AppSettings
         }
     }
     public bool ShowMaxValues { get; set; } = false;
+
+    /// Whether the settings lists show the advanced readings (SensorTileDefinition.IsAdvanced).
+    /// Off out of the box, so Pulse looks as simple as it is to someone who never asks for more.
+    public bool ShowAdvancedTiles { get; set; } = false;
     public double OverlayScale { get; set; } = 1.0;
 
     /// <summary>

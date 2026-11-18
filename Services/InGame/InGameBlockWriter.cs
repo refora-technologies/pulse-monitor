@@ -13,9 +13,12 @@ internal readonly record struct InGameTile(string Id, string Label, string Value
 /// </summary>
 /// TargetPid is the one game allowed to draw, the game in front; any other game with the overlay
 /// loaded draws nothing.
+/// Cores is each core's load for the CPU Cores tile, drawn as bars; null or empty when that tile
+/// is not shown.
 internal sealed record InGameFrame(
     bool Enabled, bool Bar, float Scale, float AnchorX, float AnchorY,
-    float PanelOpacity, float OverlayOpacity, IReadOnlyList<InGameTile> Tiles, uint TargetPid = 0);
+    float PanelOpacity, float OverlayOpacity, IReadOnlyList<InGameTile> Tiles, uint TargetPid = 0,
+    IReadOnlyList<float>? Cores = null);
 
 /// <summary>
 /// Writes Pulse's readings into the block the in-game overlay reads (InGame/src/pulse_ingame_shared.h).
@@ -41,16 +44,23 @@ internal sealed record InGameFrame(
 /// </remarks>
 internal sealed class InGameBlockWriter : IDisposable
 {
-    public const string Name = @"Local\PulseIngame-v3";
+    // Version 4 (1.3.7) added the per-core loads after the tiles. A new name as well as a new
+    // number, so a game still holding a version 3 overlay from the Pulse before never maps a
+    // block of a size it does not expect.
+    public const string Name = @"Local\PulseIngame-v4";
     public const uint Magic = 0x504C5345;   // "PLSE"
-    public const uint Version = 3;
+    public const uint Version = 4;
     public const int MaxTiles = 24;
+    public const int MaxCores = 64;
 
     // Byte offsets, matching the C++ structs.
     public const int TileSize = 84, TileId = 0, TileLabel = 16, TileValue = 40, TileUnit = 64, TileState = 76, TileHasBar = 77, TileBar = 80;
     public const int OffMagic = 0, OffVersion = 4, OffSequence = 8, OffTileCount = 12, OffWrittenAt = 16, OffEnabled = 24, OffLayout = 25,
                      OffScale = 28, OffAnchorX = 32, OffAnchorY = 36, OffPanel = 40, OffOverlay = 44, OffTarget = 48, OffTiles = 72;
-    public const int BlockSize = OffTiles + MaxTiles * TileSize;  // 2088
+    public const int OffCoreCount = OffTiles + MaxTiles * TileSize, OffCores = OffCoreCount + 4;  // 2088, 2092
+    // Four bytes of padding at the end: the C++ struct holds a 64-bit field, so its size is a
+    // multiple of eight, and the C++ side states them rather than leaving them implied.
+    public const int BlockSize = OffCores + MaxCores + 4;  // 2160
 
     private IntPtr _mapping, _view;
     private uint _sequence;
@@ -171,6 +181,15 @@ internal sealed class InGameBlockWriter : IDisposable
             b[at + TileState] = t.State;
             b[at + TileHasBar] = t.HasBar ? (byte)1 : (byte)0;
             BitConverter.TryWriteBytes(b.AsSpan(at + TileBar), Math.Clamp(t.BarFraction, 0f, 1f));
+        }
+
+        // Each core as a whole percentage, which is all a bar a few pixels tall can show.
+        int cores = Math.Min(frame.Cores?.Count ?? 0, MaxCores);
+        BitConverter.TryWriteBytes(b.AsSpan(OffCoreCount), (uint)cores);
+        for (int i = 0; i < cores; i++)
+        {
+            float load = frame.Cores![i];
+            b[OffCores + i] = (byte)Math.Round(float.IsFinite(load) ? Math.Clamp(load, 0f, 100f) : 0f);
         }
         return b;
     }

@@ -96,6 +96,21 @@ MUTATIONS = [
      "only after the card has slept, not on a dip",
      "GPU tiles swapping between two chips each time the card dips"),
 
+    # Miss the hot spot by name and it falls through to the general case, so a driver listing it
+    # first puts the hottest point on the GPU Temp tile.
+    ("Services/SensorReader.cs",
+     's.Name.Equals("GPU Hot Spot", StringComparison.OrdinalIgnoreCase)',
+     's.Name.Equals("GPU Hotspot", StringComparison.OrdinalIgnoreCase)',
+     "the hot spot never becomes GPU Temp",
+     "GPU Temp reading the hottest point on a driver that lists it first"),
+
+    # Forget the advanced readings when the card sleeps, and they show its last values as live.
+    ("Services/SensorSnapshot.cs",
+     "d.GpuHotSpot = d.GpuMemClock = d.GpuVoltage = null;",
+     "",
+     "a sleeping card's advanced readings say asleep",
+     "a sleeping card's hot spot and voltage shown as if live"),
+
     # Resize from the grip and leave the slider where it was.
     ("Views/OverlayWindow.xaml.cs",
      "ViewModels.SettingsViewModel.Instance.FollowOverlayScale();",

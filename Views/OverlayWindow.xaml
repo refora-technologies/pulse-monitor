@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="clr-namespace:Pulse.ViewModels"
         xmlns:conv="clr-namespace:Pulse.Converters"
+        xmlns:views="clr-namespace:Pulse.Views"
         Title="Pulse Overlay"
         WindowStyle="None"
         AllowsTransparency="True"
@@ -17,6 +18,7 @@
 
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+        <conv:InverseBoolToVisibilityConverter x:Key="InverseBoolToVis"/>
         <FontFamily x:Key="Jakarta">pack://application:,,,/Resources/Fonts/#Plus Jakarta Sans</FontFamily>
         <conv:PercentToWidthConverter x:Key="BarWidthConv"/>
 
@@ -169,7 +171,13 @@
                                         <TextBlock Text="{Binding DisplayLabel}"
                                                    FontSize="10" FontWeight="SemiBold"
                                                    Foreground="#928EB4" Margin="0,0,0,5"/>
-                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Bottom">
+                                        <!-- CPU Cores: a bar per core where the number would be,
+                                             the height of the number it replaces. -->
+                                        <views:CoreBars Loads="{Binding CoreLoads}" BarWidth="4" Height="27"
+                                                        HorizontalAlignment="Left" Margin="0,2,0,2"
+                                                        Visibility="{Binding ShowsCoreBars, Converter={StaticResource BoolToVis}}"/>
+                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Bottom"
+                                                    Visibility="{Binding ShowsCoreBars, Converter={StaticResource InverseBoolToVis}}">
                                             <TextBlock Text="{Binding DisplayValue}"
                                                        FontSize="23" FontWeight="Bold"
                                                        Foreground="{Binding ValueBrush}">
@@ -281,7 +289,11 @@
                                                Foreground="{Binding ValueBrush}"
                                                HorizontalAlignment="Left"
                                                Margin="10,0,4,0"
-                                               VerticalAlignment="Center"/>
+                                               VerticalAlignment="Center"
+                                               Visibility="{Binding ShowsCoreBars, Converter={StaticResource InverseBoolToVis}}"/>
+                                    <views:CoreBars Grid.Column="1" Loads="{Binding CoreLoads}" BarWidth="3" Height="12"
+                                                    Margin="10,0,4,0" VerticalAlignment="Center"
+                                                    Visibility="{Binding ShowsCoreBars, Converter={StaticResource BoolToVis}}"/>
                                     <TextBlock Grid.Column="2"
                                                Text="{Binding DisplayUnit}"
                                                FontSize="10" Foreground="#8E8AB0"

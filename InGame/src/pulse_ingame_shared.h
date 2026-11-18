@@ -15,10 +15,13 @@
 
 namespace pulse_ingame {
 
-constexpr wchar_t kBlockName[] = L"Local\\PulseIngame-v3";
+// Version 4 (1.3.7) added the per-core loads after the tiles, under a new name so an overlay of
+// version 3 still loaded in a game never maps a block of a size it does not expect.
+constexpr wchar_t kBlockName[] = L"Local\\PulseIngame-v4";
 constexpr uint32_t kMagic = 0x504C5345;  // "PLSE"
-constexpr uint32_t kVersion = 3;
+constexpr uint32_t kVersion = 4;
 constexpr int kMaxTiles = 24;
+constexpr int kMaxCores = 64;
 
 // A value's colour, as the window overlay picks it.
 enum State : uint8_t { Neutral = 0, Normal = 1, Warn = 2, Danger = 3 };
@@ -53,15 +56,18 @@ struct Block {
     uint32_t targetPid;          // the one game that may draw: the game in front. 0: any (test tools only)
     uint32_t reserved[5];
     Tile tiles[kMaxTiles];
+    uint32_t coreCount;          // how many of cores[] are filled: the CPU Cores tile's bars
+    uint8_t cores[kMaxCores];    // each core's load, 0..100, in Windows' order
+    uint8_t reserved5[4];        // the padding the compiler would add anyway (writtenAtMs is 8 bytes), said out loud
 };
 
 // The layout Pulse writes byte for byte (Services/InGame/InGameBlockWriter.cs). Checked here so a
 // change on either side cannot pass unnoticed.
 static_assert(sizeof(Tile) == 84, "Tile layout changed: update Pulse's writer");
 static_assert(offsetof(Block, enabled) == 24 && offsetof(Block, scale) == 28 && offsetof(Block, targetPid) == 48 &&
-              offsetof(Block, tiles) == 72,
+              offsetof(Block, tiles) == 72 && offsetof(Block, coreCount) == 2088 && offsetof(Block, cores) == 2092,
               "Block layout changed: update Pulse's writer");
-static_assert(sizeof(Block) == 2088, "Block layout changed: update Pulse's writer");
+static_assert(sizeof(Block) == 2160, "Block layout changed: update Pulse's writer");
 
 // What the in-game part tells Pulse about itself, per game: whether it is drawing, and if not, why.
 // The game writes this one, so Pulse treats it as a hint: it decides only whether to hide the
