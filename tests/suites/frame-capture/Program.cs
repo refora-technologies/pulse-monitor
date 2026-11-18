@@ -124,6 +124,10 @@ class Program
         Check("a program that cannot be identified is said, not silently skipped",
               fps.Contains("could not be identified, so its frame rate is not measured"),
               "it used to return false and say nothing");
+        Check("our own leftover session is said once, as information, not as two warnings",
+              fps.Contains("is already running\", StringComparison.Ordinal)")
+              && fps.Contains("if (said.StartsWith(\"Use --session_name\", StringComparison.Ordinal)) return;"),
+              "PresentMon closes it and carries on; the advice to rename the session would leave it running");
         Check("a Store app's frame in front is watched too",
               fps.Contains("_foregroundIsFrameHost ? _rawForegroundPid"),
               "Windows owns that window, the game draws from its own process, and Pulse skips the frame");

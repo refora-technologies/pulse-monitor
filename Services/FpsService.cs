@@ -673,8 +673,24 @@ public class FpsService : IDisposable
             // indistinguishable from a game that simply is not presenting.
             _process.ErrorDataReceived += (_, e) =>
             {
-                if (!string.IsNullOrWhiteSpace(e.Data))
-                    LogService.Warn(nameof(FpsService), $"PresentMon: {e.Data.Trim()}");
+                if (string.IsNullOrWhiteSpace(e.Data)) return;
+                var said = e.Data.Trim();
+
+                // Our own session from the capture before, left open because that one ended
+                // without closing it: a restart after it stopped, or Pulse closed hard (the
+                // installer does that). PresentMon closes it and carries on, so this is
+                // housekeeping rather than a fault, said once and plainly. It came as two WARN
+                // lines, the second advising a different session name, which would leave the
+                // old session running instead (seen 12 and 18 Nov 2026).
+                if (said.Contains($"\"{TraceSessionName}\" is already running", StringComparison.Ordinal))
+                {
+                    LogService.Info(nameof(FpsService),
+                        $"The last capture's trace session {TraceSessionName} was still open; PresentMon closed it and started a fresh one.");
+                    return;
+                }
+                if (said.StartsWith("Use --session_name", StringComparison.Ordinal)) return;
+
+                LogService.Warn(nameof(FpsService), $"PresentMon: {said}");
             };
 
             _process.BeginOutputReadLine();
