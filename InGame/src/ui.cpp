@@ -49,7 +49,33 @@ void Text(ImDrawList* d, ImFont* font, float size, ImVec2 at, ImU32 color, const
     d->AddText(font, size, at, color, text);
 }
 
-struct Row { const Tile* tile; std::string value; uint8_t state; };
+// A reading: its tile, the value as drawn, its colour, and for CPU Cores the bars drawn in the
+// value's place.
+struct Row { const Tile* tile; std::string value; uint8_t state; const uint8_t* cores = nullptr; int coreCount = 0; };
+
+// The CPU Cores tile's bars, as the window overlay draws them (Views/CoreBars.cs): one per core,
+// three wide with a one pixel gap at normal size, filled from the bottom, coloured as CPU Usage
+// would be, green, amber from 70 and red from 90.
+float CoreBarsWidth(const Row& r, float s) {
+    return r.coreCount > 0 ? r.coreCount * 3 * s + (r.coreCount - 1) * 1 * s : 0;
+}
+
+void DrawCoreBars(ImDrawList* d, const Row& r, const Style& st, float x, float top, float h) {
+    const float s = st.s, w = 3 * s, gap = 1 * s;
+    for (int i = 0; i < r.coreCount; ++i) {
+        float load = std::clamp((float)r.cores[i], 0.0f, 100.0f);
+        float filled = std::max(1.0f * s, std::round(h * load / 100.0f));
+        uint32_t color = load >= 90 ? kDanger : load >= 70 ? kWarn : kNormal;
+        float left = x + i * (w + gap);
+        d->AddRectFilled(ImVec2(left, top), ImVec2(left + w, top + h), st.Bg(0x2A2A3A, 0.33f));
+        d->AddRectFilled(ImVec2(left, top + h - filled), ImVec2(left + w, top + h), st.Col(color));
+    }
+}
+
+// How wide a reading's value is: its text, or its bars.
+float ValueWidth(const Row& r, float s) {
+    return r.coreCount > 0 ? CoreBarsWidth(r, s) : Measure(g_bold, 12 * s, r.value.c_str()).x;
+}
 
 // The tiles to show: Pulse's, with the frame rate and 1% low filled in from the game's own frames.
 std::vector<Row> Rows(const Block& b) {
@@ -68,7 +94,12 @@ std::vector<Row> Rows(const Block& b) {
             if (OnePercentLow(x)) std::snprintf(v, sizeof v, "%.0f", x); else std::snprintf(v, sizeof v, "--");
             state = Neutral;
         }
-        rows.push_back({ &t, v, state });
+        Row row{ &t, v, state };
+        if (!std::strncmp(t.id, "cpu_cores", sizeof t.id) && b.coreCount > 0) {
+            row.cores = b.cores;
+            row.coreCount = (int)std::min<uint32_t>(b.coreCount, kMaxCores);
+        }
+        rows.push_back(row);
     }
     return rows;
 }
@@ -180,7 +211,7 @@ void DrawList(ImDrawList* d, const std::vector<Row>& rows, const Style& st, floa
     float contentW = 0;
     for (const Row& r : rows) {
         float w = std::max(80 * s, Measure(g_medium, 11 * s, r.tile->label).x) + 10 * s +
-                  Measure(g_bold, 12 * s, r.value.c_str()).x + 4 * s + 4 * s + Measure(g_medium, 10 * s, r.tile->unit).x;
+                  ValueWidth(r, s) + 4 * s + 4 * s + Measure(g_medium, 10 * s, r.tile->unit).x;
         contentW = std::max(contentW, w);
     }
     float panelW = std::max(172 * s, 28 * s + contentW);
@@ -193,10 +224,15 @@ void DrawList(ImDrawList* d, const std::vector<Row>& rows, const Style& st, floa
     for (const Row& r : rows) {
         float top = y + 2.5f * s, inner = rowH - 5 * s;
         float uw = Measure(g_medium, 10 * s, r.tile->unit).x;
-        float vw = Measure(g_bold, 12 * s, r.value.c_str()).x;
+        float vw = ValueWidth(r, s);
         float unitX = right - uw, valueX = unitX - 4 * s - 4 * s - vw;
         Text(d, g_medium, 11 * s, ImVec2(x, top + (inner - labelH) * 0.5f), st.Col(kLabel), r.tile->label);
-        Text(d, g_bold, 12 * s, ImVec2(valueX, top + (inner - valueH) * 0.5f), st.Col(StateColor(r.state)), r.value.c_str());
+        if (r.coreCount > 0) {
+            float h = 12 * s;  // the window overlay's compact bars are 12 tall
+            DrawCoreBars(d, r, st, valueX, top + (inner - h) * 0.5f, h);
+        } else {
+            Text(d, g_bold, 12 * s, ImVec2(valueX, top + (inner - valueH) * 0.5f), st.Col(StateColor(r.state)), r.value.c_str());
+        }
         Text(d, g_medium, 10 * s, ImVec2(unitX, top + inner - unitH - 1 * s), st.Col(kUnit), r.tile->unit);  // bottom, 1 up
         y += rowH;
     }
@@ -211,7 +247,7 @@ void DrawBar(ImDrawList* d, const std::vector<Row>& rows, const Style& st, float
     const float labelGap = 6 * s, unitGap = 3 * s, between = 11 * s;  // between a reading and a divider
     float contentW = 0;
     for (const Row& r : rows)
-        contentW += Measure(g_medium, 11 * s, r.tile->label).x + labelGap + Measure(g_bold, 12 * s, r.value.c_str()).x +
+        contentW += Measure(g_medium, 11 * s, r.tile->label).x + labelGap + ValueWidth(r, s) +
                     unitGap + Measure(g_medium, 10 * s, r.tile->unit).x;
     if (rows.size() > 1) contentW += (rows.size() - 1) * (2 * between + 1 * s);
     float panelW = 28 * s + contentW, panelH = 8 * s + lineH + 8 * s;
@@ -232,8 +268,13 @@ void DrawBar(ImDrawList* d, const std::vector<Row>& rows, const Style& st, float
         }
         Text(d, g_medium, 11 * s, ImVec2(x, top + (lineH - labelH) * 0.5f), st.Col(kLabel), r.tile->label);
         x += Measure(g_medium, 11 * s, r.tile->label).x + labelGap;
-        Text(d, g_bold, 12 * s, ImVec2(x, top + (lineH - valueH) * 0.5f), st.Col(StateColor(r.state)), r.value.c_str());
-        x += Measure(g_bold, 12 * s, r.value.c_str()).x + unitGap;
+        if (r.coreCount > 0) {
+            float h = std::min(12 * s, lineH);
+            DrawCoreBars(d, r, st, x, top + (lineH - h) * 0.5f, h);
+        } else {
+            Text(d, g_bold, 12 * s, ImVec2(x, top + (lineH - valueH) * 0.5f), st.Col(StateColor(r.state)), r.value.c_str());
+        }
+        x += ValueWidth(r, s) + unitGap;
         Text(d, g_medium, 10 * s, ImVec2(x, top + lineH - unitH - 1 * s), st.Col(kUnit), r.tile->unit);
         x += Measure(g_medium, 10 * s, r.tile->unit).x;
     }

@@ -37,6 +37,27 @@ public class TileViewModel : BaseViewModel
 
     public bool HasValue => _value.HasValue;
 
+    private float[]? _coreLoads;
+
+    /// <summary>
+    /// Each core's load, for the CPU Cores tile, which draws them as bars in place of a number.
+    /// </summary>
+    /// Replaced, never changed in place, so the bars redraw on every reading.
+    public float[]? CoreLoads
+    {
+        get => _coreLoads;
+        set
+        {
+            if (ReferenceEquals(_coreLoads, value)) return;
+            _coreLoads = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(ShowsCoreBars));
+        }
+    }
+
+    /// True when this tile draws bars rather than a number: CPU Cores, once there are cores to draw.
+    public bool ShowsCoreBars => Definition.Id == "cpu_cores" && _coreLoads is { Length: > 0 };
+
     private bool _isAsleep;
 
     /// <summary>
@@ -521,6 +542,7 @@ public class OverlayViewModel : BaseViewModel
                 continue;
 
             tile.Value = data.GetById(tile.Definition.Id);
+            if (tile.Definition.Id == "cpu_cores") tile.CoreLoads = data.CpuCoreLoads;
 
             // Video memory is still read while the card sleeps, from Windows, so only the
             // readings that come from the card itself say so.

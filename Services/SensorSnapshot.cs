@@ -176,11 +176,22 @@ public static class SensorProtocol
         d.Fps          = Clean(d.Fps);
         d.Fps1Low      = Clean(d.Fps1Low);
         d.BatteryLevel = Clean(d.BatteryLevel);
+        d.CpuCoreMax   = Clean(d.CpuCoreMax);
+        d.GpuHotSpot   = Clean(d.GpuHotSpot);
+        d.GpuMemClock  = Clean(d.GpuMemClock);
+        d.GpuVoltage   = Clean(d.GpuVoltage);
+
+        // Each bar is a share of one core, so anything unreadable is that core showing idle
+        // rather than a hole in the row, and nothing can draw outside its tile.
+        if (d.CpuCoreLoads is { } cores)
+            for (int i = 0; i < cores.Length; i++)
+                cores[i] = Clean(cores[i]) is { } c ? Math.Clamp(c, 0f, 100f) : 0f;
 
         // A sleeping card has no readings, only its memory figure, which Windows holds.
         if (d.GpuAsleep)
         {
             d.GpuTemp = d.GpuPower = d.GpuClock = d.GpuUsage = null;
+            d.GpuHotSpot = d.GpuMemClock = d.GpuVoltage = null;
         }
 
         if (float.IsNaN(d.TotalRamGb)  || float.IsInfinity(d.TotalRamGb))  d.TotalRamGb  = 0;

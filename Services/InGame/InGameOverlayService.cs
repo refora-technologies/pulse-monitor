@@ -337,16 +337,21 @@ public sealed class InGameOverlayService : IDisposable
     private InGameFrame BuildFrame(AppSettings s)
     {
         IEnumerable<TileViewModel> tiles = s.InGameOwnTiles ? OwnTiles(s) : OverlayViewModel.Instance.ActiveTiles;
-        var list = tiles.Take(InGameBlockWriter.MaxTiles).Select(t => new InGameTile(
+        var shown = tiles.Take(InGameBlockWriter.MaxTiles).ToList();
+        var list = shown.Select(t => new InGameTile(
             t.Definition.Id, t.DisplayLabel, t.DisplayValue, t.DisplayUnit, (byte)t.ColourState,
             t.Definition.HasBar, (float)t.BarFraction)).ToList();
 
+        // The bars of the CPU Cores tile, when it is among them and has cores to draw.
+        var cores = shown.FirstOrDefault(t => t.ShowsCoreBars)?.CoreLoads;
+
         if (s.InGameOwnLook)
             return new InGameFrame(true, s.InGameLayout == "Bar", (float)s.InGameScale, (float)s.InGameAnchorX, (float)s.InGameAnchorY,
-                                   (float)s.InGameBackgroundOpacity, (float)s.InGameOpacity, list);
+                                   (float)s.InGameBackgroundOpacity, (float)s.InGameOpacity, list, Cores: cores);
 
         var (ax, ay) = WindowOverlayAnchor(s);
-        return new InGameFrame(true, false, (float)s.OverlayScale, ax, ay, (float)s.OverlayBackgroundOpacity, (float)s.OverlayOpacity, list);
+        return new InGameFrame(true, false, (float)s.OverlayScale, ax, ay, (float)s.OverlayBackgroundOpacity, (float)s.OverlayOpacity, list,
+                               Cores: cores);
     }
 
     /// The window overlay's position as a place on the game's screen: its corner, or where it was

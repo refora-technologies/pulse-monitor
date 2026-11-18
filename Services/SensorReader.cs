@@ -84,6 +84,8 @@ public sealed class SensorReader : IDisposable
     {
         "cpu_usage" or "cpu_temp" or "cpu_clock" or "cpu_power" => SensorSubsystems.Cpu,
         "gpu_usage" or "gpu_temp" or "gpu_clock" or "gpu_power" or "gpu_vram" => SensorSubsystems.Gpu,
+        "cpu_core_max" or "cpu_cores" => SensorSubsystems.Cpu,
+        "gpu_hotspot" or "gpu_mem_clock" or "gpu_voltage" => SensorSubsystems.Gpu,
         "ram_used"      => SensorSubsystems.Memory,
         "disk_activity" => SensorSubsystems.Storage,
         "battery"       => SensorSubsystems.Battery,
@@ -484,14 +486,17 @@ public sealed class SensorReader : IDisposable
                     data.GpuClock = held.Clock;
                     data.GpuUsage = held.Usage;
                     data.GpuTempIsDie = held.TempIsDie;
+                    data.GpuHotSpot  = held.HotSpot;
+                    data.GpuMemClock = held.MemClock;
+                    data.GpuVoltage  = held.Voltage;
 
-                    foreach (var tile in new[] { "gpu_temp", "gpu_power", "gpu_clock", "gpu_usage" })
+                    foreach (var tile in GpuOwnTiles)
                         Source(tile, $"{chosen.Name} has been asleep {asleepMs / 1000.0:0.0} s; showing its last reading until it has slept {SleepShownAfterMs / 1000} s");
                 }
                 else
                 {
                     data.GpuAsleep = true;
-                    foreach (var tile in new[] { "gpu_temp", "gpu_power", "gpu_clock", "gpu_usage" })
+                    foreach (var tile in GpuOwnTiles)
                         Source(tile, $"{chosen.Name} is asleep, so it was not read");
                 }
             }
@@ -504,7 +509,8 @@ public sealed class SensorReader : IDisposable
                 ApplyWindowsTemperature(chosen.Name, chosenIsDiscrete, data);
 
                 _held = new HeldReading(chosen.Identifier.ToString(),
-                    data.GpuTemp, data.GpuPower, data.GpuClock, data.GpuUsage, data.GpuTempIsDie);
+                    data.GpuTemp, data.GpuPower, data.GpuClock, data.GpuUsage, data.GpuTempIsDie,
+                    data.GpuHotSpot, data.GpuMemClock, data.GpuVoltage);
             }
         }
         catch (Exception ex)
@@ -865,6 +871,12 @@ public sealed class SensorReader : IDisposable
         ISensor? tempPackage = null, tempTctl = null, tempFallback = null;
         ISensor? powerPackage = null, powerPpt = null, powerFallback = null;
 
+        // Per logical processor, for CPU Cores, and the library's own busiest, for Busiest Core.
+        // The library names them "CPU Core #1 Thread #2" where a core runs two threads and "CPU
+        // Core #5" where it runs one, in Windows' order, which is the order of their index.
+        var coreLoads = new List<(int Index, float Value)>();
+        ISensor? coreMax = null;
+
         foreach (var s in hw.Sensors)
         {
             if (s.Value is null) continue;
@@ -922,6 +934,15 @@ public sealed class SensorReader : IDisposable
                     usageTotal = s;
                     break;
 
+                case SensorType.Load when s.Name.Equals("CPU Core Max", StringComparison.OrdinalIgnoreCase):
+                    coreMax = s;
+                    break;
+
+                case SensorType.Load when s.Name.StartsWith("CPU Core #", StringComparison.OrdinalIgnoreCase):
+                    coreLoads.Add((s.Index, s.Value.Value));
+                    usageSum += s.Value.Value; usageCount++;
+                    break;
+
                 case SensorType.Load:
                     usageSum += s.Value.Value; usageCount++;
                     break;
@@ -950,7 +971,30 @@ public sealed class SensorReader : IDisposable
             data.CpuUsage = usageSum / usageCount;
             Source("cpu_usage", $"{hw.Name} > average of {usageCount} load sensors");
         }
+
+        // At most 64 bars: the in-game block has room for that many, and a tile of more would
+        // be lines too thin to read. Machines with more threads than that are workstations.
+        if (coreLoads.Count > 0)
+        {
+            data.CpuCoreLoads = coreLoads.OrderBy(c => c.Index).Take(MaxCoreBars).Select(c => c.Value).ToArray();
+            Source("cpu_cores", $"{hw.Name} > {coreLoads.Count} per-thread load sensors (CPU Core #...)");
+        }
+
+        // The library's own figure where it gives one, otherwise the busiest of the bars.
+        if (coreMax is not null)
+        {
+            data.CpuCoreMax = coreMax.Value;
+            Source("cpu_core_max", Of(hw, coreMax));
+        }
+        else if (coreLoads.Count > 0)
+        {
+            data.CpuCoreMax = coreLoads.Max(c => c.Value);
+            Source("cpu_core_max", $"{hw.Name} > the busiest of {coreLoads.Count} per-thread load sensors");
+        }
     }
+
+    /// The most bars the CPU Cores tile draws, matching the in-game block's room for them.
+    public const int MaxCoreBars = 64;
 
     private void ReadGpu(IHardware hw, bool discrete, SensorData data)
     {
@@ -997,6 +1041,23 @@ public sealed class SensorReader : IDisposable
                                        && d3dEngineLoad is null:
                     d3dEngineLoad = s.Value;
                     d3dEngineFrom = s;
+                    break;
+                // Advanced readings, by the names the library gives them. The hot spot is caught
+                // before the general temperature case below, so it can never become GPU Temp
+                // whatever order a driver lists its sensors in.
+                case SensorType.Temperature when s.Name.Equals("GPU Hot Spot", StringComparison.OrdinalIgnoreCase):
+                    data.GpuHotSpot ??= s.Value;
+                    Source("gpu_hotspot", Of(hw, s));
+                    break;
+                case SensorType.Clock when s.Name.Equals("GPU Memory", StringComparison.OrdinalIgnoreCase) && data.GpuMemClock is null:
+                    data.GpuMemClock = s.Value;
+                    Source("gpu_mem_clock", Of(hw, s));
+                    break;
+                // NVIDIA calls it "GPU Core Voltage", AMD and Intel "GPU Core". Volts from the
+                // library, millivolts on the tile.
+                case SensorType.Voltage when s.Name.StartsWith("GPU Core", StringComparison.OrdinalIgnoreCase) && data.GpuVoltage is null:
+                    data.GpuVoltage = s.Value.Value * 1000f;
+                    Source("gpu_voltage", Of(hw, s) + " (volts, shown in millivolts)");
                     break;
                 case SensorType.Temperature when data.GpuTemp is null:
                     data.GpuTemp = s.Value;
@@ -1222,7 +1283,13 @@ public sealed class SensorReader : IDisposable
     private string? _asleepCard;
 
     /// The chosen card's last readings while awake, kept to cover a short dip into sleep.
-    private readonly record struct HeldReading(string Card, float? Temp, float? Power, float? Clock, float? Usage, bool TempIsDie);
+    private readonly record struct HeldReading(string Card, float? Temp, float? Power, float? Clock, float? Usage, bool TempIsDie,
+                                               float? HotSpot, float? MemClock, float? Voltage);
+
+    /// The tiles read from the card itself, which a sleeping card does not answer. Video memory
+    /// is not one of them: Windows holds that.
+    private static readonly string[] GpuOwnTiles =
+        { "gpu_temp", "gpu_power", "gpu_clock", "gpu_usage", "gpu_hotspot", "gpu_mem_clock", "gpu_voltage" };
     private HeldReading? _held;
 
     /// The adapter Windows knows by this name, or null. Preferring one that has performance

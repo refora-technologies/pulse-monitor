@@ -945,6 +945,11 @@ public partial class MainWindow : Window
     private void BtnResetInGameTileOrder_Click(object sender, RoutedEventArgs e)
         => _vm?.ResetInGameTileOrder();
 
+    private void ToggleAdvancedTiles_Click(object sender, RoutedEventArgs e)
+    {
+        if (_vm != null) _vm.ShowAdvancedTiles = !_vm.ShowAdvancedTiles;
+    }
+
     /// The tile whose explanation is open, so Escape can put focus back where it came from.
     private WpfButton? _explainedTileButton;
 
