@@ -151,7 +151,45 @@ public class SettingsViewModel : BaseViewModel
     }
 
     /// <summary>
-    /// Puts the two appearance sliders back to how the overlay looks out of the box.
+    /// The overlay's size, as a fraction of normal.
+    /// </summary>
+    /// <remarks>
+    /// Until 1.3.7 the only way to change it was a grip in the overlay's corner, shown only in
+    /// Free Drag mode, and the main reporter never found it (asked for a size control, 10 Nov
+    /// 2026). Both now change the same setting, and the slider follows the grip
+    /// (<see cref="FollowOverlayScale"/>). The range is the one the overlay itself enforces,
+    /// so the two can never disagree about what is allowed.
+    /// </remarks>
+    private double _overlayScale;
+    public double OverlayScale
+    {
+        get => _overlayScale;
+        set
+        {
+            value = Math.Clamp(value, OverlayViewModel.MinScale, OverlayViewModel.MaxScale);
+            if (!Set(ref _overlayScale, value)) return;
+
+            OnPropertyChanged(nameof(OverlayScalePercent));
+            SettingsService.Instance.Settings.OverlayScale = value;
+
+            // Applied straight away so the overlay tracks the slider, but written to disk
+            // only once the user stops moving it.
+            OverlayViewModel.Instance.OverlayScale = value;
+            ScheduleSettingsSave();
+        }
+    }
+    public int OverlayScalePercent => (int)Math.Round(_overlayScale * 100);
+
+    /// Re-reads the size after the overlay's own grip changed it, so the slider moves too.
+    public void FollowOverlayScale()
+    {
+        var scale = SettingsService.Instance.Settings.OverlayScale;
+        if (!Set(ref _overlayScale, scale, nameof(OverlayScale))) return;
+        OnPropertyChanged(nameof(OverlayScalePercent));
+    }
+
+    /// <summary>
+    /// Puts the appearance sliders back to how the overlay looks out of the box.
     ///
     /// Assigned through the properties rather than the backing fields so the overlay, the
     /// stored settings and the sliders all follow, which a direct field write would skip.
@@ -168,9 +206,9 @@ public class SettingsViewModel : BaseViewModel
         // it. Its position is clamped to the screen but its size is not, so an overlay scaled
         // up with many tiles enabled can extend past the bottom of the display and take that
         // corner with it. The only control for the size is then off screen, and the way back
-        // was editing settings.json by hand. This is the way back.
-        OverlayViewModel.Instance.OverlayScale = defaults.OverlayScale;
-        SettingsService.Instance.Settings.OverlayScale = defaults.OverlayScale;
+        // was editing settings.json by hand. This is the way back, and since 1.3.7 the Size
+        // slider beside it is another.
+        OverlayScale = defaults.OverlayScale;
         SettingsService.Instance.Save();
     }
 
@@ -1472,6 +1510,7 @@ public class SettingsViewModel : BaseViewModel
         var settings  = SettingsService.Instance.Settings;
         _opacity               = settings.OverlayOpacity;
         _backgroundOpacity     = settings.OverlayBackgroundOpacity;
+        _overlayScale          = Math.Clamp(settings.OverlayScale, OverlayViewModel.MinScale, OverlayViewModel.MaxScale);
         _pollingInterval       = settings.PollingIntervalSeconds;
         _overlayPosition       = settings.OverlayPosition;
         _startWithWindows      = settings.StartWithWindows;

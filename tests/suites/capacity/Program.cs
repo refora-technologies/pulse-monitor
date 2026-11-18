@@ -382,9 +382,10 @@ class Program
               < src.IndexOf("data.GpuTempIsDie = !discrete && data.GpuTemp is not null;", StringComparison.Ordinal),
               "filled in after it, the die's reading would show under the name GPU Temp");
 
-        Check("the GPU Temp tile opens the processor's sensors too",
-              src.Contains("\"gpu_temp\"      => SensorSubsystems.Gpu | SensorSubsystems.Cpu,"),
-              "with only that tile on, the processor would not be read and Intel would show --");
+        var hsrc = FindSource("Services/HardwareService.cs");
+        Check("any GPU tile opens the processor's sensors too",
+              hsrc != null && hsrc.Contains("if (needed.HasFlag(SensorSubsystems.Gpu)) needed |= SensorSubsystems.Cpu;"),
+              "with only GPU tiles on, the processor would not be read and Intel would show --");
 
         Check("no processor temperature is put on the graphics tile any other way",
               !src.Contains("data.GpuTemp = data.CpuTemp;") && !src.Contains("_cpuGraphicsTemp"));

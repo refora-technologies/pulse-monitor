@@ -412,11 +412,14 @@ public class OverlayViewModel : BaseViewModel
         OnPropertyChanged(nameof(TileBarTrackBrush));
     }
 
+    /// The size range, shared by the grip in the overlay's corner and the Size slider.
+    public const double MinScale = 0.75, MaxScale = 1.5;
+
     private double _overlayScale = 1.0;
     public double OverlayScale
     {
         get => _overlayScale;
-        set => Set(ref _overlayScale, Math.Clamp(value, 0.75, 1.5));
+        set => Set(ref _overlayScale, Math.Clamp(value, MinScale, MaxScale));
     }
 
     private bool _isCompactMode;

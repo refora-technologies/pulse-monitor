@@ -96,6 +96,13 @@ MUTATIONS = [
      "only after the card has slept, not on a dip",
      "GPU tiles swapping between two chips each time the card dips"),
 
+    # Resize from the grip and leave the slider where it was.
+    ("Views/OverlayWindow.xaml.cs",
+     "ViewModels.SettingsViewModel.Instance.FollowOverlayScale();",
+     "",
+     "the slider follows the grip",
+     "the Size slider showing one size while the overlay is another"),
+
     # Show asleep the moment the card dips, and the tiles flicker the way a reporter filmed.
     ("Services/SensorReader.cs",
      "private const long SleepShownAfterMs = 10_000;",

@@ -382,6 +382,25 @@ def wiring_guards(src):
               "if (needed.HasFlag(SensorSubsystems.Gpu)) needed |= SensorSubsystems.Cpu;" in hardware_sub,
               "Intel iGPU sensors hang off the CPU package")
 
+    # The window overlay's size had one control, a grip shown only in Free Drag mode, and the
+    # main reporter never found it (10 Nov 2026). The Size slider and the grip are one setting
+    # with one range, and each follows the other.
+    settings_vm = src.text("ViewModels/SettingsViewModel.cs") or ""
+    overlay_vm  = src.text("ViewModels/OverlayViewModel.cs") or ""
+    overlay_win = src.text("Views/OverlayWindow.xaml.cs") or ""
+    main_xaml   = src.text("Views/MainWindow.xaml") or ""
+    check("the window overlay has a Size slider, bound to the overlay's own scale",
+          'Value="{Binding OverlayScale, Mode=TwoWay}"' in main_xaml
+          and "OverlayViewModel.Instance.OverlayScale = value;" in settings_vm,
+          "the overlay's size reachable only by a grip nobody finds")
+    check("the slider's range is the range the overlay allows",
+          'Minimum="0.75" Maximum="1.5" SmallChange="0.05" LargeChange="0.25"' in main_xaml
+          and "public const double MinScale = 0.75, MaxScale = 1.5;" in overlay_vm,
+          "a slider position the overlay silently refuses")
+    check("the slider follows the grip",
+          "ViewModels.SettingsViewModel.Instance.FollowOverlayScale();" in overlay_win,
+          "the slider showing one size while the overlay is another")
+
 
 # ── the wire format ─────────────────────────────────────────────────────────────────
 
@@ -950,10 +969,10 @@ def hardening_guards(src):
     whatsnew    = src.text("Views/WhatsNewWindow.xaml.cs")
 
     if settings_vm is not None:
-        # The overlay is resized by dragging its own corner and by nothing else. Its position
+        # The overlay is resized by dragging its own corner or the Size slider (1.3.7). Its position
         # is clamped to the screen and its size is not, so it can take that corner off screen.
         check("the reset puts the overlay's size back as well as its opacity",
-              "OverlayViewModel.Instance.OverlayScale = defaults.OverlayScale;" in settings_vm,
+              "OverlayScale = defaults.OverlayScale;" in settings_vm,
               "otherwise an overlay scaled past the screen edge has no control left on screen")
 
     if whatsnew is not None:
