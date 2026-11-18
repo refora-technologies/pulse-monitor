@@ -427,6 +427,22 @@ def wiring_guards(src):
           "d.GpuHotSpot = d.GpuMemClock = d.GpuVoltage = null;" in snapshot
           and '"gpu_hotspot", "gpu_mem_clock", "gpu_voltage" }' in reader,
           "the last readings before sleep shown as live ones")
+    # Only Pulse.exe uses the real %APPDATA%\Refora\Pulse. The test suites load Pulse's code
+    # too, and used to write into the real folder while a real Pulse was writing there:
+    # test lines in the real log on 4 Nov and 18 Nov 2026. Decided by the running program, never
+    # by an environment variable: Pulse runs as administrator, and a variable a normal program
+    # can set must not move where it writes.
+    data_folder = src.text("Services/DataFolder.cs") or ""
+    log_service = src.text("Services/LogService.cs") or ""
+    app_settings = src.text("Models/AppSettings.cs") or ""
+    check("only Pulse itself writes to the real Pulse folder; the tests get their own",
+          'GetName().Name, "Pulse", StringComparison.Ordinal' in data_folder
+          and "GetEnvironmentVariable" not in data_folder
+          and 'Path.Combine(DataFolder.Root, "logs")' in log_service
+          and 'Path.Combine(Pulse.Services.DataFolder.Root, "settings.json")' in app_settings
+          and "SpecialFolder.ApplicationData" not in log_service and "SpecialFolder.ApplicationData" not in app_settings,
+          "test lines in the real log, written while their Pulse was running")
+
     check("the core bars fit the in-game block",
           "public const int MaxCoreBars = 64;" in reader and "public const int MaxCores = 64;" in writer,
           "more cores read than the block has room for, cut off without a word")

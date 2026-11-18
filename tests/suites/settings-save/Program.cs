@@ -31,12 +31,15 @@ class Program
         var settingsType = asm.GetType("Pulse.Models.AppSettings")!;
         var save = settingsType.GetMethod("Save", BindingFlags.Public | BindingFlags.Instance)!;
 
-        var path = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "Refora", "Pulse", "settings.json");
+        // Pulse's own answer, which outside Pulse is a folder of the tests' own (DataFolder).
+        var path = (string)settingsType.GetField("SettingsPath", BindingFlags.NonPublic | BindingFlags.Static)!.GetValue(null)!;
+        var real = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Refora", "Pulse", "settings.json");
 
         Console.WriteLine("Settings save\n");
         Console.WriteLine("A save must report whether it actually happened:");
+
+        Check("the tests save somewhere of their own, never over the real settings",
+              !string.Equals(Path.GetFullPath(path), Path.GetFullPath(real), StringComparison.OrdinalIgnoreCase), path);
 
         Check("Save returns a result rather than nothing",
               save.ReturnType == typeof(bool),

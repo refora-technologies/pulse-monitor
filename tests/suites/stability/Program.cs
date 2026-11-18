@@ -307,7 +307,9 @@ class Program
     {
         Console.WriteLine("\nSaved settings that cannot be read are never overwritten with defaults:");
 
-        var folder  = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Refora", "Pulse");
+        // Pulse's own folder, which outside Pulse is one of the tests' own (DataFolder).
+        var folder  = (string)_asm.GetType("Pulse.Services.DataFolder")!
+                          .GetField("Root", BindingFlags.Public | BindingFlags.Static)!.GetValue(null)!;
         var main    = Path.Combine(folder, "settings.json");
         var bak     = main + ".bak";
         var keepMain = main + ".stability-backup";
