@@ -36,6 +36,15 @@ public class InverseBoolToVisibilityConverter : IValueConverter
         => System.Windows.DependencyProperty.UnsetValue;
 }
 
+/// Visible only when every value is true: for a control shown under more than one condition.
+public class AllTrueToVisibilityConverter : IMultiValueConverter
+{
+    public object Convert(object[] values, Type targetType, object parameter, CultureInfo culture)
+        => values.All(v => v is true) ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
+    public object[] ConvertBack(object value, Type[] targetTypes, object parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
 public class PercentToWidthConverter : IMultiValueConverter
 {
     public object Convert(object[] values, Type targetType, object parameter, CultureInfo culture)

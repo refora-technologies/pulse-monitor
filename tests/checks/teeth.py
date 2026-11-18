@@ -139,6 +139,13 @@ MUTATIONS = [
      "the tree is sent only while the page asks",
      "every sensor read and sent forever after the panel went away"),
 
+    # Hide the panel with the Sensors page open and leave the page asking for every sensor.
+    ("Views/MainWindow.xaml.cs",
+     "if (args.NewValue is not true && SensorsPage.Visibility == Visibility.Visible) ShowSensors(false);",
+     "",
+     "the Sensors page stops asking when it is not on screen",
+     "every sensor read and sent while the panel is hidden"),
+
     # Resize from the grip and leave the slider where it was.
     ("Views/OverlayWindow.xaml.cs",
      "ViewModels.SettingsViewModel.Instance.FollowOverlayScale();",

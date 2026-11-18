@@ -49,9 +49,9 @@ public class TileSelectionItem : BaseViewModel
 
     public bool IsAvailable => Status == TileStatus.Ready;
 
-    /// Whether the settings lists show this tile: every ordinary one, and the advanced ones once
-    /// someone has asked to see them. A tile chosen and then hidden stays chosen.
-    public bool IsShown => !Definition.IsAdvanced || SettingsService.Instance.Settings.ShowAdvancedTiles;
+    /// Whether the settings lists show this tile: every ordinary one. The advanced readings are
+    /// added from the Sensors page, where each is shown with its value (owner, 18 Nov 2026).
+    public bool IsShown => !Definition.IsAdvanced;
 
     /// The in-game list shows only what this PC can read, and only what is shown.
     public bool IsListedInGame => IsShown && IsAvailable;
@@ -554,7 +554,6 @@ public class SettingsViewModel : BaseViewModel
             {
                 if (e.PropertyName != nameof(TileSelectionItem.IsSelected)) return;
                 SaveInGameTiles();
-                RaiseAdvancedToggles();
             };
             InGameTiles.Add(item);
         }
@@ -1308,41 +1307,10 @@ public class SettingsViewModel : BaseViewModel
         }
     }
 
-    /// <summary>
-    /// Whether the settings lists show the advanced readings. One setting for both lists.
-    /// </summary>
-    /// Saved, so someone who uses them does not have to open them every time.
-    public bool ShowAdvancedTiles
-    {
-        get => SettingsService.Instance.Settings.ShowAdvancedTiles;
-        set
-        {
-            if (SettingsService.Instance.Settings.ShowAdvancedTiles == value) return;
-            SettingsService.Instance.Settings.ShowAdvancedTiles = value;
-            SettingsService.Instance.Save();
-            foreach (var tile in AllTiles.Concat(InGameTiles)) tile.RefreshShown();
-            OnPropertyChanged();
-            RaiseAdvancedToggles();
-        }
-    }
-
-    /// The link under each list. Says how many advanced readings are on while they are hidden,
-    /// because a chosen tile nobody can see in the list would otherwise look lost.
-    public string AdvancedToggleText       => AdvancedToggle(AllTiles);
-    public string InGameAdvancedToggleText => AdvancedToggle(InGameTiles);
-
-    private string AdvancedToggle(IEnumerable<TileSelectionItem> tiles)
-    {
-        if (ShowAdvancedTiles) return "Hide advanced readings";
-        int on = tiles.Count(t => t.Definition.IsAdvanced && t.IsSelected);
-        return on > 0 ? $"Show advanced readings ({on} on)" : "Show advanced readings";
-    }
-
-    private void RaiseAdvancedToggles()
-    {
-        OnPropertyChanged(nameof(AdvancedToggleText));
-        OnPropertyChanged(nameof(InGameAdvancedToggleText));
-    }
+    /// The Sensors page: everything this PC reports, and the switches that put a reading on the
+    /// overlays. Built once, opened and closed by the panel.
+    private SensorsViewModel? _sensors;
+    public SensorsViewModel Sensors => _sensors ??= new SensorsViewModel(this);
 
     public int SelectedCount  => AllTiles.Count(t => t.IsSelected);
     public int PausedCount    => AllTiles.Count(t => t.IsPaused);
@@ -1600,7 +1568,6 @@ public class SettingsViewModel : BaseViewModel
                 OnPropertyChanged(nameof(SelectedCount));
                 OnPropertyChanged(nameof(PausedCount));
                 ApplyTileSelection();
-                RaiseAdvancedToggles();
             };
             AllTiles.Add(item);
         }
@@ -2012,7 +1979,6 @@ public class SettingsViewModel : BaseViewModel
                 OnPropertyChanged(nameof(SelectedCount));
                 OnPropertyChanged(nameof(PausedCount));
                 ApplyTileSelection();
-                RaiseAdvancedToggles();
             };
             AllTiles.Add(item);
         }

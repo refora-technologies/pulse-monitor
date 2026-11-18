@@ -74,6 +74,9 @@ public partial class MainWindow : Window
             // left it reading "Hide Overlay" over an empty screen.
             IsVisibleChanged += (_, args) =>
             {
+                // Hidden with the Sensors page open: stop asking for every sensor, and open on
+                // the settings next time, as the panel always has.
+                if (args.NewValue is not true && SensorsPage.Visibility == Visibility.Visible) ShowSensors(false);
                 if (args.NewValue is not true) return;
                 _vm?.NotifyPositionChanged();
                 PopulateMonitorButtons();
@@ -945,9 +948,22 @@ public partial class MainWindow : Window
     private void BtnResetInGameTileOrder_Click(object sender, RoutedEventArgs e)
         => _vm?.ResetInGameTileOrder();
 
-    private void ToggleAdvancedTiles_Click(object sender, RoutedEventArgs e)
+    /// <summary>
+    /// Opens the Sensors page in place of the settings, or goes back.
+    /// </summary>
+    /// The page asks the sensor host for everything while it is open, so it is closed whenever it
+    /// is not on screen: going back, or the panel being hidden (see the visibility handler).
+    private void BtnSensors_Click(object sender, RoutedEventArgs e) => ShowSensors(SensorsPage.Visibility != Visibility.Visible);
+
+    private void ShowSensors(bool open)
     {
-        if (_vm != null) _vm.ShowAdvancedTiles = !_vm.ShowAdvancedTiles;
+        if (_vm == null) return;
+        SensorsPage.Visibility  = open ? Visibility.Visible : Visibility.Collapsed;
+        SettingsPage.Visibility = open ? Visibility.Collapsed : Visibility.Visible;
+        BtnSensors.Content = open ? "Settings" : "Sensors";
+        System.Windows.Automation.AutomationProperties.SetName(BtnSensors, open ? "Back to the settings" : "Sensors: everything this PC reports");
+        if (open) { _vm.Sensors.Open(); SensorsSearch.Focus(); }
+        else _vm.Sensors.Close();
     }
 
     /// The tile whose explanation is open, so Escape can put focus back where it came from.

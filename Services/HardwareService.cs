@@ -185,6 +185,43 @@ public class HardwareService : IDisposable
     /// Raised when the set of detected GPUs changes (first reading, or an eGPU appearing).
     public event EventHandler? GpuListChanged;
 
+    /// Everything the sensor host can see, with each reading, while the Sensors page asks for it
+    /// (<see cref="WatchSensors"/>). Raised on the interface thread.
+    public event EventHandler<SensorTree>? TreeUpdated;
+
+    private readonly object _treeGate = new();
+    private System.Threading.Timer? _treeKeepAlive;
+
+    /// How often the open Sensors page tells the host it is still there: well inside the host's
+    /// own limit (SensorCommand.TreeLapseMs), so one late message never blanks the page.
+    private const int TreeKeepAliveMs = 4000;
+
+    /// <summary>
+    /// Starts or stops the host sending its whole sensor tree, for the Sensors page.
+    /// </summary>
+    /// <remarks>
+    /// Repeated while on, so a sensor host started again after a fault picks it up within a few
+    /// seconds, and a host whose Pulse has gone stops by itself.
+    /// </remarks>
+    public void WatchSensors(bool on)
+    {
+        lock (_treeGate)
+        {
+            if (on)
+            {
+                Send(SensorCommand.SensorTree(true));
+                _treeKeepAlive ??= new System.Threading.Timer(_ => Send(SensorCommand.SensorTree(true)),
+                                                              null, TreeKeepAliveMs, TreeKeepAliveMs);
+            }
+            else
+            {
+                _treeKeepAlive?.Dispose();
+                _treeKeepAlive = null;
+                Send(SensorCommand.SensorTree(false));
+            }
+        }
+    }
+
     /// Raised when the GPU being read changes, or why: Automatic going to the built-in
     /// graphics while the card sleeps, and back. The list itself is unchanged then, so the
     /// event above does not fire, and the line under the picker would go on naming the card.
@@ -679,6 +716,12 @@ public class HardwareService : IDisposable
                 if (SensorCommand.TryParseReport(line) is { } report)
                 {
                     _reportArrived?.TrySetResult(report);
+                    continue;
+                }
+
+                if (SensorTreeLine.TryRead(line) is { } tree)
+                {
+                    Raise(() => TreeUpdated?.Invoke(this, tree));
                     continue;
                 }
 

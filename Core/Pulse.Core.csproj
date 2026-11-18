@@ -26,6 +26,7 @@
     <Compile Include="..\Models\NetworkUnits.cs" Link="Models\NetworkUnits.cs" />
     <Compile Include="..\Models\TileReading.cs" Link="Models\TileReading.cs" />
     <Compile Include="..\Models\FrameMath.cs" Link="Models\FrameMath.cs" />
+    <Compile Include="..\Models\SensorFormat.cs" Link="Models\SensorFormat.cs" />
     <!-- The settings and their file format. Where the file lives, and the shortcut keys, are
          each platform's own (AppSettings.Windows.cs on Windows). -->
     <Compile Include="..\Models\AppSettings.cs" Link="Models\AppSettings.cs" />

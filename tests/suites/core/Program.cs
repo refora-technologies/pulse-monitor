@@ -30,6 +30,7 @@ class Program
         TileNumbers();
         Catalogue();
         Settings();
+        SensorNumbers();
         Console.WriteLine($"\n{_pass} passed, {_fail} failed");
         return _fail == 0 ? 0 : 1;
     }
@@ -129,8 +130,11 @@ class Program
         Console.WriteLine();
         Console.WriteLine("Settings and their file:");
         var defaults = new AppSettings();
-        Check("out of the box: five tiles, the in-game look of its own, advanced readings hidden",
-              defaults.ActiveTileIds.Count == 5 && defaults.InGameOwnLook && !defaults.ShowAdvancedTiles);
+        Check("out of the box: five tiles, none of them advanced, the in-game look of its own",
+              defaults.ActiveTileIds.Count == 5 && defaults.InGameOwnLook
+              && defaults.ActiveTileIds.All(id => !SensorTileDefinition.All.Single(t => t.Id == id).IsAdvanced));
+        Check("a setting an older Pulse wrote and this one no longer has is ignored",
+              AppSettings.FromJson("{ \"ShowAdvancedTiles\": true, \"OverlayOpacity\": 0.5 }").OverlayOpacity == 0.5);
 
         // Newtonsoft's default appends saved lists to the defaults; the five default tiles then
         // came back on every launch. The file's list must replace them.
@@ -165,6 +169,21 @@ class Program
         // Shortcut keys are each platform's own; the shared core leaves the text as written.
         var keys = AppSettings.FromJson("{ \"ShortcutToggleOverlay\": \"shift + alt + x\" }");
         Check("shortcut text is left to the platform to repair", keys.ShortcutToggleOverlay == "shift + alt + x");
+    }
+
+    static void SensorNumbers()
+    {
+        Console.WriteLine();
+        Console.WriteLine("The Sensors page's numbers:");
+        Check("a temperature to a tenth, in degrees", SensorFormat.Format("Temperature", 59.6875f) == ("59.7", "°C"));
+        Check("a clock whole, in MHz", SensorFormat.Format("Clock", 7001.4f) == ("7001", "MHz"));
+        Check("a voltage to the millivolt, in volts", SensorFormat.Format("Voltage", 0.63125f) == ("0.631", "V"));
+        // The library counts throughput in bytes a second: 14,099,460 is 13.45 MB/s.
+        Check("throughput in MB/s, from bytes a second", SensorFormat.Format("Throughput", 14_099_460f) == ("13.45", "MB/s"));
+        Check("small data whole, in MB", SensorFormat.Format("SmallData", 407.137f) == ("407", "MB"));
+        Check("no value is a dash, with its unit still known", SensorFormat.Format("Power", null) == ("--", "W"));
+        Check("not a number is no value", SensorFormat.Format("Load", float.NaN).Value == "--");
+        Check("a kind the page does not know still shows its number", SensorFormat.Format("SomethingNew", 1.26f) == ("1.3", ""));
     }
 
     static void Catalogue()
