@@ -105,8 +105,10 @@ public sealed class Sparkline : FrameworkElement
         // a graph rather than a sliver at the right; after a minute it is the last minute.
         double step = (w - 2.5) / (values.Count - 1);   // room for the dot at the end
         double x0 = 0;
-        // A flat reading sits in the middle rather than on the floor.
-        Point At(int i) => new(x0 + i * step, range <= 0 ? h / 2 : h - pad - (values[i] - lo) / range * (h - 2 * pad));
+        // A flat reading sits in the middle rather than on the floor, unless the floor is a
+        // real zero it sits on (an idle network).
+        double flat = double.IsNaN(Minimum) ? h / 2 : h - pad;
+        Point At(int i) => new(x0 + i * step, range <= 0 ? flat : h - pad - (values[i] - lo) / range * (h - 2 * pad));
 
         var line = new StreamGeometry();
         using (var g = line.Open())
