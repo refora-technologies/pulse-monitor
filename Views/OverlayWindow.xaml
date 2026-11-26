@@ -98,18 +98,18 @@
                  BorderBrush is bound as a whole brush because a Border does not give its
                  BorderBrush a data context, so a binding written inside that brush silently
                  never resolves and Opacity stays at 1. -->
-            <Border x:Name="NormalPanel" CornerRadius="18"
-                    MinWidth="288" MaxWidth="334"
-                    BorderThickness="1"
+            <!-- Against a screen edge, the panel joins it (EdgePanel, owner 26 Nov 2026). -->
+            <views:EdgePanel x:Name="NormalPanel" CornerRadius="18" FlareRadius="10"
                     BorderBrush="{Binding NormalBorderBrush}">
-                <Border.Background>
+                <views:EdgePanel.Background>
                     <LinearGradientBrush StartPoint="0,0" EndPoint="0.5,1"
                                          Opacity="{Binding NormalPanelOpacity}">
                         <GradientStop Color="#17122C" Offset="0"/>
                         <GradientStop Color="#0C0A18" Offset="1"/>
                     </LinearGradientBrush>
-                </Border.Background>
-                <StackPanel Margin="16,14,16,12">
+                </views:EdgePanel.Background>
+                <!-- 288 to 334 wide with the margins, as before. -->
+                <StackPanel Margin="16,14,16,12" MinWidth="256" MaxWidth="302">
                     <!-- Header -->
                     <Grid Margin="0,0,0,12">
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
@@ -244,16 +244,15 @@
                         </StackPanel>
                     </StackPanel>
                 </StackPanel>
-            </Border>
+            </views:EdgePanel>
 
             <!-- ═══ COMPACT HUD MODE ═══ -->
-            <Border x:Name="CompactPanel" CornerRadius="12" Visibility="Collapsed" MinWidth="172"
-                    BorderThickness="1"
+            <views:EdgePanel x:Name="CompactPanel" CornerRadius="12" FlareRadius="8" Visibility="Collapsed"
                     BorderBrush="{Binding CompactBorderBrush}">
-                <Border.Background>
+                <views:EdgePanel.Background>
                     <SolidColorBrush Color="#0C0A18" Opacity="{Binding CompactPanelOpacity}"/>
-                </Border.Background>
-                <StackPanel Margin="14,10,14,9">
+                </views:EdgePanel.Background>
+                <StackPanel Margin="14,10,14,9" MinWidth="144">
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,7">
                         <Ellipse Width="6" Height="6" Margin="0,0,6,0" VerticalAlignment="Center">
                             <Ellipse.Fill>
@@ -304,7 +303,53 @@
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
                 </StackPanel>
-            </Border>
+            </views:EdgePanel>
+
+            <!-- ═══ COMPACT, STRAIGHT ═══ The in-game overlay's "straight way" (4 Nov) on the
+                 desktop (owner, 26 Nov 2026): every reading on one line, label, value and unit,
+                 with a thin divider between. Same panel, fonts and colours as the compact list. -->
+            <views:EdgePanel x:Name="BarPanel" CornerRadius="12" FlareRadius="8" Visibility="Collapsed"
+                    BorderBrush="{Binding CompactBorderBrush}">
+                <views:EdgePanel.Background>
+                    <SolidColorBrush Color="#0C0A18" Opacity="{Binding CompactPanelOpacity}"/>
+                </views:EdgePanel.Background>
+                <StackPanel Orientation="Horizontal" Margin="14,8,14,8">
+                    <Ellipse Width="6" Height="6" Margin="0,0,11,0" VerticalAlignment="Center">
+                        <Ellipse.Fill>
+                            <SolidColorBrush Color="{Binding StatusColor}"/>
+                        </Ellipse.Fill>
+                    </Ellipse>
+                    <ItemsControl ItemsSource="{Binding ActiveTiles}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="{x:Type vm:TileViewModel}">
+                                <StackPanel Orientation="Horizontal">
+                                    <Border x:Name="Divider" Width="1" Height="11" Margin="11,0" Background="#2A2548"
+                                            VerticalAlignment="Center"
+                                            Opacity="{Binding DataContext.CompactPanelOpacity, RelativeSource={RelativeSource AncestorType=Window}}"/>
+                                    <TextBlock Text="{Binding DisplayLabel}" FontSize="11" FontWeight="Medium"
+                                               Foreground="#9692B8" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                    <TextBlock Text="{Binding DisplayValue}" FontSize="12" FontWeight="Bold"
+                                               Foreground="{Binding ValueBrush}" VerticalAlignment="Center"
+                                               Visibility="{Binding ShowsCoreBars, Converter={StaticResource InverseBoolToVis}}"/>
+                                    <views:CoreBars Loads="{Binding CoreLoads}" BarWidth="3" Height="12" VerticalAlignment="Center"
+                                                    Visibility="{Binding ShowsCoreBars, Converter={StaticResource BoolToVis}}"/>
+                                    <TextBlock Text="{Binding DisplayUnit}" FontSize="10" Foreground="#8E8AB0" FontWeight="Medium"
+                                               VerticalAlignment="Bottom" Margin="3,0,0,1"/>
+                                </StackPanel>
+                                <DataTemplate.Triggers>
+                                    <!-- No divider before the first reading. -->
+                                    <DataTrigger Binding="{Binding RelativeSource={RelativeSource PreviousData}}" Value="{x:Null}">
+                                        <Setter TargetName="Divider" Property="Visibility" Value="Collapsed"/>
+                                    </DataTrigger>
+                                </DataTemplate.Triggers>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </views:EdgePanel>
         </Grid>
 
         <!-- ═══ RESIZE GRIP ═══ Only reachable in Free Drag mode, same as the move

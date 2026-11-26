@@ -440,6 +440,23 @@ def wiring_guards(src):
           and "Closed += (_, _) => { _vm.Close(); _open = null; };" in sensors_cs
           and "if (WindowState == WindowState.Minimized) _vm.Pause(); else _vm.Resume();" in sensors_cs,
           "every sensor read and sent while nobody is looking at the window")
+    # The window overlay joins the screen's edge where the in-game overlay does (26 Nov): the
+    # same anchor decides both, a fraction of 0 or 1 is flush, and a corner sits right on it.
+    overlay_cs = src.text("Views/OverlayWindow.xaml.cs") or ""
+    check("the window overlay joins the screen's edge where the in-game overlay does",
+          "var (ax, ay) = Services.InGame.InGameOverlayService.WindowOverlayAnchor(settings);" in overlay_cs
+          and "NormalPanel.Flush = CompactPanel.Flush = BarPanel.Flush = flush;" in overlay_cs
+          and "if (ax <= 0f) e |= FlushEdges.Left;" in overlay_cs
+          and "if (ay >= 1f) e |= FlushEdges.Bottom;" in overlay_cs
+          and "const int margin = 0;" in overlay_cs,
+          "a corner overlay drawn as if it touched the edge while sitting inside it, or the two overlays disagreeing")
+    # The straight compact layout: a line wider than the screen becomes the list, and the
+    # in-game overlay, when it follows the window overlay, is straight with it.
+    ingame_service = src.text("Services/InGame/InGameOverlayService.cs") or ""
+    check("the straight overlay never runs off its screen, and games follow it",
+          "if (BarPanel.Visibility == Visibility.Visible && width > work.Width)" in overlay_cs
+          and 'bool bar = s.IsCompactMode && s.CompactLayout == "Bar";' in ingame_service,
+          "readings off both sides of the screen, or a list in games under a straight line on the desktop")
     # The hot spot is caught before the general temperature case, so whatever order a driver
     # lists its sensors in, it never becomes GPU Temp, which would read ten degrees high.
     hot = reader.find('s.Name.Equals("GPU Hot Spot"')

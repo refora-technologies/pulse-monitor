@@ -355,6 +355,20 @@ public class SettingsViewModel : BaseViewModel
         }
     }
 
+    /// Compact mode's layout: one reading per line, or all on one straight line.
+    public bool CompactIsBar
+    {
+        get => SettingsService.Instance.Settings.CompactLayout == "Bar";
+        set
+        {
+            if (value == CompactIsBar) return;
+            SettingsService.Instance.Settings.CompactLayout = value ? "Bar" : "List";
+            OverlayViewModel.Instance.IsCompactBar = value;
+            OnPropertyChanged();
+            SettingsService.Instance.Save();
+        }
+    }
+
     private bool _isCompactMode;
     public bool IsCompactMode
     {

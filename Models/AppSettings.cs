@@ -77,6 +77,10 @@ public partial class AppSettings
 
     // v1.1 — Redesign additions
     public bool IsCompactMode { get; set; } = false;
+
+    /// How compact mode lays its readings out: "List", one per line, or "Bar", all on one
+    /// straight line, as the in-game overlay can (owner, 26 Nov 2026).
+    public string CompactLayout { get; set; } = "List";
     public bool IsDragEnabled { get; set; } = false;
     public int SelectedMonitorIndex { get; set; } = 0;
 
@@ -270,6 +274,7 @@ public partial class AppSettings
             OverlayPosition = "TopRight";
 
         if (InGameLayout is not ("List" or "Bar")) InGameLayout = "List";
+        if (CompactLayout is not ("List" or "Bar")) CompactLayout = "List";
         InGameAnchorX           = Clamp(InGameAnchorX, 0.0, 1.0, 0.0);
         InGameAnchorY           = Clamp(InGameAnchorY, 0.0, 1.0, 0.0);
         InGameOpacity           = Clamp(InGameOpacity, 0.15, 1.0, 0.85);

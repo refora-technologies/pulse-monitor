@@ -350,7 +350,9 @@ public sealed class InGameOverlayService : IDisposable
                                    (float)s.InGameBackgroundOpacity, (float)s.InGameOpacity, list, Cores: cores);
 
         var (ax, ay) = WindowOverlayAnchor(s);
-        return new InGameFrame(true, false, (float)s.OverlayScale, ax, ay, (float)s.OverlayBackgroundOpacity, (float)s.OverlayOpacity, list,
+        // Following the window overlay, it is straight when the window overlay is (26 Nov 2026).
+        bool bar = s.IsCompactMode && s.CompactLayout == "Bar";
+        return new InGameFrame(true, bar, (float)s.OverlayScale, ax, ay, (float)s.OverlayBackgroundOpacity, (float)s.OverlayOpacity, list,
                                Cores: cores);
     }
 

@@ -360,6 +360,14 @@ public class OverlayViewModel : BaseViewModel
         set => Set(ref _isCompactMode, value);
     }
 
+    private bool _isCompactBar;
+    /// Compact mode as one straight line rather than a list.
+    public bool IsCompactBar
+    {
+        get => _isCompactBar;
+        set => Set(ref _isCompactBar, value);
+    }
+
     private bool _isDragEnabled;
     public bool IsDragEnabled
     {
@@ -378,6 +386,7 @@ public class OverlayViewModel : BaseViewModel
     {
         var s = SettingsService.Instance.Settings;
         _isCompactMode  = s.IsCompactMode;
+        _isCompactBar   = s.CompactLayout == "Bar";
         _isDragEnabled  = s.IsDragEnabled;
         _showStatusBar  = s.ShowStatusBar;
         _overlayScale   = s.OverlayScale;
