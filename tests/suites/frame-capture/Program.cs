@@ -121,6 +121,34 @@ class Program
         Check("a child of the program in front counts as tied to it, an unrelated one does not",
               (bool)isRelated.Invoke(family, new object[] { kid, self })!
               && !(bool)isRelated.Invoke(family, new object[] { 4_000_000_000u, self })!);
+        // A program drawing through a copy of itself it started (browsers, apps built on them):
+        // every "no frame rate" line in a real log on 26 Nov 2026 was one of these.
+        using (var outer = Process.Start(new ProcessStartInfo("cmd.exe", "/c cmd.exe /c ping -n 6 127.0.0.1 >nul")
+                   { CreateNoWindow = true, UseShellExecute = false })!)
+        {
+            System.Threading.Thread.Sleep(700);
+            var fresh = familyType.GetMethod("Snapshot", BindingFlags.Public | BindingFlags.Static)!.Invoke(null, null)!;
+            var ownHelper = familyType.GetMethod("IsOwnHelper")!;
+            uint outerPid = (uint)outer.Id;
+            uint? inner = null;
+            foreach (var p in Process.GetProcessesByName("cmd"))
+            {
+                if ((string)relation.Invoke(fresh, new object[] { (uint)p.Id, outerPid })! == "started by the program in front")
+                    inner = (uint)p.Id;
+                p.Dispose();
+            }
+            Check("a copy of itself the program in front started is its own helper",
+                  inner is { } h && (bool)ownHelper.Invoke(fresh, new object[] { h, outerPid })!,
+                  inner is null ? "the inner cmd was not found" : $"cmd {inner} under cmd {outerPid}");
+            Check("a different program it started is not",
+                  !(bool)ownHelper.Invoke(family, new object[] { kid, self })!,
+                  "cmd started by this test");
+            try { outer.Kill(true); } catch { }
+        }
+        Check("an app's own helper drawing is said once as information, not counted against the lines for games",
+              watch.Contains("if (family.IsOwnHelper(drawing[0].Key, watch))")
+              && watch.IndexOf("family.IsOwnHelper", StringComparison.Ordinal) < watch.IndexOf("_missingFrameReports++;", StringComparison.Ordinal),
+              "browsers and apps built on them draw through a helper; they used the ten lines meant for games");
         Check("a program that cannot be identified is said, not silently skipped",
               fps.Contains("could not be identified, so its frame rate is not measured"),
               "it used to return false and say nothing");

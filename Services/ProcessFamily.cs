@@ -14,12 +14,14 @@ namespace Pulse.Services;
 /// and is exactly the case worth describing.
 ///
 /// Names are read only to recognise the desktop compositor, which presents all the time and is
-/// never the game. They are not kept and never leave this class.
+/// never the game, and to tell a program's own helper (a copy of itself it started) from another
+/// program. They live only as long as the snapshot and never leave this class.
 /// </remarks>
 internal sealed class ProcessFamily
 {
     private readonly Dictionary<uint, uint> _parentOf = new();
     private readonly HashSet<uint> _compositors = new();
+    private readonly Dictionary<uint, string> _exeOf = new();
 
     public static ProcessFamily Snapshot()
     {
@@ -33,6 +35,7 @@ internal sealed class ProcessFamily
             for (bool more = Process32FirstW(snap, ref entry); more; more = Process32NextW(snap, ref entry))
             {
                 family._parentOf[entry.ProcessId] = entry.ParentProcessId;
+                family._exeOf[entry.ProcessId] = entry.ExeFile ?? "";
                 if (string.Equals(entry.ExeFile, "dwm.exe", StringComparison.OrdinalIgnoreCase))
                     family._compositors.Add(entry.ProcessId);
             }
@@ -56,6 +59,18 @@ internal sealed class ProcessFamily
         _parentOf.TryGetValue(front, out var frontParent);
         return parent == front || pid == frontParent || (parent != 0 && parent == frontParent);
     }
+
+    /// <summary>
+    /// Whether a process is a helper the program in front started from its own program file:
+    /// how browsers and the apps built on them (Electron, Chromium) draw, from a separate
+    /// graphics process. Not a game's frame rate going missing.
+    /// </summary>
+    /// Seen 26 Nov 2026 in a real log: every recent "no frame rate" line was such an app
+    /// in front, drawing through its own helper.
+    public bool IsOwnHelper(uint pid, uint front) =>
+        _parentOf.TryGetValue(pid, out var parent) && parent == front
+        && _exeOf.TryGetValue(pid, out var exe) && _exeOf.TryGetValue(front, out var frontExe)
+        && exe.Length > 0 && string.Equals(exe, frontExe, StringComparison.OrdinalIgnoreCase);
 
     /// How a process relates to the one in front, in words for the log.
     public string Relation(uint pid, uint front)

@@ -505,7 +505,16 @@ public class FpsService : IDisposable
         bool tied = drawing.Any(r => r.Value / seconds >= GameRatePerSecond && family.IsRelated(r.Key, watch));
         if (!fills && !tied) return;
 
+        // A browser, or an app built on one, drawing through its own graphics helper: expected,
+        // said once at a lower level, and not counted against the lines kept for games.
         _missingFramesSaid.Add(watch);
+        if (family.IsOwnHelper(drawing[0].Key, watch))
+        {
+            LogService.Info(nameof(FpsService),
+                $"The program in front (pid {watch}) draws through a helper of its own (pid {drawing[0].Key} at "
+                + $"{drawing[0].Value / seconds:0}/s), as browsers and apps built on them do; no frame rate is shown for it.");
+            return;
+        }
         _missingFrameReports++;
 
         string front = _foregroundPid == watch
