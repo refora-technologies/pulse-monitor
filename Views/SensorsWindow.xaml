@@ -310,7 +310,7 @@
                                 <Run Text="{Binding HeroValue, Mode=OneWay}" FontSize="36" FontWeight="Bold" Foreground="{StaticResource Text1}"/>
                                 <Run Text="{Binding HeroUnit, Mode=OneWay}" FontSize="15" FontWeight="Medium" Foreground="{StaticResource Text3}"/>
                             </TextBlock>
-                            <TextBlock Text="Last 60 seconds" FontSize="10.5" Foreground="{StaticResource Text3}" Margin="0,4,0,0"/>
+                            <TextBlock Text="Last minute" FontSize="10.5" Foreground="{StaticResource Text3}" Margin="0,4,0,0"/>
                         </StackPanel>
                         <local:Sparkline Grid.Column="1" Height="112" Values="{Binding HeadlineHistory}"
                                          Minimum="{Binding HeroMin}" Maximum="{Binding HeroMax}" ShowGuides="True"

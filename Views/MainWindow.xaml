@@ -933,25 +933,37 @@
                         <StackPanel>
                             <Grid Margin="0,0,0,10">
                                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                    <!-- The pulsing glow runs only while a download shows. It used to
+                                         start when the panel loaded and never stop, hidden or not,
+                                         and an animation that never ends keeps the panel redrawing:
+                                         about a tenth of a processor core whenever the panel was open
+                                         (measured 27 Nov 2026). -->
                                     <Ellipse Width="6" Height="6" VerticalAlignment="Center" Margin="0,0,8,0">
                                         <Ellipse.Fill><SolidColorBrush Color="#8B5CF6"/></Ellipse.Fill>
                                         <Ellipse.Effect>
-                                            <DropShadowEffect x:Name="DotGlow" Color="#8B5CF6" BlurRadius="5" ShadowDepth="0" Opacity="0.5"/>
+                                            <DropShadowEffect Color="#8B5CF6" BlurRadius="5" ShadowDepth="0" Opacity="0.5"/>
                                         </Ellipse.Effect>
-                                        <Ellipse.Triggers>
-                                            <EventTrigger RoutedEvent="Ellipse.Loaded">
-                                                <BeginStoryboard>
-                                                    <Storyboard RepeatBehavior="Forever" AutoReverse="True">
-                                                        <DoubleAnimation Storyboard.TargetName="DotGlow"
-                                                                         Storyboard.TargetProperty="BlurRadius"
-                                                                         To="16" Duration="0:0:0.9"/>
-                                                        <DoubleAnimation Storyboard.TargetName="DotGlow"
-                                                                         Storyboard.TargetProperty="Opacity"
-                                                                         To="1.0" Duration="0:0:0.9"/>
-                                                    </Storyboard>
-                                                </BeginStoryboard>
-                                            </EventTrigger>
-                                        </Ellipse.Triggers>
+                                        <Ellipse.Style>
+                                            <Style TargetType="Ellipse">
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsDownloading}" Value="True">
+                                                        <DataTrigger.EnterActions>
+                                                            <BeginStoryboard x:Name="DownloadGlow">
+                                                                <Storyboard RepeatBehavior="Forever" AutoReverse="True">
+                                                                    <DoubleAnimation Storyboard.TargetProperty="Effect.BlurRadius"
+                                                                                     To="16" Duration="0:0:0.9"/>
+                                                                    <DoubleAnimation Storyboard.TargetProperty="Effect.Opacity"
+                                                                                     To="1.0" Duration="0:0:0.9"/>
+                                                                </Storyboard>
+                                                            </BeginStoryboard>
+                                                        </DataTrigger.EnterActions>
+                                                        <DataTrigger.ExitActions>
+                                                            <StopStoryboard BeginStoryboardName="DownloadGlow"/>
+                                                        </DataTrigger.ExitActions>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Ellipse.Style>
                                     </Ellipse>
                                     <TextBlock Text="{Binding UpdateStatus}" FontSize="12.5"
                                                FontWeight="SemiBold" Foreground="#CEC8F8" VerticalAlignment="Center"/>

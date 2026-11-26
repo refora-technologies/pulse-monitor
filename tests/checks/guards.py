@@ -440,6 +440,17 @@ def wiring_guards(src):
           and "Closed += (_, _) => { _vm.Close(); _open = null; };" in sensors_cs
           and "if (WindowState == WindowState.Minimized) _vm.Pause(); else _vm.Resume();" in sensors_cs,
           "every sensor read and sent while nobody is looking at the window")
+    # An animation that never ends keeps its window redrawing: the update dot's glow, started
+    # when the panel loaded and hidden unless downloading, cost about a tenth of a processor core
+    # whenever the panel was open (measured 27 Nov). Every endless animation must start with
+    # what it shows and be stopped when that goes.
+    for name in ("Views/MainWindow.xaml", "Views/OverlayWindow.xaml", "Views/SensorsWindow.xaml"):
+        markup = (src.text(name) or "").replace("\r\n", "\n")
+        endless = markup.count('RepeatBehavior="Forever"')
+        stopped = markup.count("<StopStoryboard ")
+        check(f"{name.split('/')[-1]} runs no animation forever unless something on screen needs it",
+              endless <= stopped and 'EventTrigger RoutedEvent="Ellipse.Loaded"' not in markup,
+              "an endless animation keeps the window redrawing, a tenth of a core for a hidden glow")
     # Windows ending the session is not a crash (26 Nov): every restart was logged as one, and a
     # sensor host Windows closed was restarted into a closing session.
     app_cs = src.text("App.xaml.cs") or ""
