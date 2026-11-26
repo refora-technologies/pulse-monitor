@@ -139,6 +139,13 @@ MUTATIONS = [
      "the tree is sent only while the page asks",
      "every sensor read and sent forever after the panel went away"),
 
+    # Stop listening for Windows ending the session.
+    ("App.xaml.cs",
+     "Microsoft.Win32.SystemEvents.SessionEnding += OnWindowsSessionEnding;",
+     "",
+     "a Windows restart is not logged as a crash",
+     "every restart logged as a crash"),
+
     # Place a corner overlay 2 px in again, where its flat sides no longer meet the edge.
     ("Views/OverlayWindow.xaml.cs",
      "const int margin = 0;",

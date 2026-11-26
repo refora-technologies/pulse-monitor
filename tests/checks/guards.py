@@ -440,6 +440,15 @@ def wiring_guards(src):
           and "Closed += (_, _) => { _vm.Close(); _open = null; };" in sensors_cs
           and "if (WindowState == WindowState.Minimized) _vm.Pause(); else _vm.Resume();" in sensors_cs,
           "every sensor read and sent while nobody is looking at the window")
+    # Windows ending the session is not a crash (26 Nov): every restart was logged as one, and a
+    # sensor host Windows closed was restarted into a closing session.
+    app_cs = src.text("App.xaml.cs") or ""
+    hardware_cs = src.text("Services/HardwareService.cs") or ""
+    check("a Windows restart is not logged as a crash",
+          "Microsoft.Win32.SystemEvents.SessionEnding += OnWindowsSessionEnding;" in app_cs
+          and "LogService.NoteWindowsEnding(" in app_cs
+          and "else if (WindowsEnding(code))" in hardware_cs,
+          "every restart reported as a crash, burying the real ones")
     # The window overlay joins the screen's edge where the in-game overlay does (26 Nov): the
     # same anchor decides both, a fraction of 0 or 1 is flush, and a corner sits right on it.
     overlay_cs = src.text("Views/OverlayWindow.xaml.cs") or ""
