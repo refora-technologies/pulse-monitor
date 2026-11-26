@@ -195,14 +195,22 @@ public static class LogService
 
             if (File.Exists(SessionStatePath))
             {
-                previousCrashed = true;
-
                 string details;
                 try   { details = File.ReadAllText(SessionStatePath).Replace(Environment.NewLine, " | ").Trim(); }
                 catch { details = "(unreadable)"; }
 
-                Warn(nameof(LogService),
-                     $"Previous session ended without shutting down. It was: {details}");
+                // Windows said it was ending the session (NoteWindowsEnding), and then closed
+                // Pulse before it could close itself: a restart, not a crash.
+                if (details.Contains("activity=" + WindowsEndingActivity, StringComparison.Ordinal))
+                {
+                    Info(nameof(LogService), "Previous session ended when Windows shut down, restarted or signed out.");
+                }
+                else
+                {
+                    previousCrashed = true;
+                    Warn(nameof(LogService),
+                         $"Previous session ended without shutting down. It was: {details}");
+                }
             }
 
             Info(nameof(LogService), $"Session started. Pulse {version} on Windows {Environment.OSVersion.Version}.");
@@ -216,6 +224,32 @@ public static class LogService
         }
 
         return previousCrashed;
+    }
+
+    /// What the session state says once Windows has said it is ending the session.
+    public const string WindowsEndingActivity = "Windows is ending the session";
+
+    /// <summary>
+    /// Windows is shutting down, restarting or signing out.
+    /// </summary>
+    /// <remarks>
+    /// Windows closes the sensor host and then Pulse, usually before Pulse can close itself, so
+    /// every restart was reported on the next start as a crash (seen on the test laptop for
+    /// every restart from 18 to 26 Nov 2026), which buries the real ones. The marker stays, so a
+    /// death is still detected; it says why, so the next start can tell the two apart.
+    /// </remarks>
+    public static void NoteWindowsEnding(string how)
+    {
+        Info(nameof(LogService), $"Windows is {how}; Pulse closes with it.");
+        RecordActivity(WindowsEndingActivity);
+    }
+
+    /// Windows carried on after all (an app held the shutdown up and the user cancelled it): a
+    /// death from here on is a crash again.
+    public static void NoteWindowsCarriedOn()
+    {
+        Info(nameof(LogService), "Windows carried on after all; Pulse is still running.");
+        RecordActivity("running");
     }
 
     /// Closes the session cleanly. Anything that skips this is treated as a crash next time.

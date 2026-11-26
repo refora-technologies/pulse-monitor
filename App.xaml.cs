@@ -160,6 +160,7 @@ public partial class App : WinApplication
         // Written down, because every "sensors went quiet" or "frame rate stopped" report needs
         // to be read against it. Before this a wake had to be inferred from gaps in the log.
         Microsoft.Win32.SystemEvents.PowerModeChanged += OnPowerModeChanged;
+        Microsoft.Win32.SystemEvents.SessionEnding += OnWindowsSessionEnding;
     }
 
     private static void OnPowerModeChanged(object? sender, Microsoft.Win32.PowerModeChangedEventArgs e)
@@ -762,11 +763,29 @@ public partial class App : WinApplication
         return false;
     }
 
+    /// <summary>
+    /// Windows is shutting down, restarting or signing out. It ends the sensor host and then
+    /// Pulse, usually before Pulse can close itself; this says so first, so neither shows up as
+    /// a crash (LogService.NoteWindowsEnding).
+    /// </summary>
+    private void OnWindowsSessionEnding(object? sender, Microsoft.Win32.SessionEndingEventArgs e)
+    {
+        if (!_initialized) return;
+        HardwareService.Instance.NoteWindowsEnding();
+        LogService.NoteWindowsEnding(e.Reason == Microsoft.Win32.SessionEndReasons.Logoff
+            ? "signing out" : "shutting down or restarting");
+
+        // Still here a minute later: the shutdown was called off.
+        _ = System.Threading.Tasks.Task.Delay(TimeSpan.FromMinutes(1))
+            .ContinueWith(_ => LogService.NoteWindowsCarriedOn(), System.Threading.Tasks.TaskScheduler.Default);
+    }
+
     protected override void OnExit(ExitEventArgs e)
     {
         _trayIcon?.Dispose();
 
         Microsoft.Win32.SystemEvents.PowerModeChanged -= OnPowerModeChanged;
+        Microsoft.Win32.SystemEvents.SessionEnding -= OnWindowsSessionEnding;
         System.Net.NetworkInformation.NetworkChange.NetworkAvailabilityChanged -= OnNetworkAvailabilityChanged;
         _updateTimer?.Stop();
 

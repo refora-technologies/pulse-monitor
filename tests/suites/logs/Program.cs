@@ -205,6 +205,27 @@ class Program
         Check("the next start reports no crash", !falseAlarm);
         EndSession();
 
+        // ── Windows ending the session ────────────────────────────────────────────────
+        // Windows closes Pulse at a restart before it can close itself. Every restart was
+        // reported as a crash until 26 Nov 2026; one Windows announced is not.
+        Console.WriteLine("\nA restart Windows announced must not be mistaken for a crash:");
+        ClearLogs();
+        BeginSession("1.3.7-test");
+        _log.GetMethod("NoteWindowsEnding")!.Invoke(null, new object[] { "shutting down or restarting" });
+        Check("the marker stays while Windows ends the session", File.Exists(StateFile));
+        bool restartReported = BeginSession("1.3.7-test");
+        Check("the next start reports no crash after a restart", !restartReported);
+        Check("it says Windows ended the previous session", File.ReadAllText(Active).Contains("Previous session ended when Windows"));
+
+        // A shutdown called off: a death after it is a crash again.
+        ClearLogs();
+        BeginSession("1.3.7-test");
+        _log.GetMethod("NoteWindowsEnding")!.Invoke(null, new object[] { "shutting down or restarting" });
+        _log.GetMethod("NoteWindowsCarriedOn")!.Invoke(null, null);
+        bool crashAfterCancel = BeginSession("1.3.7-test");
+        Check("a crash after a cancelled shutdown is still reported", crashAfterCancel);
+        EndSession();
+
         // ── concurrency ───────────────────────────────────────────────────────────────
         Console.WriteLine("\nLogging from many threads at once must not lose or corrupt lines:");
         ClearLogs();

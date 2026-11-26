@@ -812,12 +812,32 @@ public class HardwareService : IDisposable
     }
 
     /// <summary>
+    /// Windows has said it is ending the session. It closes the sensor host before Pulse, so for
+    /// the next minute a host that stops is Windows' doing, not a fault: it is not reported as
+    /// one, and the next host waits that minute, by when Pulse has gone too or the shutdown was
+    /// called off.
+    /// </summary>
+    public void NoteWindowsEnding() => Interlocked.Exchange(ref _windowsEndingAt, AwakeClock.Milliseconds);
+
+    private long _windowsEndingAt = -1;
+
+    /// The exit code Windows gives a process it ends at shutdown (DBG_TERMINATE_PROCESS),
+    /// recognised in case the host goes before Pulse hears the session is ending.
+    private const int EndedByWindows = 0x40010004;
+
+    private bool WindowsEnding(int exitCode)
+    {
+        long at = Interlocked.Read(ref _windowsEndingAt);
+        return exitCode == EndedByWindows || (at >= 0 && AwakeClock.Milliseconds - at < 60_000);
+    }
+
+    /// <summary>
     /// Called when a host's output ends. Decides whether that was expected and, if not,
     /// says so and starts another.
     /// </summary>
     private void OnHostEnded(Process host)
     {
-        bool deliberate;
+        bool deliberate, windowsEnding = false;
 
         lock (_hostLock)
         {
@@ -835,6 +855,11 @@ public class HardwareService : IDisposable
             if (_replacing)
             {
                 LogService.Info(nameof(HardwareService), "Sensor host replaced.");
+            }
+            else if (WindowsEnding(code))
+            {
+                windowsEnding = deliberate = true;
+                LogService.Info(nameof(HardwareService), "The sensor host was closed by Windows, which is ending the session.");
             }
             else
             {
@@ -872,7 +897,9 @@ public class HardwareService : IDisposable
         // repeatedly for a minute and then work perfectly, and giving up would leave Pulse
         // showing "--" until someone restarted it by hand. A replacement Pulse asked for is
         // already spaced out by the silence that caused it, so it waits only a moment.
-        var wait = deliberate ? TimeSpan.FromSeconds(1) : TimeSpan.FromSeconds(Math.Min(_restarts, 10));
+        var wait = windowsEnding ? TimeSpan.FromSeconds(60)
+                 : deliberate    ? TimeSpan.FromSeconds(1)
+                 : TimeSpan.FromSeconds(Math.Min(_restarts, 10));
         Thread.Sleep(wait);
 
         if (!deliberate && _restarts >= 4)
