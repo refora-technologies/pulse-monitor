@@ -129,8 +129,8 @@ MUTATIONS = [
     ("Services/SensorReader.cs",
      "if (!node.Asleep)",
      "if (true)",
-     "the Sensors page never shows a sleeping card's old values as live",
-     "a sleeping card's last readings shown as current on the Sensors page"),
+     "the Sensors window never shows a sleeping card's old values as live",
+     "a sleeping card's last readings shown as current in the Sensors window"),
 
     # Forget the lapse, and a panel that closed without saying so leaves the tree on forever.
     ("Services/SensorHost.cs",
@@ -139,12 +139,12 @@ MUTATIONS = [
      "the tree is sent only while the page asks",
      "every sensor read and sent forever after the panel went away"),
 
-    # Hide the panel with the Sensors page open and leave the page asking for every sensor.
-    ("Views/MainWindow.xaml.cs",
-     "if (args.NewValue is not true && SensorsPage.Visibility == Visibility.Visible) ShowSensors(false);",
-     "",
-     "the Sensors page stops asking when it is not on screen",
-     "every sensor read and sent while the panel is hidden"),
+    # Minimize the Sensors window and leave it asking for every sensor.
+    ("Views/SensorsWindow.xaml.cs",
+     "if (WindowState == WindowState.Minimized) _vm.Pause(); else _vm.Resume();",
+     "_vm.Resume();",
+     "the Sensors window stops asking when it is not on screen",
+     "every sensor read and sent while the window is minimized"),
 
     # Anchor under any taskbar again, and a demoted one takes the overlay's topmost with it.
     ("Views/OverlayWindow.xaml.cs",

@@ -411,30 +411,35 @@ def wiring_guards(src):
     check("the five advanced readings are marked advanced",
           sorted(advanced) == sorted(["cpu_core_max", "cpu_cores", "gpu_hotspot", "gpu_mem_clock", "gpu_voltage"]),
           "readings most people never need, shown to everyone")
-    # Since 18 Nov the advanced readings are added from the Sensors page, where each is shown
-    # with its value, and never listed among the ordinary tiles.
+    # Since 18 Nov the advanced readings are added from the Sensors window (its own window since
+    # 26 Nov), where each is shown with its value, and never listed among the ordinary tiles.
+    # Every tile, advanced ones included, is one of the window's readings.
     settings_page_vm = src.text("ViewModels/SettingsViewModel.cs") or ""
-    check("the advanced readings are added from the Sensors page, and the lists leave no gap",
+    sensors_vm = src.text("ViewModels/SensorsViewModel.cs") or ""
+    sensors_xaml = src.text("Views/SensorsWindow.xaml") or ""
+    check("the advanced readings are added from the Sensors window, and the lists leave no gap",
           main_xaml.count('Value="{Binding IsShown, Converter={StaticResource BoolToVis}}"') == 1
           and main_xaml.count('Value="{Binding IsListedInGame, Converter={StaticResource BoolToVis}}"') == 1
           and "public bool IsShown => !Definition.IsAdvanced;" in settings_page_vm
-          and 'ItemsSource="{Binding AdvancedReadings}"' in main_xaml,
+          and "foreach (var overlay in _settings.AllTiles" in sensors_vm
+          and 'ItemsSource="{Binding Readings}"' in sensors_xaml,
           "the advanced readings among the ordinary tiles, or nowhere to add them")
-    # The page's switches are the tile lists' own items, so the page and the lists are one
+    # The window's switches are the tile lists' own items, so the window and the lists are one
     # setting and cannot disagree.
-    sensors_vm = src.text("ViewModels/SensorsViewModel.cs") or ""
-    check("the Sensors page's switches are the tile lists' own",
+    check("the Sensors window's switches are the tile lists' own",
           "public TileSelectionItem Overlay { get; }" in sensors_vm
-          and 'IsChecked="{Binding Overlay.IsSelected, Mode=TwoWay}"' in main_xaml
-          and 'IsChecked="{Binding InGame.IsSelected, Mode=TwoWay}"' in main_xaml,
+          and 'IsChecked="{Binding Overlay.IsSelected, Mode=TwoWay}"' in sensors_xaml
+          and 'IsChecked="{Binding InGame.IsSelected, Mode=TwoWay}"' in sensors_xaml
+          and 'IsChecked="{Binding Reading.Overlay.IsSelected, Mode=TwoWay}"' in sensors_xaml,
           "a reading switched on in one place and off in the other")
-    # The page asks for every sensor only while it is on screen: closing it, going back, or the
-    # panel being hidden all stop it.
-    main_cs = src.text("Views/MainWindow.xaml.cs") or ""
-    check("the Sensors page stops asking when it is not on screen",
+    # The window asks for every sensor only while it is on screen: closing it or minimizing it
+    # stops that.
+    sensors_cs = src.text("Views/SensorsWindow.xaml.cs") or ""
+    check("the Sensors window stops asking when it is not on screen",
           "HardwareService.Instance.WatchSensors(false);" in sensors_vm
-          and "if (args.NewValue is not true && SensorsPage.Visibility == Visibility.Visible) ShowSensors(false);" in main_cs,
-          "every sensor read and sent while nobody is looking at the page")
+          and "Closed += (_, _) => { _vm.Close(); _open = null; };" in sensors_cs
+          and "if (WindowState == WindowState.Minimized) _vm.Pause(); else _vm.Resume();" in sensors_cs,
+          "every sensor read and sent while nobody is looking at the window")
     # The hot spot is caught before the general temperature case, so whatever order a driver
     # lists its sensors in, it never becomes GPU Temp, which would read ten degrees high.
     hot = reader.find('s.Name.Equals("GPU Hot Spot"')
@@ -467,11 +472,11 @@ def wiring_guards(src):
     # asleep goes as asleep with no values, never the values it had before it slept; the tree is
     # built only while the page asks, and stops by itself if it stops asking.
     host = src.text("Services/SensorHost.cs") or ""
-    check("the Sensors page never shows a sleeping card's old values as live",
+    check("the Sensors window never shows a sleeping card's old values as live",
           "Asleep = IsGpu(hw.HardwareType) && !_readThisPoll.Contains(id)," in reader
           and "if (!node.Asleep)" in reader
           and reader.count("NoteRead(") >= 3,
-          "a card's readings from before it slept shown on the Sensors page as current")
+          "a card's readings from before it slept shown in the Sensors window as current")
     check("the tree is sent only while the page asks, and stops by itself",
           "if (treeOn && pollStarted - treeAskedAt > SensorCommand.TreeLapseMs)" in host
           and "if (sendTree)" in host,
