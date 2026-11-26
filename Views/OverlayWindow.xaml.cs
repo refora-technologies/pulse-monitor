@@ -477,10 +477,31 @@ public partial class OverlayWindow : Window
         GetWindowThreadProcessId(cover, out uint pid);
         bool ourTopmost = (GetWindowLong(hwnd, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0;
         static string YesNo(bool b) => b ? "yes" : "no";
+        // Its size, and whether it is part of Windows itself (a notification, a flyout, Start),
+        // which the overlay lets in front on purpose: enough to tell those from another program's
+        // always-on-top window without a name (26 Nov 2026, after a week of lines that said only
+        // a process number, gone by the time anyone read them).
+        GetWindowRect(cover, out var size);
         LogService.Warn(nameof(OverlayWindow),
             $"The overlay has been covered for {(now - _coveredSince) / 1000} s by a window of process {pid} "
-            + $"(topmost: {YesNo(topmost)}, fills its screen: {YesNo(fills)}). The overlay: topmost {YesNo(ourTopmost)}, "
+            + $"(topmost: {YesNo(topmost)}, fills its screen: {YesNo(fills)}, {size.Right - size.Left} x {size.Bottom - size.Top} px, "
+            + $"part of Windows: {YesNo(IsWindowsShell(pid))}). The overlay: topmost {YesNo(ourTopmost)}, "
             + $"under the taskbar {YesNo(_anchoredUnderTaskbar)}, foreground full screen {YesNo(IsForegroundWindowFullScreen())}.");
+    }
+
+    /// <summary>
+    /// Whether a process is one of Windows' own shell programs (the taskbar and Explorer, Start,
+    /// search, notifications and flyouts). Only the answer is logged, never the name.
+    /// </summary>
+    private static bool IsWindowsShell(uint pid)
+    {
+        try
+        {
+            using var p = System.Diagnostics.Process.GetProcessById((int)pid);
+            return p.ProcessName.ToLowerInvariant() is "explorer" or "startmenuexperiencehost" or "searchhost"
+                or "shellexperiencehost" or "shellhost" or "textinputhost" or "lockapp";
+        }
+        catch { return false; }
     }
 
     /// The nearest visible window above the overlay that overlaps it, or zero.
