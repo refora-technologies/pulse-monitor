@@ -46,7 +46,7 @@ public partial class SensorsWindow : Window
 
         // The clip that rounds the corners follows the window's size.
         WindowBorder.SizeChanged += (_, _) =>
-            ShellGrid.Clip = new RectangleGeometry(new Rect(0, 0, WindowBorder.ActualWidth - 2, WindowBorder.ActualHeight - 2), 17, 17);
+            ShellGrid.Clip = new RectangleGeometry(new Rect(0, 0, WindowBorder.ActualWidth - 2, WindowBorder.ActualHeight - 2), 9, 9);
     }
 
     private void TitleBar_MouseDown(object sender, MouseButtonEventArgs e)

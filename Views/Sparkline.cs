@@ -40,6 +40,41 @@ public sealed class Sparkline : FrameworkElement
         set => SetValue(StrokeProperty, value);
     }
 
+    public static readonly DependencyProperty MinimumProperty = DependencyProperty.Register(
+        nameof(Minimum), typeof(double), typeof(Sparkline),
+        new FrameworkPropertyMetadata(double.NaN, FrameworkPropertyMetadataOptions.AffectsRender));
+
+    /// The value at the bottom of the graph, or NaN for the lowest one shown.
+    public double Minimum
+    {
+        get => (double)GetValue(MinimumProperty);
+        set => SetValue(MinimumProperty, value);
+    }
+
+    public static readonly DependencyProperty MaximumProperty = DependencyProperty.Register(
+        nameof(Maximum), typeof(double), typeof(Sparkline),
+        new FrameworkPropertyMetadata(double.NaN, FrameworkPropertyMetadataOptions.AffectsRender));
+
+    /// The value at the top of the graph, or NaN for the highest one shown.
+    public double Maximum
+    {
+        get => (double)GetValue(MaximumProperty);
+        set => SetValue(MaximumProperty, value);
+    }
+
+    public static readonly DependencyProperty ShowGuidesProperty = DependencyProperty.Register(
+        nameof(ShowGuides), typeof(bool), typeof(Sparkline),
+        new FrameworkPropertyMetadata(false, FrameworkPropertyMetadataOptions.AffectsRender));
+
+    /// Faint lines at a quarter, half and three quarters, for a large graph read against its scale.
+    public bool ShowGuides
+    {
+        get => (bool)GetValue(ShowGuidesProperty);
+        set => SetValue(ShowGuidesProperty, value);
+    }
+
+    private static readonly Pen Guide = FrozenPen(Color.FromArgb(0x1C, 0xFF, 0xFF, 0xFF), 1);
+
     protected override Size MeasureOverride(Size available)
         => new(double.IsInfinity(available.Width) ? 80 : available.Width, double.IsInfinity(available.Height) ? 20 : available.Height);
 
@@ -47,16 +82,30 @@ public sealed class Sparkline : FrameworkElement
     {
         var values = Values;
         double w = ActualWidth, h = ActualHeight;
-        if (values is null || values.Count < 2 || w <= 0 || h <= 0) return;
+        if (w <= 0 || h <= 0) return;
 
-        float lo = values.Min(), hi = values.Max();
-        // A flat reading sits in the middle rather than on the floor.
+        if (ShowGuides)
+            for (int q = 1; q <= 3; q++)
+            {
+                double y = Math.Round(h * q / 4) + 0.5;
+                dc.DrawLine(Guide, new Point(0, y), new Point(w, y));
+            }
+
+        if (values is null || values.Count < 2) return;
+
+        // A fixed range when one is given, so a line's height means the same thing every time it
+        // is seen; otherwise the minute's own lowest and highest.
+        double lo = double.IsNaN(Minimum) ? values.Min() : Math.Min(Minimum, values.Min());
+        double hi = double.IsNaN(Maximum) ? values.Max() : Math.Max(Maximum, values.Max());
+        bool fixedRange = !double.IsNaN(Minimum) && !double.IsNaN(Maximum);
         double range = hi - lo;
-        double pad = h * 0.12;
+        // Room for the line's width and the dot at the top and bottom of an auto-ranged graph.
+        double pad = fixedRange ? 1.5 : Math.Min(4, h * 0.15);
         // Whatever has been gathered spans the width, so a window opened seconds ago already has
         // a graph rather than a sliver at the right; after a minute it is the last minute.
-        double step = w / (values.Count - 1);
+        double step = (w - 2.5) / (values.Count - 1);   // room for the dot at the end
         double x0 = 0;
+        // A flat reading sits in the middle rather than on the floor.
         Point At(int i) => new(x0 + i * step, range <= 0 ? h / 2 : h - pad - (values[i] - lo) / range * (h - 2 * pad));
 
         var line = new StreamGeometry();
@@ -72,13 +121,23 @@ public sealed class Sparkline : FrameworkElement
         {
             g.BeginFigure(new Point(x0, h), true, true);
             for (int i = 0; i < values.Count; i++) g.LineTo(At(i), true, false);
-            g.LineTo(new Point(w, h), true, false);
+            g.LineTo(new Point(At(values.Count - 1).X, h), true, false);
         }
         area.Freeze();
 
         var stroke = Stroke;
         dc.DrawGeometry(Fill(stroke), null, area);
         dc.DrawGeometry(null, Pen(stroke), line);
+
+        // The newest point, so "now" is found at a glance.
+        dc.DrawEllipse(stroke, null, At(values.Count - 1), 2.2, 2.2);
+    }
+
+    private static Pen FrozenPen(Color c, double width)
+    {
+        var pen = new Pen(Frozen(c), width);
+        pen.Freeze();
+        return pen;
     }
 
     private Brush? _fillFor;
@@ -91,7 +150,7 @@ public sealed class Sparkline : FrameworkElement
         {
             _fillFor = stroke;
             var c = stroke is SolidColorBrush s ? s.Color : Color.FromRgb(0xA7, 0x8B, 0xFA);
-            var fill = new LinearGradientBrush(Color.FromArgb(0x40, c.R, c.G, c.B), Color.FromArgb(0x00, c.R, c.G, c.B), 90);
+            var fill = new LinearGradientBrush(Color.FromArgb(0x2C, c.R, c.G, c.B), Color.FromArgb(0x00, c.R, c.G, c.B), 90);
             fill.Freeze();
             _fill = fill;
             var pen = new Pen(stroke, 1.4) { LineJoin = PenLineJoin.Round };

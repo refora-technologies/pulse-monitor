@@ -350,6 +350,25 @@ public sealed class SensorPart : BaseViewModel
     private IReadOnlyList<float> _headlineHistory = Array.Empty<float>();
     public IReadOnlyList<float> HeadlineHistory { get => _headlineHistory; private set => Set(ref _headlineHistory, value); }
 
+    // The part's page leads with its headline reading in a large graph (the way Task Manager's
+    // Performance page does), with its scale written at the graph's edge.
+    private string _heroValue = "--", _heroUnit = "", _heroLabel = "", _heroTop = "", _heroBottom = "";
+    public string HeroValue  { get => _heroValue;  private set => Set(ref _heroValue, value); }
+    public string HeroUnit   { get => _heroUnit;   private set => Set(ref _heroUnit, value); }
+    public string HeroLabel  { get => _heroLabel;  private set => Set(ref _heroLabel, value); }
+    private bool _hasHero;
+    public bool HasHero { get => _hasHero; private set => Set(ref _hasHero, value); }
+    public string HeroTop    { get => _heroTop;    private set => Set(ref _heroTop, value); }
+    public string HeroBottom { get => _heroBottom; private set => Set(ref _heroBottom, value); }
+    private double _heroMin = double.NaN, _heroMax = double.NaN;
+    /// The graph's fixed range, or NaN for the reading's own lowest and highest.
+    public double HeroMin { get => _heroMin; private set => Set(ref _heroMin, value); }
+    public double HeroMax { get => _heroMax; private set => Set(ref _heroMax, value); }
+
+    /// A scale label: whole numbers from 10 up, one decimal below.
+    private static string Scale(double v) => Math.Abs(v) >= 10 ? v.ToString("0", System.Globalization.CultureInfo.CurrentCulture)
+                                                               : v.ToString("0.#", System.Globalization.CultureInfo.CurrentCulture);
+
     private bool _asleep;
     /// A graphics card asleep and left alone: no values, and the part says so.
     public bool Asleep { get => _asleep; private set => Set(ref _asleep, value); }
@@ -403,7 +422,7 @@ public sealed class SensorPart : BaseViewModel
         };
 
         int count = Nodes.Sum(n => n.Rows.Count);
-        More = count > 0 ? $"All {count} sensors" : "Open";
+        More = count > 0 ? $"{count} sensors" : "";
         Refresh();
     }
 
@@ -438,10 +457,32 @@ public sealed class SensorPart : BaseViewModel
             case PartKind.Games:   headReading = R("fps"); break;
         }
 
-        if (Asleep) { Headline = "asleep"; HeadlineHistory = Array.Empty<float>(); }
-        else if (headReading != null) { Headline = Join(headReading.Value, headReading.Unit); HeadlineHistory = headReading.History; }
-        else if (headRow != null)     { Headline = Join(headRow.Now, headRow.Unit); HeadlineHistory = headRow.History; }
-        else                          { Headline = "--"; HeadlineHistory = Array.Empty<float>(); }
+        string value = "--", unit = "", label = "";
+        IReadOnlyList<float> history = Array.Empty<float>();
+        if (Asleep) value = "asleep";
+        else if (headReading != null) { value = headReading.Value; unit = headReading.Unit; label = headReading.Label; history = headReading.History; }
+        else if (headRow != null)     { value = headRow.Now; unit = headRow.Unit; label = headRow.Name; history = headRow.History; }
+        Headline = Join(value, unit);
+        HeadlineHistory = history;
+        HeroValue = value;
+        HeroUnit = value is "--" or "asleep" ? "" : unit;
+        HeroLabel = label;
+        HasHero = label.Length > 0 && !Asleep;
+
+        // The graph's range: a percentage is always 0 to 100 and a temperature starts at 20 and
+        // reaches at least 100, so the line's height means the same thing every time it is seen.
+        // Anything else spans its own lowest and highest of the minute.
+        (double lo, double hi) range = unit switch
+        {
+            "%"  => (0, 100),
+            "°C" => (20, Math.Max(100, history.Count > 0 ? Math.Ceiling(history.Max() / 10) * 10 : 100)),
+            _    => (double.NaN, double.NaN),
+        };
+        HeroMin = range.lo;
+        HeroMax = range.hi;
+        if (history.Count == 0)                { HeroTop = HeroBottom = ""; }
+        else if (!double.IsNaN(range.lo))      { HeroTop = Join(Scale(range.hi), unit); HeroBottom = Join(Scale(range.lo), unit); }
+        else                                   { HeroTop = Join(Scale(history.Max()), unit); HeroBottom = Join(Scale(history.Min()), unit); }
 
         // The overview card: Pulse's own readings first, then the part's other sensors.
         var rows = new List<KeyRow>();
@@ -458,9 +499,9 @@ public sealed class SensorPart : BaseViewModel
                     foreach (var line in node.Rows.Where(l => l.Kind == type && l != headRow && l.Reading is null))
                     {
                         if (rows.Count == 3) break;
-                        string label = ManyNodes ? node.ShortName + " · " + line.Name : line.Name;
-                        if (rows.Any(k => k.Label == label)) continue;
-                        rows.Add(new KeyRow(label, Join(line.Now, line.Unit)));
+                        string name = ManyNodes ? node.ShortName + " · " + line.Name : line.Name;
+                        if (rows.Any(k => k.Label == name)) continue;
+                        rows.Add(new KeyRow(name, Join(line.Now, line.Unit)));
                     }
         }
         KeyRows = rows;
@@ -571,6 +612,11 @@ public sealed class PulseReading : BaseViewModel
     public bool IsAdvanced => Overlay.Definition.IsAdvanced;
     public string Unit => Overlay.DisplayUnit;
 
+    /// The graph's fixed range: 0 to 100 for a percentage, from 20 to at least 100 for a
+    /// temperature, otherwise (NaN) the minute's own lowest and highest.
+    public double GraphMin => Unit switch { "%" => 0, "°C" => 20, _ => double.NaN };
+    public double GraphMax => Unit switch { "%" => 100, "°C" => 100, _ => double.NaN };
+
     /// Whether the in-game list has this reading, so it can have an In game switch.
     public bool HasInGame => InGame != null;
 
@@ -583,7 +629,7 @@ public sealed class PulseReading : BaseViewModel
 
     public bool HasValue => _value is not ("--" or "asleep");
 
-    private static readonly SolidColorBrush Calm = Frozen(0xF4, 0xF2, 0xFC), Warm = Frozen(0xFB, 0xBF, 0x24), Hot = Frozen(0xF8, 0x71, 0x71);
+    private static readonly SolidColorBrush Calm = Frozen(0xEC, 0xEC, 0xF1), Warm = Frozen(0xFB, 0xBF, 0x24), Hot = Frozen(0xF8, 0x71, 0x71);
     private SolidColorBrush _valueBrush = Calm;
     /// White, amber or red, by the same thresholds the overlay colours this tile by.
     public SolidColorBrush ValueBrush { get => _valueBrush; private set => Set(ref _valueBrush, value); }
@@ -674,6 +720,7 @@ public sealed class SensorGroup : BaseViewModel
         OnPropertyChanged(nameof(ShortName));
 
         var seen = new HashSet<string>(StringComparer.Ordinal);
+        bool changed = false;
         foreach (var sensor in node.Sensors)
         {
             seen.Add(sensor.Id);
@@ -682,6 +729,7 @@ public sealed class SensorGroup : BaseViewModel
                 row = new SensorLine(sensor.Id);
                 _rows[sensor.Id] = row;
                 Rows.Add(row);
+                changed = true;
             }
             row.Update(sensor, readingOf(sensor.Tile));
         }
@@ -691,7 +739,31 @@ public sealed class SensorGroup : BaseViewModel
         {
             Rows.Remove(gone);
             _rows.Remove(gone.Id);
+            changed = true;
         }
+
+        if (changed) BuildSections();
+    }
+
+    /// The sensors grouped by kind, temperatures first, each group with a caption, rather than in
+    /// the library's order, which mixes clocks and temperatures.
+    public ObservableCollection<SensorSection> Sections { get; } = new();
+
+    private static readonly (string Type, string Title)[] KindOrder =
+    {
+        ("Temperature", "Temperatures"), ("Load", "Load"), ("Clock", "Clocks"), ("Power", "Power"),
+        ("Voltage", "Voltages"), ("Current", "Current"), ("Fan", "Fans"), ("Control", "Fan control"),
+        ("Throughput", "Throughput"), ("SmallData", "Memory"), ("Data", "Data"), ("Level", "Levels"),
+        ("Energy", "Energy"), ("Frequency", "Frequency"), ("Factor", "Factors"), ("TimeSpan", "Time"),
+    };
+
+    private void BuildSections()
+    {
+        Sections.Clear();
+        var byType = Rows.GroupBy(r => r.Kind).ToDictionary(g => g.Key, g => g.ToList());
+        foreach (var (type, title) in KindOrder)
+            if (byType.Remove(type, out var rows)) Sections.Add(new SensorSection(title, rows));
+        foreach (var (type, rows) in byType) Sections.Add(new SensorSection(type, rows));
     }
 
     public void Filter(string words)
@@ -705,8 +777,27 @@ public sealed class SensorGroup : BaseViewModel
                                        || r.Kind.Contains(words, StringComparison.OrdinalIgnoreCase);
             any |= r.IsVisible;
         }
+        foreach (var s in Sections) s.Refresh();
         IsVisible = groupMatches || any;
     }
+}
+
+/// One kind of sensor on one piece of hardware: its caption and its rows.
+public sealed class SensorSection : BaseViewModel
+{
+    public string Title { get; }
+    public IReadOnlyList<SensorLine> Rows { get; }
+
+    public SensorSection(string title, IReadOnlyList<SensorLine> rows)
+    {
+        Title = title;
+        Rows = rows;
+    }
+
+    private bool _isVisible = true;
+    public bool IsVisible { get => _isVisible; private set => Set(ref _isVisible, value); }
+
+    public void Refresh() => IsVisible = Rows.Any(r => r.IsVisible);
 }
 
 /// <summary>

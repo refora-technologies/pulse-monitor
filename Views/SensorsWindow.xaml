@@ -4,8 +4,8 @@
         xmlns:conv="clr-namespace:Pulse.Converters"
         xmlns:local="clr-namespace:Pulse.Views"
         Title="Pulse — Sensors"
-        Width="1080" Height="720"
-        MinWidth="780" MinHeight="480"
+        Width="1100" Height="740"
+        MinWidth="800" MinHeight="500"
         WindowStyle="None"
         AllowsTransparency="True"
         Background="Transparent"
@@ -15,8 +15,14 @@
         TextOptions.TextRenderingMode="ClearType">
 
     <!-- The Sensors window (owner's choice of the mockups, 26 Nov 2026): the parts of the PC down
-         the left, an overview of every part as the front page, and for each part Pulse's own
-         readings with their overlay switches, then every sensor it reports. -->
+         the left, an overview of every part as the front page, and for each part its main reading
+         in a large graph, Pulse's own readings with their overlay switches, then every sensor it
+         reports, grouped by kind.
+
+         The look follows _tests/design/DESIGN-NOTES.md (26 Nov): near-neutral surfaces, Pulse's
+         violet only as the accent (selection, switches that are on, the graph being looked at),
+         three text levels, tabular numbers, structure from spacing and hairlines rather than
+         boxes inside boxes. -->
 
     <Window.Resources>
       <ResourceDictionary>
@@ -27,31 +33,52 @@
         <conv:InverseBoolToVisibilityConverter x:Key="InverseBoolToVis"/>
         <conv:AllTrueToVisibilityConverter x:Key="AllTrueToVis"/>
 
-        <!-- ═══ SMALL SWITCH, for the cards and the sensor rows ═══ -->
+        <!-- ═══ COLOURS (DESIGN-NOTES.md) ═══ -->
+        <SolidColorBrush x:Key="Base"     Color="#0E0E13"/>
+        <SolidColorBrush x:Key="Raised"   Color="#15151B"/>
+        <SolidColorBrush x:Key="Raised2"  Color="#1C1C24"/>
+        <SolidColorBrush x:Key="Inset"    Color="#0A0A0E"/>
+        <SolidColorBrush x:Key="Line"     Color="#23232C"/>
+        <SolidColorBrush x:Key="LineSoft" Color="#1B1B22"/>
+        <SolidColorBrush x:Key="Text1"    Color="#ECECF1"/>
+        <SolidColorBrush x:Key="Text2"    Color="#A1A1AD"/>
+        <SolidColorBrush x:Key="Text3"    Color="#6C6C78"/>
+        <SolidColorBrush x:Key="Accent"   Color="#A78BFA"/>
+        <SolidColorBrush x:Key="Quiet"    Color="#7A7A86"/>
+
+        <!-- Keyboard focus only: a click does not leave an outline behind. -->
+        <Style x:Key="FocusRing">
+            <Setter Property="Control.Template">
+                <Setter.Value>
+                    <ControlTemplate>
+                        <Rectangle Margin="-2" RadiusX="8" RadiusY="8" Stroke="#C4B5FD" StrokeThickness="1"/>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- ═══ SMALL SWITCH ═══ -->
         <Style x:Key="MiniToggle" TargetType="CheckBox">
+            <Setter Property="FocusVisualStyle" Value="{StaticResource FocusRing}"/>
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="VerticalAlignment" Value="Center"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="CheckBox">
-                        <Grid Width="32" Height="18" Background="Transparent">
-                            <Border x:Name="Track" CornerRadius="9" BorderThickness="1" Background="#12102A" BorderBrush="#2A2648"/>
-                            <Border x:Name="Thumb" Width="12" Height="12" CornerRadius="6" Background="#5C597E"
+                        <Grid Width="30" Height="17" Background="Transparent">
+                            <Border x:Name="Track" CornerRadius="8.5" BorderThickness="1" Background="#1E1E26" BorderBrush="#30303A"/>
+                            <Border x:Name="Thumb" Width="11" Height="11" CornerRadius="5.5" Background="#7A7A86"
                                     HorizontalAlignment="Left" Margin="3,0,0,0" VerticalAlignment="Center"/>
                         </Grid>
                         <ControlTemplate.Triggers>
-                            <Trigger Property="IsChecked" Value="True">
-                                <Setter TargetName="Track" Property="Background" Value="#6D28D9"/>
-                                <Setter TargetName="Track" Property="BorderBrush" Value="#8B5CF6"/>
-                                <Setter TargetName="Thumb" Property="Background" Value="#FFFFFF"/>
-                                <Setter TargetName="Thumb" Property="Margin" Value="17,0,0,0"/>
-                            </Trigger>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Track" Property="BorderBrush" Value="#A78BFA"/>
+                                <Setter TargetName="Track" Property="BorderBrush" Value="#4A4A56"/>
                             </Trigger>
-                            <Trigger Property="IsKeyboardFocused" Value="True">
-                                <Setter TargetName="Track" Property="BorderBrush" Value="#C4B5FD"/>
-                                <Setter TargetName="Track" Property="BorderThickness" Value="2"/>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Track" Property="Background" Value="#7C3AED"/>
+                                <Setter TargetName="Track" Property="BorderBrush" Value="#7C3AED"/>
+                                <Setter TargetName="Thumb" Property="Background" Value="#FFFFFF"/>
+                                <Setter TargetName="Thumb" Property="Margin" Value="16,0,0,0"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -59,32 +86,37 @@
             </Setter>
         </Style>
 
-        <!-- ═══ SIDEBAR ENTRY ═══ -->
+        <!-- ═══ SIDEBAR ENTRY: a raised fill and a violet tick when selected (Tag="True") ═══ -->
         <Style x:Key="SideItem" TargetType="Button">
+            <Setter Property="FocusVisualStyle" Value="{StaticResource FocusRing}"/>
             <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="Foreground" Value="#A9A4CE"/>
+            <Setter Property="Foreground" Value="{StaticResource Text2}"/>
             <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="BorderBrush" Value="Transparent"/>
             <Setter Property="FontFamily" Value="{StaticResource Jakarta}"/>
             <Setter Property="FontSize" Value="12.5"/>
-            <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="Padding" Value="11,9"/>
-            <Setter Property="Margin" Value="0,0,0,2"/>
+            <Setter Property="FontWeight" Value="Medium"/>
+            <Setter Property="Padding" Value="10,7"/>
+            <Setter Property="Margin" Value="0,0,0,1"/>
             <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border x:Name="Bd" CornerRadius="9" Background="{TemplateBinding Background}"
-                                BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1"
-                                Padding="{TemplateBinding Padding}">
-                            <ContentPresenter HorizontalAlignment="Stretch" VerticalAlignment="Center"/>
-                        </Border>
+                        <Grid>
+                            <Border x:Name="Bd" CornerRadius="6" Background="{TemplateBinding Background}"
+                                    BorderThickness="1" BorderBrush="Transparent" Padding="{TemplateBinding Padding}">
+                                <ContentPresenter HorizontalAlignment="Stretch" VerticalAlignment="Center"/>
+                            </Border>
+                            <Border x:Name="Tick" Width="2" Height="14" CornerRadius="1" Background="{StaticResource Accent}"
+                                    HorizontalAlignment="Left" VerticalAlignment="Center" Margin="-1,0,0,0" Visibility="Collapsed"/>
+                        </Grid>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="#151230"/>
+                                <Setter TargetName="Bd" Property="Background" Value="#16161C"/>
                             </Trigger>
-                            <Trigger Property="IsKeyboardFocused" Value="True">
-                                <Setter TargetName="Bd" Property="BorderBrush" Value="#A78BFA"/>
+                            <Trigger Property="Tag" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource Raised2}"/>
+                                <Setter TargetName="Tick" Property="Visibility" Value="Visible"/>
+                                <Setter Property="Foreground" Value="{StaticResource Text1}"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -94,23 +126,21 @@
 
         <!-- ═══ OVERVIEW CARD (a button: opens the part) ═══ -->
         <Style x:Key="PartCardBtn" TargetType="Button">
+            <Setter Property="FocusVisualStyle" Value="{StaticResource FocusRing}"/>
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="Margin" Value="0,0,12,12"/>
             <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border x:Name="Bd" CornerRadius="14" Background="#111020" BorderBrush="#1C1A30"
-                                BorderThickness="1" Padding="16,14,16,13">
+                        <Border x:Name="Bd" CornerRadius="10" Background="{StaticResource Raised}" BorderBrush="{StaticResource LineSoft}"
+                                BorderThickness="1" Padding="16,14,16,14">
                             <ContentPresenter/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="BorderBrush" Value="#5B21B6"/>
-                                <Setter TargetName="Bd" Property="Background" Value="#131028"/>
-                            </Trigger>
-                            <Trigger Property="IsKeyboardFocused" Value="True">
-                                <Setter TargetName="Bd" Property="BorderBrush" Value="#A78BFA"/>
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="#34343F"/>
+                                <Setter TargetName="Bd" Property="Background" Value="#17171E"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -118,15 +148,13 @@
             </Setter>
         </Style>
 
-        <Style x:Key="SectionLabel" TargetType="TextBlock">
+        <Style x:Key="Caption" TargetType="TextBlock">
             <Setter Property="FontSize" Value="10"/>
-            <Setter Property="FontWeight" Value="Bold"/>
-            <Setter Property="Foreground" Value="#A9A4CE"/>
-        </Style>
-        <Style x:Key="ColumnHead" TargetType="TextBlock">
-            <Setter Property="FontSize" Value="9.5"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="Foreground" Value="#6E6A96"/>
+            <Setter Property="Foreground" Value="{StaticResource Text3}"/>
+        </Style>
+        <Style x:Key="ColumnHead" TargetType="TextBlock" BasedOn="{StaticResource Caption}">
+            <Setter Property="FontSize" Value="9.5"/>
             <Setter Property="HorizontalAlignment" Value="Right"/>
         </Style>
 
@@ -139,38 +167,36 @@
              The switches are the tile lists' own items (TileSelectionItem), so this window and
              the lists cannot disagree. -->
         <DataTemplate x:Key="ReadingCard">
-            <Border x:Name="Card" Margin="0,0,10,10" CornerRadius="12" Background="#111020" BorderBrush="#1C1A30"
-                    BorderThickness="1" Padding="14,11,14,10" ToolTip="{Binding Description}">
+            <Border x:Name="Card" Margin="0,0,8,8" CornerRadius="8" Background="{StaticResource Raised}"
+                    Padding="14,11,14,10" ToolTip="{Binding Description}">
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="32"/>
+                        <RowDefinition Height="26"/>
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
                     <DockPanel>
-                        <Border DockPanel.Dock="Right" CornerRadius="5" Background="#1C1540" Padding="6,1"
-                                VerticalAlignment="Center"
-                                Visibility="{Binding IsAdvanced, Converter={StaticResource BoolToVis}}">
-                            <TextBlock Text="ADVANCED" FontSize="8.5" FontWeight="Bold" Foreground="#A78BFA"/>
-                        </Border>
-                        <TextBlock Text="{Binding Label}" FontSize="11.5" FontWeight="SemiBold" Foreground="#A9A4CE"
+                        <TextBlock DockPanel.Dock="Right" Text="Advanced" FontSize="9.5" FontWeight="Medium"
+                                   Foreground="{StaticResource Text3}" VerticalAlignment="Center"
+                                   Visibility="{Binding IsAdvanced, Converter={StaticResource BoolToVis}}"/>
+                        <TextBlock Text="{Binding Label}" FontSize="11.5" FontWeight="Medium" Foreground="{StaticResource Text2}"
                                    TextTrimming="CharacterEllipsis"/>
                     </DockPanel>
-                    <TextBlock Grid.Row="1" Margin="0,3,0,4" TextTrimming="CharacterEllipsis">
-                        <Run Text="{Binding Value, Mode=OneWay}" FontSize="24" FontWeight="Bold" Foreground="{Binding ValueBrush, Mode=OneWay}"/>
-                        <Run Text="{Binding Unit, Mode=OneWay}" FontSize="12" FontWeight="Medium" Foreground="#8B86B4"/>
+                    <TextBlock Grid.Row="1" Margin="0,2,0,6" TextTrimming="CharacterEllipsis">
+                        <Run Text="{Binding Value, Mode=OneWay}" FontSize="22" FontWeight="Bold" Foreground="{Binding ValueBrush, Mode=OneWay}"/>
+                        <Run Text="{Binding Unit, Mode=OneWay}" FontSize="12" FontWeight="Medium" Foreground="{StaticResource Text3}"/>
                     </TextBlock>
-                    <local:Sparkline Grid.Row="2" Values="{Binding History}"
-                                     Stroke="{Binding DataContext.Accent, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                    <local:Sparkline Grid.Row="2" Values="{Binding History}" Minimum="{Binding GraphMin}" Maximum="{Binding GraphMax}"
+                                     Stroke="{StaticResource Quiet}"
                                      Visibility="{Binding IsCores, Converter={StaticResource InverseBoolToVis}}"/>
                     <local:CoreBars Grid.Row="2" Loads="{Binding CoreLoads}" BarWidth="5" HorizontalAlignment="Left"
                                     Visibility="{Binding IsCores, Converter={StaticResource BoolToVis}}"/>
-                    <Grid Grid.Row="3" Margin="0,9,0,0" Visibility="{Binding IsAvailable, Converter={StaticResource BoolToVis}}">
+                    <Grid Grid.Row="3" Margin="0,10,0,0" Visibility="{Binding IsAvailable, Converter={StaticResource BoolToVis}}">
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="Overlay" FontSize="10.5" Foreground="#8B86B4" VerticalAlignment="Center" Margin="0,0,7,0"/>
                             <CheckBox Style="{StaticResource MiniToggle}" IsChecked="{Binding Overlay.IsSelected, Mode=TwoWay}"
                                       AutomationProperties.Name="{Binding Label, StringFormat='{}{0} on the overlay'}"/>
+                            <TextBlock Text="Overlay" FontSize="10.5" Foreground="{StaticResource Text3}" VerticalAlignment="Center" Margin="7,0,0,0"/>
                         </StackPanel>
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                             <StackPanel.Visibility>
@@ -179,50 +205,50 @@
                                     <Binding Path="HasInGame"/>
                                 </MultiBinding>
                             </StackPanel.Visibility>
-                            <TextBlock Text="In game" FontSize="10.5" Foreground="#8B86B4" VerticalAlignment="Center" Margin="0,0,7,0"/>
                             <CheckBox Style="{StaticResource MiniToggle}" IsChecked="{Binding InGame.IsSelected, Mode=TwoWay}"
                                       AutomationProperties.Name="{Binding Label, StringFormat='{}{0} in game'}"/>
+                            <TextBlock Text="In game" FontSize="10.5" Foreground="{StaticResource Text3}" VerticalAlignment="Center" Margin="7,0,0,0"/>
                         </StackPanel>
                     </Grid>
-                    <TextBlock Grid.Row="3" Margin="0,9,0,0" Text="Not on this PC" FontSize="10.5" Foreground="#7D78A6"
+                    <TextBlock Grid.Row="3" Margin="0,10,0,1" Text="Not on this PC" FontSize="10.5" Foreground="{StaticResource Text3}"
                                ToolTip="{Binding Unavailable}"
                                Visibility="{Binding IsAvailable, Converter={StaticResource InverseBoolToVis}}"/>
                 </Grid>
             </Border>
             <DataTemplate.Triggers>
                 <DataTrigger Binding="{Binding IsAvailable}" Value="False">
-                    <Setter TargetName="Card" Property="Opacity" Value="0.6"/>
+                    <Setter TargetName="Card" Property="Opacity" Value="0.55"/>
                 </DataTrigger>
             </DataTemplate.Triggers>
         </DataTemplate>
 
         <!-- ═══ ONE SENSOR ROW ═══ -->
         <DataTemplate x:Key="SensorRowTemplate">
-            <Border x:Name="Row" Padding="14,6,10,6" BorderBrush="#17152A" BorderThickness="0,0,0,1" Background="Transparent">
+            <Border x:Name="Row" Padding="16,5,12,5" Background="Transparent">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" MinWidth="140"/>
                         <ColumnDefinition Width="96"/>
-                        <ColumnDefinition Width="84"/>
-                        <ColumnDefinition Width="84"/>
-                        <ColumnDefinition Width="118"/>
-                        <ColumnDefinition Width="60"/>
-                        <ColumnDefinition Width="60"/>
+                        <ColumnDefinition Width="80"/>
+                        <ColumnDefinition Width="80"/>
+                        <ColumnDefinition Width="116"/>
+                        <ColumnDefinition Width="58"/>
+                        <ColumnDefinition Width="58"/>
                     </Grid.ColumnDefinitions>
-                    <TextBlock FontSize="11.5" TextTrimming="CharacterEllipsis" VerticalAlignment="Center">
-                        <Run Text="{Binding Name, Mode=OneWay}" Foreground="#C9C5E6"/>
-                        <Run Text="{Binding Tile, Mode=OneWay}" Foreground="#A78BFA" FontSize="10"/>
+                    <TextBlock FontSize="12" TextTrimming="CharacterEllipsis" VerticalAlignment="Center">
+                        <Run Text="{Binding Name, Mode=OneWay}" Foreground="{StaticResource Text1}"/>
+                        <Run Text="{Binding Tile, Mode=OneWay}" Foreground="{StaticResource Accent}" FontSize="10.5"/>
                     </TextBlock>
                     <TextBlock Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Center">
-                        <Run Text="{Binding Now, Mode=OneWay}" FontSize="11.5" FontWeight="SemiBold" Foreground="#F4F2FC"/>
-                        <Run Text="{Binding Unit, Mode=OneWay}" FontSize="10" Foreground="#6E6A96"/>
+                        <Run Text="{Binding Now, Mode=OneWay}" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource Text1}"/>
+                        <Run Text="{Binding Unit, Mode=OneWay}" FontSize="10" Foreground="{StaticResource Text3}"/>
                     </TextBlock>
-                    <TextBlock Grid.Column="2" Text="{Binding Low}" FontSize="11.5" Foreground="#8B86B4"
+                    <TextBlock Grid.Column="2" Text="{Binding Low}" FontSize="12" Foreground="{StaticResource Text3}"
                                HorizontalAlignment="Right" VerticalAlignment="Center"/>
-                    <TextBlock Grid.Column="3" Text="{Binding High}" FontSize="11.5" Foreground="#8B86B4"
+                    <TextBlock Grid.Column="3" Text="{Binding High}" FontSize="12" Foreground="{StaticResource Text3}"
                                HorizontalAlignment="Right" VerticalAlignment="Center"/>
-                    <local:Sparkline Grid.Column="4" Values="{Binding History}" Height="18" Margin="18,0,4,0"
-                                     Stroke="{Binding DataContext.Accent, RelativeSource={RelativeSource AncestorType=ItemsControl, AncestorLevel=2}}"/>
+                    <local:Sparkline Grid.Column="4" Values="{Binding History}" Height="16" Margin="20,0,4,0"
+                                     Stroke="{StaticResource Quiet}"/>
                     <CheckBox x:Name="OverlaySwitch" Grid.Column="5" Style="{StaticResource MiniToggle}" HorizontalAlignment="Center"
                               IsChecked="{Binding Reading.Overlay.IsSelected, Mode=TwoWay}"
                               AutomationProperties.Name="{Binding Reading.Label, StringFormat='{}{0} on the overlay'}"/>
@@ -241,7 +267,7 @@
             </Border>
             <DataTemplate.Triggers>
                 <Trigger SourceName="Row" Property="IsMouseOver" Value="True">
-                    <Setter TargetName="Row" Property="Background" Value="#141229"/>
+                    <Setter TargetName="Row" Property="Background" Value="#191920"/>
                 </Trigger>
                 <!-- Only a sensor one of Pulse's readings comes from has switches. -->
                 <DataTrigger Binding="{Binding Reading}" Value="{x:Null}">
@@ -255,19 +281,48 @@
 
         <!-- ═══ A PART'S PAGE ═══ -->
         <DataTemplate x:Key="PartPage">
-            <StackPanel Margin="28,22,26,10">
+            <StackPanel Margin="32,24,30,12">
                 <StackPanel Orientation="Horizontal">
-                    <Border Width="12" Height="12" CornerRadius="3" Background="{Binding Accent}"
-                            VerticalAlignment="Center" Margin="0,2,11,0"/>
-                    <TextBlock Text="{Binding Title}" FontSize="22" FontWeight="ExtraBold" Foreground="#F0EEF8"/>
-                    <Border CornerRadius="10" Background="#1C1540" Padding="10,3" Margin="12,2,0,0" VerticalAlignment="Center">
-                        <TextBlock Text="{Binding Headline}" FontSize="12" FontWeight="Bold" Foreground="#C4B5FD"/>
-                    </Border>
+                    <Border Width="9" Height="9" CornerRadius="2.5" Background="{Binding Accent}"
+                            VerticalAlignment="Center" Margin="0,2,10,0"/>
+                    <TextBlock Text="{Binding Title}" FontSize="20" FontWeight="SemiBold" Foreground="{StaticResource Text1}"/>
                 </StackPanel>
-                <TextBlock Text="{Binding Model}" FontSize="11.5" FontWeight="Medium" Foreground="#8B86B4"
-                           Margin="23,3,0,18" TextTrimming="CharacterEllipsis"/>
+                <TextBlock Text="{Binding Model}" FontSize="12" Foreground="{StaticResource Text2}"
+                           Margin="19,3,0,20" TextTrimming="CharacterEllipsis"/>
 
-                <!-- Pulse's readings for this part, as cards with their switches. -->
+                <!-- The part's main reading, large, with its scale: what you came to this page for. -->
+                <Border CornerRadius="10" Background="{StaticResource Raised}" Padding="20,16,16,14" Margin="0,0,8,24">
+                    <Border.Visibility>
+                        <MultiBinding Converter="{StaticResource AllTrueToVis}">
+                            <Binding Path="DataContext.ShowPart" RelativeSource="{RelativeSource AncestorType=Window}"/>
+                            <Binding Path="HasHero"/>
+                        </MultiBinding>
+                    </Border.Visibility>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="190"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center">
+                            <TextBlock Text="{Binding HeroLabel}" FontSize="12" FontWeight="Medium" Foreground="{StaticResource Text2}"/>
+                            <TextBlock Margin="0,2,0,0">
+                                <Run Text="{Binding HeroValue, Mode=OneWay}" FontSize="36" FontWeight="Bold" Foreground="{StaticResource Text1}"/>
+                                <Run Text="{Binding HeroUnit, Mode=OneWay}" FontSize="15" FontWeight="Medium" Foreground="{StaticResource Text3}"/>
+                            </TextBlock>
+                            <TextBlock Text="Last 60 seconds" FontSize="10.5" Foreground="{StaticResource Text3}" Margin="0,4,0,0"/>
+                        </StackPanel>
+                        <local:Sparkline Grid.Column="1" Height="112" Values="{Binding HeadlineHistory}"
+                                         Minimum="{Binding HeroMin}" Maximum="{Binding HeroMax}" ShowGuides="True"
+                                         Stroke="{StaticResource Accent}"/>
+                        <Grid Grid.Column="2" Margin="12,0,0,0" Height="112">
+                            <TextBlock Text="{Binding HeroTop}" FontSize="10" Foreground="{StaticResource Text3}" VerticalAlignment="Top" Margin="0,-3,0,0"/>
+                            <TextBlock Text="{Binding HeroBottom}" FontSize="10" Foreground="{StaticResource Text3}" VerticalAlignment="Bottom" Margin="0,0,0,-3"/>
+                        </Grid>
+                    </Grid>
+                </Border>
+
+                <!-- Pulse's readings for this part, each with its switches. -->
                 <StackPanel>
                     <StackPanel.Visibility>
                         <MultiBinding Converter="{StaticResource AllTrueToVis}">
@@ -275,13 +330,13 @@
                             <Binding Path="AnyReadingShown"/>
                         </MultiBinding>
                     </StackPanel.Visibility>
-                    <DockPanel Margin="1,0,12,9">
-                        <TextBlock Text="Switch one on to show it on your overlay" DockPanel.Dock="Right"
-                                   FontSize="10.5" Foreground="#6E6A96"/>
-                        <TextBlock Text="PULSE'S READINGS" Style="{StaticResource SectionLabel}"/>
+                    <DockPanel Margin="0,0,10,10">
+                        <TextBlock Text="Switch a reading on to show it on your overlay" DockPanel.Dock="Right"
+                                   FontSize="10.5" Foreground="{StaticResource Text3}"/>
+                        <TextBlock Text="PULSE'S READINGS" Style="{StaticResource Caption}"/>
                     </DockPanel>
                     <ItemsControl ItemsSource="{Binding Readings}" ItemTemplate="{StaticResource ReadingCard}"
-                                  ItemContainerStyle="{StaticResource ShownWhileVisible}" Margin="0,0,0,14">
+                                  ItemContainerStyle="{StaticResource ShownWhileVisible}" Margin="0,0,0,20">
                         <ItemsControl.ItemsPanel>
                             <ItemsPanelTemplate><local:ResponsiveGrid MinColumnWidth="215"/></ItemsPanelTemplate>
                         </ItemsControl.ItemsPanel>
@@ -289,49 +344,60 @@
                 </StackPanel>
 
                 <!-- A sleeping card is not read, so it can stay asleep. -->
-                <Border CornerRadius="12" Background="#111020" BorderBrush="#1C1A30" BorderThickness="1" Padding="16,14"
-                        Margin="0,0,10,14" Visibility="{Binding Asleep, Converter={StaticResource BoolToVis}}">
-                    <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="#A9A4CE"
+                <Border CornerRadius="10" Background="{StaticResource Raised}" Padding="18,14"
+                        Margin="0,0,8,20" Visibility="{Binding Asleep, Converter={StaticResource BoolToVis}}">
+                    <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource Text2}"
                                Text="This graphics card is asleep. Pulse doesn't read it while it sleeps, so it can stay asleep and save power. Its sensors show here when it wakes."/>
                 </Border>
 
-                <!-- Every sensor on this part's hardware. -->
-                <StackPanel Visibility="{Binding HasSensors, Converter={StaticResource BoolToVis}}" Margin="0,0,10,0">
-                    <DockPanel Margin="1,0,2,8">
+                <!-- Every sensor on this part's hardware, grouped by kind. -->
+                <StackPanel Visibility="{Binding HasSensors, Converter={StaticResource BoolToVis}}" Margin="0,0,8,0">
+                    <DockPanel Margin="0,0,2,10">
                         <TextBlock Text="Lowest and highest since this window opened" DockPanel.Dock="Right"
-                                   FontSize="10.5" Foreground="#6E6A96"/>
-                        <TextBlock Text="EVERY SENSOR" Style="{StaticResource SectionLabel}"/>
+                                   FontSize="10.5" Foreground="{StaticResource Text3}"/>
+                        <TextBlock Text="EVERY SENSOR" Style="{StaticResource Caption}"/>
                     </DockPanel>
-                    <Border CornerRadius="12" Background="#111020" BorderBrush="#1C1A30" BorderThickness="1" Padding="0,4,0,6">
+                    <Border CornerRadius="10" Background="{StaticResource Raised}" Padding="0,8,0,8">
                         <StackPanel>
-                            <Grid Margin="14,4,10,4">
+                            <Grid Margin="16,2,12,6">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" MinWidth="140"/>
                                     <ColumnDefinition Width="96"/>
-                                    <ColumnDefinition Width="84"/>
-                                    <ColumnDefinition Width="84"/>
-                                    <ColumnDefinition Width="118"/>
-                                    <ColumnDefinition Width="60"/>
-                                    <ColumnDefinition Width="60"/>
+                                    <ColumnDefinition Width="80"/>
+                                    <ColumnDefinition Width="80"/>
+                                    <ColumnDefinition Width="116"/>
+                                    <ColumnDefinition Width="58"/>
+                                    <ColumnDefinition Width="58"/>
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Text="SENSOR" Style="{StaticResource ColumnHead}" HorizontalAlignment="Left"/>
                                 <TextBlock Grid.Column="1" Text="NOW" Style="{StaticResource ColumnHead}"/>
                                 <TextBlock Grid.Column="2" Text="LOWEST" Style="{StaticResource ColumnHead}"/>
                                 <TextBlock Grid.Column="3" Text="HIGHEST" Style="{StaticResource ColumnHead}"/>
-                                <TextBlock Grid.Column="4" Text="LAST MINUTE" Style="{StaticResource ColumnHead}" HorizontalAlignment="Center"/>
+                                <TextBlock Grid.Column="4" Text="LAST MINUTE" Style="{StaticResource ColumnHead}" HorizontalAlignment="Center" Margin="16,0,0,0"/>
                                 <TextBlock Grid.Column="5" Text="OVERLAY" Style="{StaticResource ColumnHead}" HorizontalAlignment="Center"/>
                                 <TextBlock Grid.Column="6" Text="IN GAME" Style="{StaticResource ColumnHead}" HorizontalAlignment="Center"
                                            Visibility="{Binding DataContext.ShowInGameSwitches, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVis}}"/>
                             </Grid>
+                            <Border Height="1" Background="{StaticResource LineSoft}"/>
                             <ItemsControl ItemsSource="{Binding Nodes}" ItemContainerStyle="{StaticResource ShownWhileVisible}">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
                                         <StackPanel>
-                                            <TextBlock Text="{Binding Name}" FontSize="11.5" FontWeight="Bold" Foreground="#DBD7F2"
-                                                       Margin="14,10,10,4"
+                                            <TextBlock Text="{Binding Name}" FontSize="12.5" FontWeight="SemiBold" Foreground="{StaticResource Text1}"
+                                                       Margin="16,14,12,0"
                                                        Visibility="{Binding DataContext.ManyNodes, RelativeSource={RelativeSource AncestorType=ItemsControl}, Converter={StaticResource BoolToVis}}"/>
-                                            <ItemsControl ItemsSource="{Binding Rows}" ItemTemplate="{StaticResource SensorRowTemplate}"
-                                                          ItemContainerStyle="{StaticResource ShownWhileVisible}"/>
+                                            <ItemsControl ItemsSource="{Binding Sections}" ItemContainerStyle="{StaticResource ShownWhileVisible}">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <StackPanel>
+                                                            <TextBlock Text="{Binding Title}" FontSize="10.5" FontWeight="SemiBold"
+                                                                       Foreground="{StaticResource Text3}" Margin="16,12,12,3"/>
+                                                            <ItemsControl ItemsSource="{Binding Rows}" ItemTemplate="{StaticResource SensorRowTemplate}"
+                                                                          ItemContainerStyle="{StaticResource ShownWhileVisible}"/>
+                                                        </StackPanel>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
                                         </StackPanel>
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
@@ -348,33 +414,42 @@
                     AutomationProperties.Name="{Binding Title, StringFormat='Open {0}'}">
                 <StackPanel x:Name="Body">
                     <DockPanel>
-                        <Border DockPanel.Dock="Right" CornerRadius="10" Background="#1C1540" Padding="9,2" VerticalAlignment="Center">
-                            <TextBlock Text="{Binding Headline}" FontSize="11.5" FontWeight="Bold" Foreground="#C4B5FD"/>
-                        </Border>
-                        <Border Width="9" Height="9" CornerRadius="2.5" Background="{Binding Accent}" VerticalAlignment="Center" Margin="0,1,9,0"/>
-                        <TextBlock Text="{Binding Title}" FontSize="14" FontWeight="Bold" Foreground="#F0EEF8"
+                        <TextBlock DockPanel.Dock="Right" Text="{Binding More}" FontSize="11" Foreground="{StaticResource Text3}"
+                                   VerticalAlignment="Center"/>
+                        <Border Width="8" Height="8" CornerRadius="2" Background="{Binding Accent}" VerticalAlignment="Center" Margin="0,1,9,0"/>
+                        <TextBlock Text="{Binding Title}" FontSize="13" FontWeight="SemiBold" Foreground="{StaticResource Text1}"
                                    TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
                     </DockPanel>
-                    <TextBlock Text="{Binding Model}" FontSize="11" Foreground="#8B86B4" Margin="0,3,0,10"
+                    <TextBlock Text="{Binding Model}" FontSize="11" Foreground="{StaticResource Text3}" Margin="17,2,0,14"
                                TextTrimming="CharacterEllipsis"/>
-                    <local:Sparkline Height="44" Values="{Binding HeadlineHistory}" Stroke="{Binding Accent}" Margin="0,0,0,10"/>
-                    <ItemsControl ItemsSource="{Binding KeyRows}">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <DockPanel Margin="0,3">
-                                    <TextBlock Text="{Binding Value}" DockPanel.Dock="Right" FontSize="11.5" FontWeight="SemiBold" Foreground="#DBD7F2"/>
-                                    <TextBlock Text="{Binding Label}" FontSize="11.5" Foreground="#A9A4CE" TextTrimming="CharacterEllipsis" Margin="0,0,10,0"/>
-                                </DockPanel>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                    <TextBlock Text="{Binding More, StringFormat='{}{0}  →'}" FontSize="11.5" FontWeight="SemiBold"
-                               Foreground="#A78BFA" Margin="0,9,0,0"/>
+                    <TextBlock Text="{Binding HeroLabel}" FontSize="11" Foreground="{StaticResource Text2}"/>
+                    <TextBlock Margin="0,0,0,6">
+                        <Run Text="{Binding HeroValue, Mode=OneWay}" FontSize="26" FontWeight="Bold" Foreground="{StaticResource Text1}"/>
+                        <Run Text="{Binding HeroUnit, Mode=OneWay}" FontSize="13" FontWeight="Medium" Foreground="{StaticResource Text3}"/>
+                    </TextBlock>
+                    <local:Sparkline Height="38" Values="{Binding HeadlineHistory}" Minimum="{Binding HeroMin}" Maximum="{Binding HeroMax}"
+                                     Stroke="{StaticResource Accent}" Margin="0,0,0,14"/>
+                    <Border BorderBrush="{StaticResource LineSoft}" BorderThickness="0,1,0,0" Padding="0,10,0,0">
+                        <ItemsControl ItemsSource="{Binding KeyRows}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate><UniformGrid Columns="3" Rows="1"/></ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel Margin="0,0,8,0">
+                                        <TextBlock Text="{Binding Label}" FontSize="10" Foreground="{StaticResource Text3}" TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Text="{Binding Value}" FontSize="12.5" FontWeight="SemiBold" Foreground="{StaticResource Text1}"
+                                                   TextTrimming="CharacterEllipsis" Margin="0,1,0,0"/>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </Border>
                 </StackPanel>
             </Button>
             <DataTemplate.Triggers>
                 <DataTrigger Binding="{Binding Asleep}" Value="True">
-                    <Setter TargetName="Body" Property="Opacity" Value="0.65"/>
+                    <Setter TargetName="Body" Property="Opacity" Value="0.6"/>
                 </DataTrigger>
             </DataTemplate.Triggers>
         </DataTemplate>
@@ -382,18 +457,19 @@
     </Window.Resources>
 
     <!-- ═══ WINDOW SHELL ═══ -->
-    <Border x:Name="WindowBorder" CornerRadius="18" BorderThickness="1" BorderBrush="#1C1A30"
-            TextElement.FontFamily="{StaticResource Jakarta}" TextElement.Foreground="#EDE9FC">
-        <Border.Background><SolidColorBrush Color="#0D0C16"/></Border.Background>
+    <Border x:Name="WindowBorder" CornerRadius="10" BorderThickness="1" BorderBrush="{StaticResource Line}"
+            Background="{StaticResource Base}"
+            TextElement.FontFamily="{StaticResource Jakarta}" TextElement.Foreground="{StaticResource Text1}"
+            Typography.NumeralAlignment="Tabular">
         <Grid x:Name="ShellGrid">
             <Grid.RowDefinitions>
-                <RowDefinition Height="48"/>
+                <RowDefinition Height="46"/>
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
 
             <!-- ═══ TITLE BAR ═══ -->
-            <Border Grid.Row="0" CornerRadius="17,17,0,0" MouseLeftButtonDown="TitleBar_MouseDown">
-                <Border.Background><SolidColorBrush Color="#0B0A14" Opacity="0.85"/></Border.Background>
+            <Border Grid.Row="0" Background="{StaticResource Base}" BorderBrush="{StaticResource LineSoft}" BorderThickness="0,0,0,1"
+                    MouseLeftButtonDown="TitleBar_MouseDown">
                 <Grid Margin="18,0,10,0">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto"/>
@@ -402,32 +478,23 @@
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                        <Ellipse Width="7" Height="7" VerticalAlignment="Center" Margin="0,0,8,0">
-                            <Ellipse.Fill>
-                                <RadialGradientBrush>
-                                    <GradientStop Color="#C4B5FD" Offset="0"/>
-                                    <GradientStop Color="#7C3AED" Offset="1"/>
-                                </RadialGradientBrush>
-                            </Ellipse.Fill>
-                        </Ellipse>
-                        <TextBlock Text="PULSE" FontSize="11.5" FontWeight="ExtraBold" Foreground="#BDB5F5"
-                                   VerticalAlignment="Center" Margin="0,0,7,0"/>
-                        <TextBlock Text="Sensors" FontSize="11" FontWeight="Medium" Foreground="#A9A4CE" VerticalAlignment="Center"/>
+                        <Ellipse Width="7" Height="7" Fill="#8B5CF6" VerticalAlignment="Center" Margin="0,0,9,0"/>
+                        <TextBlock Text="Pulse" FontSize="12.5" FontWeight="SemiBold" Foreground="{StaticResource Text1}" VerticalAlignment="Center"/>
+                        <TextBlock Text="  /  Sensors" FontSize="12.5" FontWeight="Medium" Foreground="{StaticResource Text3}" VerticalAlignment="Center"/>
                     </StackPanel>
 
-                    <Border Grid.Column="2" Width="300" Background="#111020" CornerRadius="10" BorderBrush="#1C1A30"
-                            BorderThickness="1" Padding="10,1" Margin="0,0,14,0" VerticalAlignment="Center">
+                    <Border Grid.Column="2" Width="280" Background="{StaticResource Inset}" CornerRadius="7" BorderBrush="{StaticResource Line}"
+                            BorderThickness="1" Padding="10,0" Margin="0,0,14,0" VerticalAlignment="Center">
                         <Grid>
-                            <TextBlock Text="&#xE721;" FontFamily="Segoe MDL2 Assets" FontSize="11" Foreground="#6E6A96"
+                            <TextBlock Text="&#xE721;" FontFamily="Segoe MDL2 Assets" FontSize="11" Foreground="{StaticResource Text3}"
                                        VerticalAlignment="Center"/>
                             <TextBox x:Name="SearchBox" Text="{Binding Search, UpdateSourceTrigger=PropertyChanged}"
-                                     Margin="20,0,0,0" Padding="0,6" Background="Transparent" BorderThickness="0"
-                                     Foreground="#DBD7F2" CaretBrush="#A78BFA" FontSize="12"
+                                     Margin="20,0,0,0" Padding="0,5" Background="Transparent" BorderThickness="0"
+                                     Foreground="{StaticResource Text1}" CaretBrush="{StaticResource Accent}" FontSize="12"
                                      AutomationProperties.Name="Search every sensor by name or kind"/>
-                            <TextBlock Text="Search every sensor   (Ctrl+F)" Margin="22,0,0,0" FontSize="12" Foreground="#55517A"
-                                       VerticalAlignment="Center" IsHitTestVisible="False">
-                                <TextBlock.Style>
-                                    <Style TargetType="TextBlock">
+                            <DockPanel Margin="22,0,0,0" IsHitTestVisible="False">
+                                <DockPanel.Style>
+                                    <Style TargetType="DockPanel">
                                         <Setter Property="Visibility" Value="Collapsed"/>
                                         <Style.Triggers>
                                             <DataTrigger Binding="{Binding Search}" Value="">
@@ -435,8 +502,13 @@
                                             </DataTrigger>
                                         </Style.Triggers>
                                     </Style>
-                                </TextBlock.Style>
-                            </TextBlock>
+                                </DockPanel.Style>
+                                <Border DockPanel.Dock="Right" CornerRadius="4" BorderBrush="{StaticResource Line}" BorderThickness="1"
+                                        Padding="5,0" VerticalAlignment="Center">
+                                    <TextBlock Text="Ctrl F" FontSize="9.5" Foreground="{StaticResource Text3}"/>
+                                </Border>
+                                <TextBlock Text="Search sensors" FontSize="12" Foreground="{StaticResource Text3}" VerticalAlignment="Center"/>
+                            </DockPanel>
                         </Grid>
                     </Border>
 
@@ -454,40 +526,37 @@
                     </StackPanel>
                 </Grid>
             </Border>
-            <Border Grid.Row="0" Height="1" VerticalAlignment="Bottom" Background="#161330"/>
 
             <Grid Grid.Row="1">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="236"/>
+                    <ColumnDefinition Width="228"/>
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
 
                 <!-- ═══ SIDEBAR: the parts of this PC ═══ -->
-                <Border BorderBrush="#161330" BorderThickness="0,0,1,0" CornerRadius="0,0,0,17">
-                    <Border.Background><SolidColorBrush Color="#0B0A14" Opacity="0.6"/></Border.Background>
+                <Border BorderBrush="{StaticResource LineSoft}" BorderThickness="0,0,1,0" Background="{StaticResource Base}">
                     <DockPanel Margin="12,14,12,14">
                         <TextBlock DockPanel.Dock="Bottom" Text="Lowest, highest and the graphs start when this window opens."
-                                   TextWrapping="Wrap" FontSize="10.5" Foreground="#6E6A96" Margin="8,10,4,0"/>
+                                   TextWrapping="Wrap" FontSize="10.5" Foreground="{StaticResource Text3}" Margin="10,10,4,0"/>
                         <ScrollViewer VerticalScrollBarVisibility="Auto">
                             <StackPanel>
                                 <Button Click="Overview_Click" AutomationProperties.Name="Overview of every part">
                                     <Button.Style>
                                         <Style TargetType="Button" BasedOn="{StaticResource SideItem}">
                                             <Style.Triggers>
-                                                <DataTrigger Binding="{Binding ShowOverview}" Value="True">
-                                                    <Setter Property="Background" Value="#1C1540"/>
-                                                    <Setter Property="Foreground" Value="#F0EEF8"/>
+                                                <DataTrigger Binding="{Binding OverviewSelected}" Value="True">
+                                                    <Setter Property="Tag" Value="True"/>
                                                 </DataTrigger>
                                             </Style.Triggers>
                                         </Style>
                                     </Button.Style>
                                     <StackPanel Orientation="Horizontal">
-                                        <TextBlock Text="&#xF0E2;" FontFamily="Segoe MDL2 Assets" FontSize="11" Foreground="#C4B5FD"
-                                                   VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                        <TextBlock Text="&#xF0E2;" FontFamily="Segoe MDL2 Assets" FontSize="11"
+                                                   VerticalAlignment="Center" Margin="0,0,11,0"/>
                                         <TextBlock Text="Overview"/>
                                     </StackPanel>
                                 </Button>
-                                <Border Height="1" Background="#1C1A30" Margin="6,8,6,8"/>
+                                <TextBlock Text="PARTS" Style="{StaticResource Caption}" FontSize="9.5" Margin="10,18,0,8"/>
                                 <ItemsControl ItemsSource="{Binding Parts}">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate>
@@ -497,17 +566,16 @@
                                                     <Style TargetType="Button" BasedOn="{StaticResource SideItem}">
                                                         <Style.Triggers>
                                                             <DataTrigger Binding="{Binding IsSelected}" Value="True">
-                                                                <Setter Property="Background" Value="#1C1540"/>
-                                                                <Setter Property="Foreground" Value="#F0EEF8"/>
+                                                                <Setter Property="Tag" Value="True"/>
                                                             </DataTrigger>
                                                         </Style.Triggers>
                                                     </Style>
                                                 </Button.Style>
                                                 <DockPanel>
-                                                    <TextBlock DockPanel.Dock="Right" Text="{Binding Headline}" FontSize="11"
-                                                               FontWeight="Medium" Foreground="#8B86B4" VerticalAlignment="Center" Margin="6,0,0,0"/>
-                                                    <Border Width="8" Height="8" CornerRadius="2" Background="{Binding Accent}"
-                                                            VerticalAlignment="Center" Margin="1,0,11,0"/>
+                                                    <TextBlock DockPanel.Dock="Right" Text="{Binding Headline}" FontSize="11.5"
+                                                               Foreground="{StaticResource Text3}" VerticalAlignment="Center" Margin="6,0,0,0"/>
+                                                    <Border Width="7" Height="7" CornerRadius="2" Background="{Binding Accent}"
+                                                            VerticalAlignment="Center" Margin="2,0,12,0"/>
                                                     <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
                                                 </DockPanel>
                                             </Button>
@@ -521,19 +589,19 @@
 
                 <!-- ═══ CONTENT ═══ -->
                 <Grid Grid.Column="1">
-                    <TextBlock Text="Reading every sensor..." FontSize="12" Foreground="#8B86B4" Margin="28,24,0,0"
+                    <TextBlock Text="Reading every sensor..." FontSize="12" Foreground="{StaticResource Text3}" Margin="32,26,0,0"
                                Visibility="{Binding Waiting, Converter={StaticResource BoolToVis}}"/>
 
                     <!-- The overview: one card per part. -->
                     <ScrollViewer x:Name="OverviewScroll" VerticalScrollBarVisibility="Auto"
                                   Visibility="{Binding ShowOverview, Converter={StaticResource BoolToVis}}">
-                        <StackPanel Margin="28,22,16,14">
-                            <TextBlock Text="Overview" FontSize="22" FontWeight="ExtraBold" Foreground="#F0EEF8"/>
-                            <TextBlock Text="Every part of this PC at a glance. Open one to see all its sensors and put a reading on your overlay."
-                                       FontSize="11.5" FontWeight="Medium" Foreground="#8B86B4" Margin="0,3,12,18" TextWrapping="Wrap"/>
+                        <StackPanel Margin="32,24,20,16">
+                            <TextBlock Text="Overview" FontSize="20" FontWeight="SemiBold" Foreground="{StaticResource Text1}"/>
+                            <TextBlock Text="Every part of this PC at a glance. Open one for all its sensors, and to put a reading on your overlay."
+                                       FontSize="12" Foreground="{StaticResource Text2}" Margin="0,3,12,22" TextWrapping="Wrap"/>
                             <ItemsControl ItemsSource="{Binding Parts}" ItemTemplate="{StaticResource PartCard}">
                                 <ItemsControl.ItemsPanel>
-                                    <ItemsPanelTemplate><local:ResponsiveGrid MinColumnWidth="250"/></ItemsPanelTemplate>
+                                    <ItemsPanelTemplate><local:ResponsiveGrid MinColumnWidth="260"/></ItemsPanelTemplate>
                                 </ItemsControl.ItemsPanel>
                             </ItemsControl>
                         </StackPanel>
@@ -550,7 +618,7 @@
                                   Visibility="{Binding Searching, Converter={StaticResource BoolToVis}}">
                         <StackPanel>
                             <TextBlock Text="{Binding Search, StringFormat='Sensors matching “{0}”'}" FontSize="12"
-                                       Foreground="#8B86B4" Margin="28,18,0,0"/>
+                                       Foreground="{StaticResource Text3}" Margin="32,20,0,0"/>
                             <ItemsControl ItemsSource="{Binding Parts}" ItemTemplate="{StaticResource PartPage}"
                                           ItemContainerStyle="{StaticResource ShownWhileVisible}"/>
                         </StackPanel>
