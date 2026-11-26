@@ -35,7 +35,7 @@
 - **FPS Monitoring:** Tracks the frame rate of whatever app or game currently has focus, powered by a bundled PresentMon capture — works with any GPU vendor. An optional **1% Low** tile reports the frame rate at the 99th percentile of recent frame times, measured over the last 2,000 frames or 30 seconds, whichever is shorter. That shows stutter an average frame rate hides.
 - **In-Game Overlay:** Turn it on and Pulse draws your readings inside the game itself, so they stay on screen in full-screen games too. Out of the box it is a slim line at the top centre of the screen, set flush with its edge; give it its own position, size, opacity and readings if you like. It only draws your readings, works in 64-bit DirectX 11 and 12 games, and never goes into games with anti-cheat, where your normal overlay stays instead. Off until you turn it on.
 - **Keyboard Shortcuts:** Show or hide the overlay, open the control panel, or switch compact mode from anywhere, including inside a game. Off until you turn them on, and Pulse refuses combinations that other software needs.
-- **Sensors Page:** Everything your PC reports in one place, grouped by part, with the lowest and highest since you opened it. Put any of Pulse's readings on the overlay from there, including five advanced ones: busiest core, a bar for each core, GPU hot spot, GPU memory clock and GPU voltage.
+- **Sensors Window:** Everything your PC reports in a window of its own, starting with an overview of every part. Each part shows its main reading in a large graph, then every sensor it has, with the lowest, the highest and the last minute. Put any of Pulse's readings on the overlay from there, including five advanced ones: busiest core, a bar for each core, GPU hot spot, GPU memory clock and GPU voltage.
 - **GPU Selection:** On laptops and multi-GPU systems, choose exactly which adapter the GPU tiles read from, or leave it on automatic. Automatic shows your built-in graphics while the graphics card sleeps, and goes back to the card when it wakes.
 - **Dynamic Overlay:** A seamless glassmorphic HUD that sits unobtrusively on your screen, featuring a secondary "Compact Mode" designed specifically for distraction-free in-game monitoring. Right-click the overlay in free-drag mode for quick access to the control panel.
 - **Ultra-Fast Polling:** Choose how often readings are taken, from every 5 seconds down to twice a second.
@@ -72,7 +72,7 @@ Download the latest installer from the [website](https://pulse.reforatech.com) o
 ## Configuration & Usage
 
 Once launched, right-click the Pulse icon in the Windows system tray and choose **Open Control Panel**, or double-click the icon. From the control panel, you can:
-- Toggle the visibility of specific hardware tiles (e.g., *CPU Temp*, *GPU Power*, *FPS*), or open the **Sensors** page to see every reading and add the advanced ones.
+- Toggle the visibility of specific hardware tiles (e.g., *CPU Temp*, *GPU Power*, *FPS*), or open the **Sensors** window to see every reading and add the advanced ones.
 - Reorder tiles by dragging the handle on each one, or with **Alt + arrow keys**. The overlay follows the order you set here.
 - Choose which GPU the GPU tiles read from on multi-GPU systems.
 - Show RAM and VRAM as used / total instead of just used.
@@ -80,7 +80,7 @@ Once launched, right-click the Pulse icon in the Windows system tray and choose 
 - Fade the overlay's background independently of its text, down to just the readings floating on screen, and reset opacity, background and size to the default look in one click.
 - Resize the overlay with the **Size** slider, or by dragging the corner at its bottom right in Free Drag mode.
 - Place the overlay precisely with the **X and Y** sliders, or drag it where you want it.
-- Enable **Compact Mode** for a minimized, text-only HUD.
+- Enable **Compact Mode** for a minimized, text-only HUD, as a list or all on one straight line. In a corner or against an edge of the screen, the overlay joins the edge.
 - Adjust the hardware polling rate (0.5s, 1s, 2s, 5s).
 - Show network speeds in megabytes per second or megabits per second.
 - Show the battery charge level on a laptop.
