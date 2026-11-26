@@ -74,9 +74,6 @@ public partial class MainWindow : Window
             // left it reading "Hide Overlay" over an empty screen.
             IsVisibleChanged += (_, args) =>
             {
-                // Hidden with the Sensors page open: stop asking for every sensor, and open on
-                // the settings next time, as the panel always has.
-                if (args.NewValue is not true && SensorsPage.Visibility == Visibility.Visible) ShowSensors(false);
                 if (args.NewValue is not true) return;
                 _vm?.NotifyPositionChanged();
                 PopulateMonitorButtons();
@@ -949,21 +946,13 @@ public partial class MainWindow : Window
         => _vm?.ResetInGameTileOrder();
 
     /// <summary>
-    /// Opens the Sensors page in place of the settings, or goes back.
+    /// Opens the Sensors window, or brings it forward if it is already open.
     /// </summary>
-    /// The page asks the sensor host for everything while it is open, so it is closed whenever it
-    /// is not on screen: going back, or the panel being hidden (see the visibility handler).
-    private void BtnSensors_Click(object sender, RoutedEventArgs e) => ShowSensors(SensorsPage.Visibility != Visibility.Visible);
-
-    private void ShowSensors(bool open)
+    /// A window of its own (owner's choice, 26 Nov 2026), so it can stay on a second screen while
+    /// the panel is closed. It stops asking for every sensor itself when closed or minimized.
+    private void BtnSensors_Click(object sender, RoutedEventArgs e)
     {
-        if (_vm == null) return;
-        SensorsPage.Visibility  = open ? Visibility.Visible : Visibility.Collapsed;
-        SettingsPage.Visibility = open ? Visibility.Collapsed : Visibility.Visible;
-        BtnSensors.Content = open ? "Settings" : "Sensors";
-        System.Windows.Automation.AutomationProperties.SetName(BtnSensors, open ? "Back to the settings" : "Sensors: everything this PC reports");
-        if (open) { _vm.Sensors.Open(); SensorsSearch.Focus(); }
-        else _vm.Sensors.Close();
+        if (_vm != null) SensorsWindow.ShowFor(_vm.Sensors);
     }
 
     /// The tile whose explanation is open, so Escape can put focus back where it came from.

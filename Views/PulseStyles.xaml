@@ -1,0 +1,177 @@
+﻿<!-- Styles the control panel and the Sensors window share, so the two look and behave alike. -->
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+        <FontFamily x:Key="Jakarta">pack://application:,,,/Resources/Fonts/#Plus Jakarta Sans</FontFamily>
+
+        <!-- ═══ SCROLLBAR ═══ -->
+        <Style x:Key="ThinScrollBar" TargetType="ScrollBar">
+            <Setter Property="Width" Value="5"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Opacity" Value="0.6"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ScrollBar">
+                        <Track x:Name="PART_Track" IsDirectionReversed="True">
+                            <Track.Thumb>
+                                <Thumb>
+                                    <Thumb.Template>
+                                        <ControlTemplate TargetType="Thumb">
+                                            <Border CornerRadius="1.5" Background="#231F3A" MinHeight="24"/>
+                                        </ControlTemplate>
+                                    </Thumb.Template>
+                                </Thumb>
+                            </Track.Thumb>
+                        </Track>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style TargetType="ScrollViewer">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ScrollViewer">
+                        <!-- Single cell: the scrollbar floats over the content instead of
+                             reserving its own column, so its presence never narrows the
+                             content area or shifts the app's width. -->
+                        <Grid>
+                            <ScrollContentPresenter/>
+                            <ScrollBar HorizontalAlignment="Right" Margin="0,0,1,0"
+                                       x:Name="PART_VerticalScrollBar"
+                                       Style="{StaticResource ThinScrollBar}" Orientation="Vertical"
+                                       Value="{TemplateBinding VerticalOffset}"
+                                       Maximum="{TemplateBinding ScrollableHeight}"
+                                       ViewportSize="{TemplateBinding ViewportHeight}"
+                                       Visibility="{TemplateBinding ComputedVerticalScrollBarVisibility}"/>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- ═══ TITLEBAR DOT BUTTON ═══ -->
+        <Style x:Key="DotBtn" TargetType="Button">
+            <Setter Property="Width" Value="28"/>
+            <Setter Property="Height" Value="28"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="RenderTransformOrigin" Value="0.5,0.5"/>
+            <Setter Property="RenderTransform"><Setter.Value><ScaleTransform/></Setter.Value></Setter>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Grid>
+                            <Ellipse Width="12" Height="12" Fill="{TemplateBinding Background}"/>
+                            <ContentPresenter x:Name="Symbol" HorizontalAlignment="Center"
+                                              VerticalAlignment="Center" Opacity="0"/>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Symbol" Property="Opacity" Value="1"/>
+                                <Setter Property="RenderTransform">
+                                    <Setter.Value><ScaleTransform ScaleX="1.12" ScaleY="1.12"/></Setter.Value>
+                                </Setter>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter Property="RenderTransform">
+                                    <Setter.Value><ScaleTransform ScaleX="0.88" ScaleY="0.88"/></Setter.Value>
+                                </Setter>
+                            </Trigger>
+                            <!-- No border to outline here, so keyboard focus reuses the hover
+                                 treatment: the glyph appears and the dot grows. -->
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="Symbol" Property="Opacity" Value="1"/>
+                                <Setter Property="RenderTransform">
+                                    <Setter.Value><ScaleTransform ScaleX="1.12" ScaleY="1.12"/></Setter.Value>
+                                </Setter>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- ═══ ROW TOGGLE (label left, toggle right) ═══ -->
+        <Style x:Key="RowToggle" TargetType="CheckBox">
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FontFamily" Value="{StaticResource Jakarta}"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="CheckBox">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <ContentPresenter Grid.Column="0" VerticalAlignment="Center"
+                                              HorizontalAlignment="Stretch" Margin="0,0,18,0"/>
+                            <Grid Grid.Column="1" Width="42" Height="23" VerticalAlignment="Center">
+                                <Border x:Name="Track" CornerRadius="11.5" BorderThickness="1">
+                                    <Border.Background>
+                                        <SolidColorBrush x:Name="TrackBg" Color="#12102A"/>
+                                    </Border.Background>
+                                    <Border.BorderBrush>
+                                        <SolidColorBrush x:Name="TrackBdr" Color="#1E1B35"/>
+                                    </Border.BorderBrush>
+                                </Border>
+                                <Border x:Name="Thumb" Width="17" Height="17" CornerRadius="8.5"
+                                        HorizontalAlignment="Left" Margin="3,0,0,0" VerticalAlignment="Center">
+                                    <Border.Background>
+                                        <SolidColorBrush x:Name="ThumbBg" Color="#5C597E"/>
+                                    </Border.Background>
+                                </Border>
+                            </Grid>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Trigger.EnterActions>
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <ThicknessAnimation Storyboard.TargetName="Thumb"
+                                                                Storyboard.TargetProperty="Margin"
+                                                                To="22,0,0,0" Duration="0:0:0.2">
+                                                <ThicknessAnimation.EasingFunction>
+                                                    <CubicEase EasingMode="EaseOut"/>
+                                                </ThicknessAnimation.EasingFunction>
+                                            </ThicknessAnimation>
+                                            <ColorAnimation Storyboard.TargetName="TrackBg"
+                                                            Storyboard.TargetProperty="Color"
+                                                            To="#6D28D9" Duration="0:0:0.2"/>
+                                            <ColorAnimation Storyboard.TargetName="TrackBdr"
+                                                            Storyboard.TargetProperty="Color"
+                                                            To="#8B5CF6" Duration="0:0:0.2"/>
+                                            <ColorAnimation Storyboard.TargetName="ThumbBg"
+                                                            Storyboard.TargetProperty="Color"
+                                                            To="#FFFFFF" Duration="0:0:0.15"/>
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </Trigger.EnterActions>
+                                <Trigger.ExitActions>
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <ThicknessAnimation Storyboard.TargetName="Thumb"
+                                                                Storyboard.TargetProperty="Margin"
+                                                                To="3,0,0,0" Duration="0:0:0.2">
+                                                <ThicknessAnimation.EasingFunction>
+                                                    <CubicEase EasingMode="EaseOut"/>
+                                                </ThicknessAnimation.EasingFunction>
+                                            </ThicknessAnimation>
+                                            <ColorAnimation Storyboard.TargetName="TrackBg"
+                                                            Storyboard.TargetProperty="Color"
+                                                            To="#12102A" Duration="0:0:0.2"/>
+                                            <ColorAnimation Storyboard.TargetName="TrackBdr"
+                                                            Storyboard.TargetProperty="Color"
+                                                            To="#1E1B35" Duration="0:0:0.2"/>
+                                            <ColorAnimation Storyboard.TargetName="ThumbBg"
+                                                            Storyboard.TargetProperty="Color"
+                                                            To="#5C597E" Duration="0:0:0.15"/>
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </Trigger.ExitActions>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+</ResourceDictionary>

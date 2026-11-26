@@ -14,99 +14,15 @@
         TextOptions.TextRenderingMode="ClearType">
 
     <Window.Resources>
+      <ResourceDictionary>
+        <ResourceDictionary.MergedDictionaries>
+            <ResourceDictionary Source="pack://application:,,,/Views/PulseStyles.xaml"/>
+        </ResourceDictionary.MergedDictionaries>
         <BooleanToVisibilityConverter x:Key="BoolToVis"/>
         <conv:InverseBoolConverter x:Key="InverseBool"/>
         <conv:InverseBoolToVisibilityConverter x:Key="InverseBoolToVis"/>
         <conv:AllTrueToVisibilityConverter x:Key="AllTrueToVis"/>
-        <FontFamily x:Key="Jakarta">pack://application:,,,/Resources/Fonts/#Plus Jakarta Sans</FontFamily>
         <conv:PercentToWidthConverter x:Key="BarWidthConv"/>
-
-        <!-- ═══ SCROLLBAR ═══ -->
-        <Style x:Key="ThinScrollBar" TargetType="ScrollBar">
-            <Setter Property="Width" Value="5"/>
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="Opacity" Value="0.6"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="ScrollBar">
-                        <Track x:Name="PART_Track" IsDirectionReversed="True">
-                            <Track.Thumb>
-                                <Thumb>
-                                    <Thumb.Template>
-                                        <ControlTemplate TargetType="Thumb">
-                                            <Border CornerRadius="1.5" Background="#231F3A" MinHeight="24"/>
-                                        </ControlTemplate>
-                                    </Thumb.Template>
-                                </Thumb>
-                            </Track.Thumb>
-                        </Track>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-        <Style TargetType="ScrollViewer">
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="ScrollViewer">
-                        <!-- Single cell: the scrollbar floats over the content instead of
-                             reserving its own column, so its presence never narrows the
-                             content area or shifts the app's width. -->
-                        <Grid>
-                            <ScrollContentPresenter/>
-                            <ScrollBar HorizontalAlignment="Right" Margin="0,0,1,0"
-                                       x:Name="PART_VerticalScrollBar"
-                                       Style="{StaticResource ThinScrollBar}" Orientation="Vertical"
-                                       Value="{TemplateBinding VerticalOffset}"
-                                       Maximum="{TemplateBinding ScrollableHeight}"
-                                       ViewportSize="{TemplateBinding ViewportHeight}"
-                                       Visibility="{TemplateBinding ComputedVerticalScrollBarVisibility}"/>
-                        </Grid>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-        <!-- ═══ TITLEBAR DOT BUTTON ═══ -->
-        <Style x:Key="DotBtn" TargetType="Button">
-            <Setter Property="Width" Value="28"/>
-            <Setter Property="Height" Value="28"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="RenderTransformOrigin" Value="0.5,0.5"/>
-            <Setter Property="RenderTransform"><Setter.Value><ScaleTransform/></Setter.Value></Setter>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Grid>
-                            <Ellipse Width="12" Height="12" Fill="{TemplateBinding Background}"/>
-                            <ContentPresenter x:Name="Symbol" HorizontalAlignment="Center"
-                                              VerticalAlignment="Center" Opacity="0"/>
-                        </Grid>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Symbol" Property="Opacity" Value="1"/>
-                                <Setter Property="RenderTransform">
-                                    <Setter.Value><ScaleTransform ScaleX="1.12" ScaleY="1.12"/></Setter.Value>
-                                </Setter>
-                            </Trigger>
-                            <Trigger Property="IsPressed" Value="True">
-                                <Setter Property="RenderTransform">
-                                    <Setter.Value><ScaleTransform ScaleX="0.88" ScaleY="0.88"/></Setter.Value>
-                                </Setter>
-                            </Trigger>
-                            <!-- No border to outline here, so keyboard focus reuses the hover
-                                 treatment: the glyph appears and the dot grows. -->
-                            <Trigger Property="IsKeyboardFocused" Value="True">
-                                <Setter TargetName="Symbol" Property="Opacity" Value="1"/>
-                                <Setter Property="RenderTransform">
-                                    <Setter.Value><ScaleTransform ScaleX="1.12" ScaleY="1.12"/></Setter.Value>
-                                </Setter>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
 
         <!-- ═══ TILE TOGGLE ═══ -->
         <Style x:Key="TileToggle" TargetType="CheckBox">
@@ -238,91 +154,6 @@
                                 <Setter TargetName="Pill" Property="BorderBrush" Value="#A78BFA"/>
                                 <Setter TargetName="Pill" Property="BorderThickness" Value="2"/>
                                 <Setter TargetName="Pill" Property="Padding" Value="9,7"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-        <!-- ═══ ROW TOGGLE (label left, toggle right) ═══ -->
-        <Style x:Key="RowToggle" TargetType="CheckBox">
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="FontFamily" Value="{StaticResource Jakarta}"/>
-            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="CheckBox">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <ContentPresenter Grid.Column="0" VerticalAlignment="Center"
-                                              HorizontalAlignment="Stretch" Margin="0,0,18,0"/>
-                            <Grid Grid.Column="1" Width="42" Height="23" VerticalAlignment="Center">
-                                <Border x:Name="Track" CornerRadius="11.5" BorderThickness="1">
-                                    <Border.Background>
-                                        <SolidColorBrush x:Name="TrackBg" Color="#12102A"/>
-                                    </Border.Background>
-                                    <Border.BorderBrush>
-                                        <SolidColorBrush x:Name="TrackBdr" Color="#1E1B35"/>
-                                    </Border.BorderBrush>
-                                </Border>
-                                <Border x:Name="Thumb" Width="17" Height="17" CornerRadius="8.5"
-                                        HorizontalAlignment="Left" Margin="3,0,0,0" VerticalAlignment="Center">
-                                    <Border.Background>
-                                        <SolidColorBrush x:Name="ThumbBg" Color="#5C597E"/>
-                                    </Border.Background>
-                                </Border>
-                            </Grid>
-                        </Grid>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsChecked" Value="True">
-                                <Trigger.EnterActions>
-                                    <BeginStoryboard>
-                                        <Storyboard>
-                                            <ThicknessAnimation Storyboard.TargetName="Thumb"
-                                                                Storyboard.TargetProperty="Margin"
-                                                                To="22,0,0,0" Duration="0:0:0.2">
-                                                <ThicknessAnimation.EasingFunction>
-                                                    <CubicEase EasingMode="EaseOut"/>
-                                                </ThicknessAnimation.EasingFunction>
-                                            </ThicknessAnimation>
-                                            <ColorAnimation Storyboard.TargetName="TrackBg"
-                                                            Storyboard.TargetProperty="Color"
-                                                            To="#6D28D9" Duration="0:0:0.2"/>
-                                            <ColorAnimation Storyboard.TargetName="TrackBdr"
-                                                            Storyboard.TargetProperty="Color"
-                                                            To="#8B5CF6" Duration="0:0:0.2"/>
-                                            <ColorAnimation Storyboard.TargetName="ThumbBg"
-                                                            Storyboard.TargetProperty="Color"
-                                                            To="#FFFFFF" Duration="0:0:0.15"/>
-                                        </Storyboard>
-                                    </BeginStoryboard>
-                                </Trigger.EnterActions>
-                                <Trigger.ExitActions>
-                                    <BeginStoryboard>
-                                        <Storyboard>
-                                            <ThicknessAnimation Storyboard.TargetName="Thumb"
-                                                                Storyboard.TargetProperty="Margin"
-                                                                To="3,0,0,0" Duration="0:0:0.2">
-                                                <ThicknessAnimation.EasingFunction>
-                                                    <CubicEase EasingMode="EaseOut"/>
-                                                </ThicknessAnimation.EasingFunction>
-                                            </ThicknessAnimation>
-                                            <ColorAnimation Storyboard.TargetName="TrackBg"
-                                                            Storyboard.TargetProperty="Color"
-                                                            To="#12102A" Duration="0:0:0.2"/>
-                                            <ColorAnimation Storyboard.TargetName="TrackBdr"
-                                                            Storyboard.TargetProperty="Color"
-                                                            To="#1E1B35" Duration="0:0:0.2"/>
-                                            <ColorAnimation Storyboard.TargetName="ThumbBg"
-                                                            Storyboard.TargetProperty="Color"
-                                                            To="#5C597E" Duration="0:0:0.15"/>
-                                        </Storyboard>
-                                    </BeginStoryboard>
-                                </Trigger.ExitActions>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -963,44 +794,7 @@
             </Setter>
         </Style>
 
-        <!-- ═══ SENSORS PAGE: ONE OF PULSE'S READINGS ═══
-             Name and value, then the Overlay and In game switches, which are the tile lists' own
-             items (TileSelectionItem), so the page and the lists cannot disagree. A reading this
-             PC cannot give says why in place of its switches. -->
-        <DataTemplate x:Key="PulseReadingRow">
-            <Grid Margin="0,3" ToolTip="{Binding Description}"
-                  Visibility="{Binding IsVisible, Converter={StaticResource BoolToVis}}">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="64"/>
-                    <ColumnDefinition Width="64"/>
-                </Grid.ColumnDefinitions>
-                <TextBlock Text="{Binding Label}" FontSize="12" FontWeight="Medium" Foreground="#DBD7F2" VerticalAlignment="Center"/>
-                <TextBlock Grid.Column="1" VerticalAlignment="Center" Margin="10,0,8,0">
-                    <Run Text="{Binding Value, Mode=OneWay}" FontSize="12.5" FontWeight="Bold" Foreground="#F4F2FC"/>
-                    <Run Text="{Binding Unit, Mode=OneWay}" FontSize="10" Foreground="#8B86B4"/>
-                </TextBlock>
-                <CheckBox Grid.Column="2" Style="{StaticResource RowToggle}" HorizontalAlignment="Center"
-                          IsChecked="{Binding Overlay.IsSelected, Mode=TwoWay}"
-                          Visibility="{Binding IsAvailable, Converter={StaticResource BoolToVis}}"
-                          AutomationProperties.Name="{Binding Label, StringFormat='{}{0} on the overlay'}"/>
-                <CheckBox Grid.Column="3" Style="{StaticResource RowToggle}" HorizontalAlignment="Center"
-                          IsChecked="{Binding InGame.IsSelected, Mode=TwoWay}"
-                          AutomationProperties.Name="{Binding Label, StringFormat='{}{0} in game'}">
-                    <CheckBox.Visibility>
-                        <MultiBinding Converter="{StaticResource AllTrueToVis}">
-                            <Binding Path="DataContext.ShowInGameSwitches" RelativeSource="{RelativeSource AncestorType=ItemsControl}"/>
-                            <Binding Path="IsAvailable"/>
-                            <Binding Path="HasInGame"/>
-                        </MultiBinding>
-                    </CheckBox.Visibility>
-                </CheckBox>
-                <TextBlock Grid.Column="2" Grid.ColumnSpan="2" Text="Not on this PC" FontSize="10" Foreground="#7D78A6"
-                           ToolTip="{Binding Unavailable}" HorizontalAlignment="Center" VerticalAlignment="Center"
-                           Visibility="{Binding IsAvailable, Converter={StaticResource InverseBoolToVis}}"/>
-            </Grid>
-        </DataTemplate>
+      </ResourceDictionary>
     </Window.Resources>
 
     <!-- ═══ WINDOW SHELL ═══ -->
@@ -1033,7 +827,7 @@
                         <TextBlock Text="Monitor" FontSize="11" FontWeight="Medium"
                                    Foreground="#A9A4CE" VerticalAlignment="Center"/>
                     </StackPanel>
-                    <!-- macOS-style dot buttons, and the Sensors page's button before them -->
+                    <!-- macOS-style dot buttons, and the button that opens the Sensors window before them -->
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
                         <Button x:Name="BtnSensors" Style="{StaticResource PillBtn}" Padding="11,3" FontSize="11"
                                 Margin="0,0,12,0" Content="Sensors" Click="BtnSensors_Click"
@@ -2387,148 +2181,6 @@
 
                 </StackPanel>
             </ScrollViewer>
-
-            <!-- ═══ SENSORS PAGE ═══
-                 In place of the settings while open (the title bar's Sensors button). Pulse's own
-                 readings with the switches that put them on the overlays, then everything this PC
-                 reports, like HWMonitor. The list is read only while this page is open. -->
-            <Grid x:Name="SensorsPage" Grid.Row="1" Visibility="Collapsed" DataContext="{Binding Sensors}">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="*"/>
-                </Grid.RowDefinitions>
-
-                <StackPanel Margin="22,20,22,10">
-                    <TextBlock Text="Sensors" FontSize="22" FontWeight="ExtraBold" Foreground="#F0EEF8" Margin="0,0,0,3"/>
-                    <TextBlock Text="Everything this PC reports. Turn on a reading's switch to put it on the overlay."
-                               FontSize="11.5" FontWeight="Medium" Foreground="#8B86B4" Margin="0,0,0,12" TextWrapping="Wrap"/>
-                    <Border Background="#111020" CornerRadius="10" BorderBrush="#1C1A30" BorderThickness="1" Padding="10,2">
-                        <Grid>
-                            <TextBlock Text="&#xE721;" FontFamily="Segoe MDL2 Assets" FontSize="11" Foreground="#6E6A96"
-                                       VerticalAlignment="Center"/>
-                            <TextBox x:Name="SensorsSearch" Text="{Binding Search, UpdateSourceTrigger=PropertyChanged}"
-                                     Margin="20,0,0,0" Padding="0,6" Background="Transparent" BorderThickness="0"
-                                     Foreground="#DBD7F2" CaretBrush="#A78BFA" FontSize="12"
-                                     AutomationProperties.Name="Search the sensors by name"/>
-                            <TextBlock Text="Search" Margin="22,0,0,0" FontSize="12" Foreground="#55517A"
-                                       VerticalAlignment="Center" IsHitTestVisible="False">
-                                <TextBlock.Style>
-                                    <Style TargetType="TextBlock">
-                                        <Setter Property="Visibility" Value="Collapsed"/>
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding Search}" Value="">
-                                                <Setter Property="Visibility" Value="Visible"/>
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </TextBlock.Style>
-                            </TextBlock>
-                        </Grid>
-                    </Border>
-                </StackPanel>
-
-                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Background="Transparent">
-                    <StackPanel Margin="22,4,22,16">
-
-                        <!-- Pulse's readings, ordinary then advanced, each with its switches. -->
-                        <StackPanel Visibility="{Binding AnyReadingShown, Converter={StaticResource BoolToVis}}">
-                        <Grid Margin="2,0,2,7">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="64"/>
-                                <ColumnDefinition Width="64"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Text="PULSE'S READINGS" FontSize="10" FontWeight="Bold" Foreground="#A9A4CE"/>
-                            <TextBlock Grid.Column="1" Text="Overlay" FontSize="9.5" FontWeight="SemiBold" Foreground="#8B86B4"
-                                       HorizontalAlignment="Center"/>
-                            <TextBlock Grid.Column="2" Text="In game" FontSize="9.5" FontWeight="SemiBold" Foreground="#8B86B4"
-                                       HorizontalAlignment="Center"
-                                       Visibility="{Binding ShowInGameSwitches, Converter={StaticResource BoolToVis}}"/>
-                        </Grid>
-                        <Border Background="#111020" CornerRadius="13" BorderBrush="#1C1A30" BorderThickness="1"
-                                Padding="14,6" Margin="0,0,0,10">
-                            <ItemsControl ItemsSource="{Binding Readings}" ItemTemplate="{StaticResource PulseReadingRow}"/>
-                        </Border>
-                        </StackPanel>
-                        <StackPanel Visibility="{Binding AnyAdvancedShown, Converter={StaticResource BoolToVis}}">
-                        <TextBlock Text="ADVANCED" FontSize="10" FontWeight="Bold" Foreground="#A9A4CE" Margin="2,6,0,7"/>
-                        <Border Background="#111020" CornerRadius="13" BorderBrush="#1C1A30" BorderThickness="1"
-                                Padding="14,6" Margin="0,0,0,22">
-                            <ItemsControl ItemsSource="{Binding AdvancedReadings}" ItemTemplate="{StaticResource PulseReadingRow}"/>
-                        </Border>
-                        </StackPanel>
-
-                        <!-- Everything the PC reports: one card per piece of hardware. -->
-                        <Grid Margin="2,0,2,7">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="62"/>
-                                <ColumnDefinition Width="62"/>
-                                <ColumnDefinition Width="62"/>
-                                <ColumnDefinition Width="34"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Text="EVERYTHING THIS PC REPORTS" FontSize="10" FontWeight="Bold" Foreground="#A9A4CE"/>
-                            <TextBlock Grid.Column="1" Text="Now" FontSize="9.5" FontWeight="SemiBold" Foreground="#8B86B4" HorizontalAlignment="Right"/>
-                            <TextBlock Grid.Column="2" Text="Lowest" FontSize="9.5" FontWeight="SemiBold" Foreground="#8B86B4" HorizontalAlignment="Right"/>
-                            <TextBlock Grid.Column="3" Text="Highest" FontSize="9.5" FontWeight="SemiBold" Foreground="#8B86B4" HorizontalAlignment="Right"/>
-                        </Grid>
-                        <TextBlock Text="Reading every sensor..." FontSize="11" Foreground="#8B86B4" Margin="2,4,0,0"
-                                   Visibility="{Binding Waiting, Converter={StaticResource BoolToVis}}"/>
-                        <ItemsControl ItemsSource="{Binding Groups}">
-                            <ItemsControl.ItemContainerStyle>
-                                <Style TargetType="ContentPresenter">
-                                    <Setter Property="Visibility" Value="{Binding IsVisible, Converter={StaticResource BoolToVis}}"/>
-                                </Style>
-                            </ItemsControl.ItemContainerStyle>
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <Border Background="#111020" CornerRadius="13" BorderBrush="#1C1A30" BorderThickness="1"
-                                            Padding="14,9,14,8" Margin="0,0,0,10">
-                                        <StackPanel>
-                                            <StackPanel Orientation="Horizontal" Margin="0,0,0,5">
-                                                <TextBlock Text="{Binding Name}" FontSize="12" FontWeight="SemiBold" Foreground="#DBD7F2"/>
-                                                <TextBlock Text="  asleep, not read so it can stay asleep" FontSize="10.5" Foreground="#8B86B4"
-                                                           VerticalAlignment="Center"
-                                                           Visibility="{Binding Asleep, Converter={StaticResource BoolToVis}}"/>
-                                            </StackPanel>
-                                            <ItemsControl ItemsSource="{Binding Rows}">
-                                                <ItemsControl.ItemContainerStyle>
-                                                    <Style TargetType="ContentPresenter">
-                                                        <Setter Property="Visibility" Value="{Binding IsVisible, Converter={StaticResource BoolToVis}}"/>
-                                                    </Style>
-                                                </ItemsControl.ItemContainerStyle>
-                                                <ItemsControl.ItemTemplate>
-                                                    <DataTemplate>
-                                                        <Grid Margin="0,2">
-                                                            <Grid.ColumnDefinitions>
-                                                                <ColumnDefinition Width="*"/>
-                                                                <ColumnDefinition Width="62"/>
-                                                                <ColumnDefinition Width="62"/>
-                                                                <ColumnDefinition Width="62"/>
-                                                                <ColumnDefinition Width="34"/>
-                                                            </Grid.ColumnDefinitions>
-                                                            <TextBlock FontSize="11" TextTrimming="CharacterEllipsis" VerticalAlignment="Center">
-                                                                <Run Text="{Binding Name, Mode=OneWay}" Foreground="#C9C5E6"/>
-                                                                <Run Text="{Binding Tile, Mode=OneWay}" Foreground="#A78BFA" FontSize="9.5"/>
-                                                            </TextBlock>
-                                                            <TextBlock Grid.Column="1" Text="{Binding Now}" FontSize="11" FontWeight="SemiBold"
-                                                                       Foreground="#F4F2FC" HorizontalAlignment="Right"/>
-                                                            <TextBlock Grid.Column="2" Text="{Binding Low}" FontSize="11" Foreground="#8B86B4" HorizontalAlignment="Right"/>
-                                                            <TextBlock Grid.Column="3" Text="{Binding High}" FontSize="11" Foreground="#8B86B4" HorizontalAlignment="Right"/>
-                                                            <TextBlock Grid.Column="4" Text="{Binding Unit}" FontSize="10" Foreground="#6E6A96"
-                                                                       HorizontalAlignment="Right" VerticalAlignment="Center"/>
-                                                        </Grid>
-                                                    </DataTemplate>
-                                                </ItemsControl.ItemTemplate>
-                                            </ItemsControl>
-                                        </StackPanel>
-                                    </Border>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                    </StackPanel>
-                </ScrollViewer>
-            </Grid>
 
             <!-- ═══ FOOTER ═══ -->
             <Border Grid.Row="2" BorderBrush="#161330" BorderThickness="0,1,0,0" CornerRadius="0,0,17,17">
