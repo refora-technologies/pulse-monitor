@@ -60,6 +60,7 @@ public partial class MainWindow : Window
             HighlightActivePosition();
             HighlightInGameCorner();
             HighlightInGameLayout();
+            HighlightCompactLayout();
             UpdateOverlayButton();
             PopulateMonitorButtons();
             PopulateGpuButtons();
@@ -98,6 +99,7 @@ public partial class MainWindow : Window
                         case nameof(_vm.SelectedMonitorIndex): HighlightActiveMonitor(); break;
                         case nameof(_vm.InGameCorner):        HighlightInGameCorner(); break;
                         case nameof(_vm.InGameIsBar):         HighlightInGameLayout(); break;
+                        case nameof(_vm.CompactIsBar):        HighlightCompactLayout(); break;
                     }
                 };
             }
@@ -116,6 +118,7 @@ public partial class MainWindow : Window
             NetUnitPanel.SizeChanged  += (_, _) => UpdateNetUnitIndicator(false);
             // Hidden until its switch is on, so it has no width to measure before then.
             InGameLayoutPanel.SizeChanged += (_, _) => UpdateInGameLayoutIndicator(false);
+            CompactLayoutPanel.SizeChanged += (_, _) => MoveLayoutIndicator(CompactLayoutPanel, CompactLayoutIndicator, CompactLayoutIndicatorTranslate, _vm?.CompactIsBar == true, false);
             Dispatcher.InvokeAsync(() => UpdateNetUnitIndicator(false),
                 System.Windows.Threading.DispatcherPriority.Loaded);
             Dispatcher.InvokeAsync(() => UpdateSegIndicator(false),
@@ -496,6 +499,45 @@ public partial class MainWindow : Window
         foreach (var child in InGamePositionPanel.Children)
             if (child is WpfButton btn)
                 btn.Style = btn.Tag?.ToString() == _vm.InGameCorner ? activeStyle : normalStyle;
+    }
+
+    private void CompactLayout_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not WpfButton btn || _vm == null) return;
+        _vm.CompactIsBar = (btn.Tag as string) == "Bar";
+        HighlightCompactLayout();
+    }
+
+    private void HighlightCompactLayout()
+    {
+        if (_vm == null || CompactLayoutPanel == null) return;
+        var activeStyle = (WpfStyle)FindResource("SegBtnActive");
+        var normalStyle = (WpfStyle)FindResource("SegBtn");
+        foreach (var child in CompactLayoutPanel.Children)
+            if (child is WpfButton btn)
+                btn.Style = ((btn.Tag as string) == "Bar") == _vm.CompactIsBar ? activeStyle : normalStyle;
+        MoveLayoutIndicator(CompactLayoutPanel, CompactLayoutIndicator, CompactLayoutIndicatorTranslate, _vm.CompactIsBar, true);
+    }
+
+    /// Slides a two-way switch's highlight under the chosen half.
+    private static void MoveLayoutIndicator(System.Windows.Controls.Grid panel, WpfBorder indicator, TranslateTransform move, bool second, bool animate)
+    {
+        if (panel.ActualWidth <= 0) return;
+        double half = panel.ActualWidth / 2.0;
+        indicator.Width = half;
+        double x = second ? half : 0;
+        if (animate)
+            move.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation
+            {
+                To = x,
+                Duration = TimeSpan.FromMilliseconds(200),
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+            });
+        else
+        {
+            move.BeginAnimation(TranslateTransform.XProperty, null);
+            move.X = x;
+        }
     }
 
     private void InGameLayout_Click(object sender, RoutedEventArgs e)

@@ -139,6 +139,20 @@ MUTATIONS = [
      "the tree is sent only while the page asks",
      "every sensor read and sent forever after the panel went away"),
 
+    # Place a corner overlay 2 px in again, where its flat sides no longer meet the edge.
+    ("Views/OverlayWindow.xaml.cs",
+     "const int margin = 0;",
+     "const int margin = 2;",
+     "the window overlay joins the screen's edge where the in-game overlay does",
+     "a corner overlay drawn flush with an edge it does not touch"),
+
+    # Let the straight line run past the screen's edges.
+    ("Views/OverlayWindow.xaml.cs",
+     "if (BarPanel.Visibility == Visibility.Visible && width > work.Width)",
+     "if (false)",
+     "the straight overlay never runs off its screen, and games follow it",
+     "readings off both sides of a small screen"),
+
     # Minimize the Sensors window and leave it asking for every sensor.
     ("Views/SensorsWindow.xaml.cs",
      "if (WindowState == WindowState.Minimized) _vm.Pause(); else _vm.Resume();",

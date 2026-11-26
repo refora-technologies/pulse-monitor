@@ -1409,6 +1409,35 @@
                                 </StackPanel>
                             </CheckBox>
 
+                            <!-- Compact's layout: a list, or every reading on one straight line, as
+                                 the in-game overlay can (26 Nov 2026). -->
+                            <StackPanel Margin="18,0,18,16"
+                                        Visibility="{Binding IsCompactMode, Converter={StaticResource BoolToVis}}">
+                                <Border Background="#0A0918" CornerRadius="10"
+                                        BorderBrush="#181530" BorderThickness="1" Padding="3">
+                                    <Grid>
+                                        <Border x:Name="CompactLayoutIndicator" HorizontalAlignment="Left"
+                                                VerticalAlignment="Stretch" Background="#1C1540" CornerRadius="8">
+                                            <Border.RenderTransform>
+                                                <TranslateTransform x:Name="CompactLayoutIndicatorTranslate"/>
+                                            </Border.RenderTransform>
+                                        </Border>
+                                        <Grid x:Name="CompactLayoutPanel">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <Button Grid.Column="0" Content="List" Style="{StaticResource SegBtn}"
+                                                    Tag="List" Click="CompactLayout_Click"
+                                                    AutomationProperties.Name="Compact layout: one reading per line"/>
+                                            <Button Grid.Column="1" Content="Straight" Style="{StaticResource SegBtn}"
+                                                    Tag="Bar" Click="CompactLayout_Click"
+                                                    AutomationProperties.Name="Compact layout: all readings on one line"/>
+                                        </Grid>
+                                    </Grid>
+                                </Border>
+                            </StackPanel>
+
                             <Border Height="1" Background="#131128"/>
 
                             <!-- Status Bar -->

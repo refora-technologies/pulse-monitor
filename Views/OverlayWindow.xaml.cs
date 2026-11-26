@@ -829,19 +829,32 @@ public partial class OverlayWindow : Window
         return CallNextHookEx(_menuMouseHook, nCode, wParam, lParam);
     }
 
+    /// <summary>
+    /// Shows the panel for the chosen look: the tiles, the compact list, or the compact straight
+    /// line. A straight line wider than its screen shows as the list instead, as in games, rather
+    /// than running off both sides (see PlaceWindow).
+    /// </summary>
     private void ApplyCompactMode()
     {
         bool compact = _vm.IsCompactMode;
+        bool bar = compact && _vm.IsCompactBar && !_barTooWide;
         NormalPanel.Visibility  = compact ? Visibility.Collapsed : Visibility.Visible;
-        CompactPanel.Visibility = compact ? Visibility.Visible   : Visibility.Collapsed;
+        CompactPanel.Visibility = compact && !bar ? Visibility.Visible : Visibility.Collapsed;
+        BarPanel.Visibility     = bar ? Visibility.Visible : Visibility.Collapsed;
     }
+
+    /// The straight line did not fit on its screen last time it was placed.
+    private bool _barTooWide;
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         Dispatcher.Invoke(() =>
         {
-            if (e.PropertyName == nameof(OverlayViewModel.IsCompactMode))
+            if (e.PropertyName is nameof(OverlayViewModel.IsCompactMode) or nameof(OverlayViewModel.IsCompactBar))
+            {
+                _barTooWide = false;
                 ApplyCompactMode();
+            }
             if (e.PropertyName == nameof(OverlayViewModel.IsDragEnabled))
                 ApplyDragState();
         });
@@ -857,6 +870,18 @@ public partial class OverlayWindow : Window
     /// there is nothing to convert and nothing to get wrong.
     /// </summary>
     private bool _positioning;
+
+    /// The sides an overlay anchored here lies against: a fraction of 0 or 1 is all the way to
+    /// that side, as in the in-game overlay's Touching (InGame/src/ui.cpp).
+    internal static FlushEdges Flush(float ax, float ay)
+    {
+        var e = FlushEdges.None;
+        if (ax <= 0f) e |= FlushEdges.Left;
+        if (ax >= 1f) e |= FlushEdges.Right;
+        if (ay <= 0f) e |= FlushEdges.Top;
+        if (ay >= 1f) e |= FlushEdges.Bottom;
+        return e;
+    }
 
     /// The user is placing the overlay right now, by dragging the window itself or by moving
     /// one of the position sliders. Either way, nothing else may move it until they finish.
@@ -892,6 +917,17 @@ public partial class OverlayWindow : Window
 
     private void PlaceWindow(IntPtr hwnd)
     {
+        var settings = SettingsService.Instance.Settings;
+
+        // Against a screen edge the panel joins it, as the in-game overlay does (26 Nov
+        // 2026): a corner preset sits flush on its two sides, and a dragged overlay on any side
+        // it was dropped against. The same rule as in games (WindowOverlayAnchor), so the two
+        // agree on where the overlay touches the edge. Set before measuring, because the curves
+        // where the panel meets the edge take a little room.
+        var (ax, ay) = Services.InGame.InGameOverlayService.WindowOverlayAnchor(settings);
+        var flush = Flush(ax, ay);
+        NormalPanel.Flush = CompactPanel.Flush = BarPanel.Flush = flush;
+
         // Force layout first: SizeToContent is frozen while hidden, and a stale size would
         // put every corner and clamp calculation below out by the difference.
         UpdateLayout();
@@ -901,13 +937,23 @@ public partial class OverlayWindow : Window
         int height = bounds.Bottom - bounds.Top;
         if (width <= 0 || height <= 0) return;
 
-        var settings = SettingsService.Instance.Settings;
         var work     = ResolveTargetScreen(hwnd).WorkingArea;
 
-        // Just enough to read as deliberate rather than clipped. This was 20, which left
-        // corner-snapped overlays sitting noticeably inside the screen when the point of
-        // a corner preset is to be in the corner.
-        const int margin = 2;
+        // A straight line wider than the screen: the list instead, until the look changes.
+        if (BarPanel.Visibility == Visibility.Visible && width > work.Width)
+        {
+            _barTooWide = true;
+            ApplyCompactMode();
+            UpdateLayout();
+            if (!GetWindowRect(hwnd, out bounds)) return;
+            width  = bounds.Right  - bounds.Left;
+            height = bounds.Bottom - bounds.Top;
+        }
+
+        // Flush against the edge in a corner, as the panel is drawn to be. This was 2, and 20
+        // before that, which left corner-snapped overlays sitting inside the screen when the
+        // point of a corner preset is to be in the corner.
+        const int margin = 0;
         int x, y;
 
         if (settings.OverlayPosition == "Custom" && settings.OverlayAnchorFx >= 0)
@@ -942,8 +988,8 @@ public partial class OverlayWindow : Window
         // overlay, and the margin quietly forbade it. Keeping it on the monitor does not
         // require holding it away from the edge.
         //
-        // The corner presets are unaffected — they place themselves with their own deliberate
-        // inset further in than this ever was.
+        // The corner presets place themselves right against the edge too, since 26 Nov 2026,
+        // where the panel is drawn to join it.
         x = Math.Clamp(x, work.Left, Math.Max(work.Left, work.Right  - width));
         y = Math.Clamp(y, work.Top,  Math.Max(work.Top,  work.Bottom - height));
 
