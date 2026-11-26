@@ -167,12 +167,16 @@ public sealed class SensorsViewModel : BaseViewModel
         foreach (var part in Parts) part.Refresh();
     }
 
+    /// Four times a second (FpsService's pace): the frame rate's value only, and the Games card
+    /// only when that changed. Its graph gets a point with the other readings, so every graph
+    /// covers the same minute.
     private void OnFrameRate(object? sender, EventArgs e)
     {
+        bool changed = false;
         foreach (var id in new[] { "fps", "fps_1low" })
             if (_readings.TryGetValue(id, out var r))
-                r.Show(id == "fps" ? FpsService.Instance.CurrentFps : FpsService.Instance.OnePercentLowFps, false);
-        if (_parts.TryGetValue(nameof(PartKind.Games), out var games)) games.Refresh();
+                changed |= r.Show(id == "fps" ? FpsService.Instance.CurrentFps : FpsService.Instance.OnePercentLowFps, false, record: false);
+        if (changed && _parts.TryGetValue(nameof(PartKind.Games), out var games)) games.Refresh();
     }
 
     private void Refresh(SensorData? data)
@@ -180,7 +184,12 @@ public sealed class SensorsViewModel : BaseViewModel
         if (data is null) return;
         foreach (var r in _readings.Values)
         {
-            if (r.Id is "fps" or "fps_1low") continue;   // on their own timer, see OnFrameRate
+            if (r.Id is "fps" or "fps_1low")
+            {
+                // Shown on their own timer (OnFrameRate); a point for the graph here.
+                r.Show(r.Id == "fps" ? FpsService.Instance.CurrentFps : FpsService.Instance.OnePercentLowFps, false);
+                continue;
+            }
             bool asleep = data.GpuAsleep && r.Overlay.Definition.Category == SensorCategory.GPU && r.Id != "gpu_vram";
             // CPU Cores draws a bar per core, here as on the overlay.
             if (r.Id == "cpu_cores") { r.ShowCores(data.CpuCoreLoads); continue; }
@@ -508,7 +517,8 @@ public sealed class SensorPart : BaseViewModel
                         rows.Add(new KeyRow(name, Join(line.Now, line.Unit)));
                     }
         }
-        KeyRows = rows;
+        // Replaced only when a figure changed: a new list rebuilds the card's three figures.
+        if (!rows.SequenceEqual(KeyRows)) KeyRows = rows;
     }
 
     public void Filter(string words)
@@ -567,27 +577,30 @@ public enum PartKind { Cpu, Gpu, Memory, Drives, Network, Battery, Games }
 public sealed record KeyRow(string Label, string Value);
 
 /// <summary>
-/// The last minute of one reading, for the small graphs: one value a reading, oldest first.
+/// The last minute of one reading, for the small graphs, oldest first.
 /// </summary>
+/// <remarks>
+/// Kept by time, not by count: Pulse reads every half second to every minute (2 s unless
+/// changed), and sixty readings were two minutes at the default while the window said a minute.
+/// </remarks>
 public sealed class ReadingHistory
 {
-    public const int Length = 60;
-    private readonly float[] _ring = new float[Length];
-    private int _count, _next;
+    public const long SpanMs = 60_000;
+    private readonly Queue<(long At, float Value)> _points = new();
 
     /// A missing value is skipped rather than drawn as zero.
     public void Add(float? value)
     {
-        if (value is not { } v || !float.IsFinite(v)) return;
-        _ring[_next] = v;
-        _next = (_next + 1) % Length;
-        if (_count < Length) _count++;
+        long now = Environment.TickCount64;
+        if (value is { } v && float.IsFinite(v)) _points.Enqueue((now, v));
+        while (_points.Count > 0 && now - _points.Peek().At > SpanMs) _points.Dequeue();
     }
 
     public float[] Snapshot()
     {
-        var a = new float[_count];
-        for (int i = 0; i < _count; i++) a[i] = _ring[(_next - _count + i + Length) % Length];
+        var a = new float[_points.Count];
+        int i = 0;
+        foreach (var p in _points) a[i++] = p.Value;
         return a;
     }
 }
@@ -657,9 +670,13 @@ public sealed class PulseReading : BaseViewModel
         OnPropertyChanged(nameof(HasValue));
     }
 
-    /// Written the way the overlay writes it, by the shared core.
-    public void Show(float? value, bool asleep)
+    /// <summary>
+    /// Written the way the overlay writes it, by the shared core. Returns whether the value
+    /// shown changed. <paramref name="record"/> adds a point to the graph.
+    /// </summary>
+    public bool Show(float? value, bool asleep, bool record = true)
     {
+        string before = Value;
         double capacity = Id switch
         {
             "ram_used" => HardwareService.Instance.TotalRamGb,
@@ -675,9 +692,14 @@ public sealed class PulseReading : BaseViewModel
         }
 
         ValueBrush = TileReading.State(Overlay.Definition, value, capacity) switch { 3 => Hot, 2 => Warm, _ => Calm };
-        _history.Add(value);
-        History = _history.Snapshot();
+        if (record)
+        {
+            _history.Add(value);
+            History = _history.Snapshot();
+        }
+        if (before == Value) return false;
         OnPropertyChanged(nameof(HasValue));
+        return true;
     }
 
     private static SolidColorBrush Frozen(byte r, byte g, byte b)

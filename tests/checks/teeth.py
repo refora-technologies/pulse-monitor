@@ -139,6 +139,13 @@ MUTATIONS = [
      "the tree is sent only while the page asks",
      "every sensor read and sent forever after the panel went away"),
 
+    # Let the update dot's glow run for ever again, download or not.
+    ("Views/MainWindow.xaml",
+     '<StopStoryboard BeginStoryboardName="DownloadGlow"/>',
+     "",
+     "MainWindow.xaml runs no animation forever unless something on screen needs it",
+     "the panel redrawing all the time for a glow nobody can see"),
+
     # Stop listening for Windows ending the session.
     ("App.xaml.cs",
      "Microsoft.Win32.SystemEvents.SessionEnding += OnWindowsSessionEnding;",
