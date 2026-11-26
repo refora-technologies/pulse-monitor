@@ -1403,7 +1403,7 @@
                                 <StackPanel>
                                     <TextBlock Text="Compact HUD" FontSize="13" FontWeight="SemiBold"
                                                Foreground="#DBD7F2" Margin="0,0,0,2"/>
-                                    <TextBlock Text="Minimal list — values only, no bars"
+                                    <TextBlock Text="Values only, no bars: as a list, or all on one straight line"
                                                FontSize="10.5" FontWeight="Medium" Foreground="#8B86B4"
                                                TextWrapping="Wrap"/>
                                 </StackPanel>

@@ -471,18 +471,22 @@ public sealed class SensorPart : BaseViewModel
 
         // The graph's range: a percentage is always 0 to 100 and a temperature starts at 20 and
         // reaches at least 100, so the line's height means the same thing every time it is seen.
-        // Anything else spans its own lowest and highest of the minute.
+        // Any other amount starts at 0 and reaches its highest of the minute, so a network
+        // that is all but idle draws a line along the floor, not its noise blown up to full height.
         (double lo, double hi) range = unit switch
         {
             "%"  => (0, 100),
             "°C" => (20, Math.Max(100, history.Count > 0 ? Math.Ceiling(history.Max() / 10) * 10 : 100)),
-            _    => (double.NaN, double.NaN),
+            _    => (0, double.NaN),
         };
         HeroMin = range.lo;
         HeroMax = range.hi;
-        if (history.Count == 0)                { HeroTop = HeroBottom = ""; }
-        else if (!double.IsNaN(range.lo))      { HeroTop = Join(Scale(range.hi), unit); HeroBottom = Join(Scale(range.lo), unit); }
-        else                                   { HeroTop = Join(Scale(history.Max()), unit); HeroBottom = Join(Scale(history.Min()), unit); }
+        if (history.Count == 0) { HeroTop = HeroBottom = ""; }
+        else
+        {
+            HeroTop    = Join(Scale(double.IsNaN(range.hi) ? history.Max() : Math.Max(range.hi, history.Max())), unit);
+            HeroBottom = Join(Scale(range.lo), unit);
+        }
 
         // The overview card: Pulse's own readings first, then the part's other sensors.
         var rows = new List<KeyRow>();
@@ -612,9 +616,9 @@ public sealed class PulseReading : BaseViewModel
     public bool IsAdvanced => Overlay.Definition.IsAdvanced;
     public string Unit => Overlay.DisplayUnit;
 
-    /// The graph's fixed range: 0 to 100 for a percentage, from 20 to at least 100 for a
-    /// temperature, otherwise (NaN) the minute's own lowest and highest.
-    public double GraphMin => Unit switch { "%" => 0, "°C" => 20, _ => double.NaN };
+    /// The graph's range: 0 to 100 for a percentage, from 20 to at least 100 for a temperature,
+    /// otherwise from 0 to the minute's highest (NaN: as high as it went).
+    public double GraphMin => Unit switch { "%" => 0, "°C" => 20, _ => 0 };
     public double GraphMax => Unit switch { "%" => 100, "°C" => 100, _ => double.NaN };
 
     /// Whether the in-game list has this reading, so it can have an In game switch.
