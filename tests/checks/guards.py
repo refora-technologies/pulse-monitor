@@ -558,7 +558,7 @@ def wiring_guards(src):
     # 27 Nov 2026: the window overlay should take its edge shape at once, as in games.
     check("a dragged overlay is pulled onto a near edge and shaped there",
           "var (x, y) = SnapToEdges(r.Left, r.Top, w, h, work, reach);" in overlay_cs
-          and "ReshapeWhileDragging();" in overlay_cs,
+          and "        SavePosition(writeToDisk: false);\n        Reshape();" in overlay_cs.replace("\r\n", "\n"),
           "the overlay rounded against an edge until dropped exactly on its last pixel")
 
     # 27 Nov 2026: Background 100 should be solid and 0 see-through but still draggable.
@@ -569,6 +569,9 @@ def wiring_guards(src):
           and "public double NormalPanelOpacity  => Math.Max(_backgroundOpacity, GrabFloor);" in overlay_vm,
           "Free Drag missing the overlay's empty space at Background 0; compact never solid")
     # 27 Nov 2026: the position sliders in percent of the room, 50 the middle.
+    check("the position sliders reshape the overlay as they move it",
+          "if (Reshape()) SavePosition(writeToDisk: persist);" in overlay_cs,
+          "a slider leaving the overlay rounded in a corner, or flat in the middle of the screen")
     check("the position sliders move in percent of the room",
           'Value="{Binding OverlayXPercent, Mode=TwoWay}"' in mainx and 'Value="{Binding OverlayYPercent, Mode=TwoWay}"' in mainx
           and mainx.count('Minimum="0" Maximum="100"') >= 2,

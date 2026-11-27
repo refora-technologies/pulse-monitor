@@ -216,6 +216,13 @@ MUTATIONS = [
      "an empty panel can still be grabbed",
      "the overlay's empty space letting the mouse through"),
 
+    # Move by slider without taking the new shape.
+    ("Views/OverlayWindow.xaml.cs",
+     "if (Reshape()) SavePosition(writeToDisk: persist);",
+     "",
+     "the position sliders reshape the overlay as they move it",
+     "the corner shape in the middle of the screen after a slider"),
+
     # Back to pixels.
     ("Views/MainWindow.xaml",
      'Value="{Binding OverlayXPercent, Mode=TwoWay}"',
@@ -225,7 +232,7 @@ MUTATIONS = [
 
     # Shape the overlay only once it is dropped.
     ("Views/OverlayWindow.xaml.cs",
-     "        SavePosition(writeToDisk: false);\n        ReshapeWhileDragging();",
+     "        SavePosition(writeToDisk: false);\n        Reshape();",
      "        SavePosition(writeToDisk: false);",
      "a dragged overlay is pulled onto a near edge and shaped there",
      "the edge shape only after letting go"),
