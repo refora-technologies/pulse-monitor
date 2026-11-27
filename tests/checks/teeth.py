@@ -209,6 +209,20 @@ MUTATIONS = [
      "the overlay's three looks are offered side by side",
      "the straight overlay out of sight"),
 
+    # Let the empty panel go to no alpha at all again.
+    ("ViewModels/OverlayViewModel.cs",
+     "public double CompactPanelOpacity => Math.Max(_backgroundOpacity, GrabFloor);",
+     "public double CompactPanelOpacity => _backgroundOpacity * 0.82;",
+     "an empty panel can still be grabbed",
+     "the overlay's empty space letting the mouse through"),
+
+    # Back to pixels.
+    ("Views/MainWindow.xaml",
+     'Value="{Binding OverlayXPercent, Mode=TwoWay}"',
+     'Value="{Binding OverlayX, Mode=TwoWay}"',
+     "the position sliders move in percent of the room",
+     "a pixel count on the slider"),
+
     # Shape the overlay only once it is dropped.
     ("Views/OverlayWindow.xaml.cs",
      "        SavePosition(writeToDisk: false);\n        ReshapeWhileDragging();",

@@ -1299,7 +1299,7 @@
                                         <Run Text="%" Foreground="#8B86B4" FontSize="11"/>
                                     </TextBlock>
                                 </Grid>
-                                <TextBlock Text="Turn it all the way down to leave just the readings on screen"
+                                <TextBlock Text="100 is solid. All the way down leaves just the readings, and the overlay can still be dragged by its empty space"
                                            FontSize="10.5" FontWeight="Medium" Foreground="#8B86B4"
                                            Margin="0,0,0,12" TextWrapping="Wrap"/>
                                 <!-- Goes to zero, unlike opacity above: an invisible panel is the
@@ -1568,33 +1568,37 @@
                                      occupy however the screens are arranged. -->
                                 <Grid Margin="0,0,0,4">
                                     <TextBlock Text="Left to right" FontSize="12" FontWeight="SemiBold" Foreground="#A9A4CE"/>
-                                    <TextBlock HorizontalAlignment="Right" FontSize="13" FontWeight="Bold" Foreground="#A78BFA"
-                                               Text="{Binding OverlayX, Mode=OneWay}"/>
+                                    <TextBlock HorizontalAlignment="Right" FontSize="13" FontWeight="Bold" Foreground="#A78BFA">
+                                        <Run Text="{Binding OverlayXPercent, Mode=OneWay}"/>
+                                        <Run Text="%" Foreground="#8B86B4" FontSize="11"/>
+                                    </TextBlock>
                                 </Grid>
                                 <Slider Style="{StaticResource VioletSlider}" Margin="0,0,0,15"
-                                        AutomationProperties.Name="Overlay position from the left, in pixels"
-                                        Minimum="0" Maximum="{Binding OverlayMaxX}"
+                                        AutomationProperties.Name="Overlay position from left to right, in percent"
+                                        Minimum="0" Maximum="100"
                                         SmallChange="1" LargeChange="10"
                                         IsSnapToTickEnabled="True" TickFrequency="1"
                                         Thumb.DragStarted="PositionSlider_DragStarted"
                                         Thumb.DragCompleted="PositionSlider_DragCompleted"
-                                        Value="{Binding OverlayX, Mode=TwoWay}"/>
+                                        Value="{Binding OverlayXPercent, Mode=TwoWay}"/>
 
                                 <Grid Margin="0,0,0,4">
                                     <TextBlock Text="Top to bottom" FontSize="12" FontWeight="SemiBold" Foreground="#A9A4CE"/>
-                                    <TextBlock HorizontalAlignment="Right" FontSize="13" FontWeight="Bold" Foreground="#A78BFA"
-                                               Text="{Binding OverlayY, Mode=OneWay}"/>
+                                    <TextBlock HorizontalAlignment="Right" FontSize="13" FontWeight="Bold" Foreground="#A78BFA">
+                                        <Run Text="{Binding OverlayYPercent, Mode=OneWay}"/>
+                                        <Run Text="%" Foreground="#8B86B4" FontSize="11"/>
+                                    </TextBlock>
                                 </Grid>
                                 <Slider Style="{StaticResource VioletSlider}"
-                                        AutomationProperties.Name="Overlay position from the top, in pixels"
-                                        Minimum="0" Maximum="{Binding OverlayMaxY}"
+                                        AutomationProperties.Name="Overlay position from top to bottom, in percent"
+                                        Minimum="0" Maximum="100"
                                         SmallChange="1" LargeChange="10"
                                         IsSnapToTickEnabled="True" TickFrequency="1"
                                         Thumb.DragStarted="PositionSlider_DragStarted"
                                         Thumb.DragCompleted="PositionSlider_DragCompleted"
-                                        Value="{Binding OverlayY, Mode=TwoWay}"/>
+                                        Value="{Binding OverlayYPercent, Mode=TwoWay}"/>
 
-                                <TextBlock Text="Drag for a rough spot, then use the arrow keys for single pixels"
+                                <TextBlock Text="Drag for a rough spot, then use the arrow keys to move one percent at a time"
                                            FontSize="10.5" FontWeight="Medium" Foreground="#8B86B4"
                                            Margin="0,11,0,0" TextWrapping="Wrap"/>
                             </StackPanel>
