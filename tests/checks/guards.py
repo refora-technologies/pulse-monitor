@@ -600,6 +600,15 @@ def wiring_guards(src):
               < fps_cs.index("if (!IsWorthMeasuring(pid))"),
           "the frame rate blank whenever someone looks at it in Pulse")
 
+    # 27 Nov 2026: "getting ready" waited ten seconds from when a game was first in front and
+    # allowed, even for one running for minutes. Counted from when the program started.
+    ingame_cs = src.text("Services/InGame/InGameOverlayService.cs") or ""
+    check("the wait before the in-game overlay goes in counts from the game's start",
+          "_readySince[pid] = since = StartedAt(pid);" in ingame_cs
+          and "if (DateTime.UtcNow - since >= SettleTime)" in ingame_cs
+          and "TimeSpan.FromSeconds(10)" in ingame_cs,
+          "ten more seconds of waiting after allowing a game that has long been running")
+
     check("the core bars fit the in-game block",
           "public const int MaxCoreBars = 64;" in reader and "public const int MaxCores = 64;" in writer,
           "more cores read than the block has room for, cut off without a word")
