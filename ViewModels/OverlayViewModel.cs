@@ -55,6 +55,18 @@ public class TileViewModel : BaseViewModel
         }
     }
 
+    private BatteryPower _power;
+
+    /// The battery tile's power: on battery, charging, or plugged in (PowerGlyph draws it).
+    public BatteryPower Power
+    {
+        get => _power;
+        set { if (Set(ref _power, value)) OnPropertyChanged(nameof(ShowsPower)); }
+    }
+
+    /// True when this tile has a power sign to show beside its name.
+    public bool ShowsPower => Definition.Id == "battery" && _power != BatteryPower.Unknown;
+
     /// True when this tile draws bars rather than a number: CPU Cores, once there are cores to draw.
     public bool ShowsCoreBars => Definition.Id == "cpu_cores" && _coreLoads is { Length: > 0 };
 
@@ -462,6 +474,7 @@ public class OverlayViewModel : BaseViewModel
 
             tile.Value = data.GetById(tile.Definition.Id);
             if (tile.Definition.Id == "cpu_cores") tile.CoreLoads = data.CpuCoreLoads;
+            if (tile.Definition.Id == "battery") tile.Power = data.BatteryPower;
 
             // Video memory is still read while the card sleeps, from Windows, so only the
             // readings that come from the card itself say so.

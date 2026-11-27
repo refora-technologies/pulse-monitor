@@ -25,6 +25,12 @@ public class SensorData
     /// Charge left in the battery, as a percentage. Null on a machine with no battery, which
     /// is a desktop showing nothing rather than a desktop showing zero percent.
     public float? BatteryLevel { get; set; }
+
+    /// Whether the charger is in and charging, from Windows. Filled in by Pulse as each reading
+    /// arrives, never sent by the sensor host.
+    [Newtonsoft.Json.JsonIgnore]
+    public BatteryPower BatteryPower { get; set; }
+
     public float? Fps { get; set; }
     public float? Fps1Low { get; set; }
 
@@ -1121,6 +1127,8 @@ public class HardwareService : IDisposable
     /// tiles are bound to the UI. This used to be guaranteed by polling on a DispatcherTimer;
     /// the readings now arrive on a pipe thread instead, so the marshalling has to be explicit.
     /// </summary>
+    private bool _batteryDisagreementSaid;
+
     private void Publish(SensorSnapshot snapshot)
     {
         var data = snapshot.Data;
@@ -1143,6 +1151,30 @@ public class HardwareService : IDisposable
         {
             // Runs per snapshot, so reported once per kind.
             LogOnce("copying the frame rate into a reading", ex);
+        }
+
+        // The battery as Windows reports it, the same figure as the taskbar's (PowerStatus).
+        // The sensor library's own can freeze or go wrong after the battery runs flat (9 %
+        // shown at 80 %, 25 Nov 2026), so it is only kept for a machine Windows says nothing
+        // about. The first time the two disagree, the log says so, to learn more about when.
+        try
+        {
+            var (level, power) = PowerStatus.Read();
+            if (level is not null)
+            {
+                if (data.BatteryLevel is { } own && Math.Abs(own - level.Value) >= 5 && !_batteryDisagreementSaid)
+                {
+                    _batteryDisagreementSaid = true;
+                    LogService.Info(nameof(HardwareService),
+                        $"Battery: the sensors read {own:0} % while Windows reports {level:0} % ({power}); showing Windows' figure.");
+                }
+                data.BatteryLevel = level;
+            }
+            data.BatteryPower = data.BatteryLevel is null ? BatteryPower.Unknown : power;
+        }
+        catch (Exception ex)
+        {
+            LogOnce("reading the battery from Windows", ex);
         }
 
         // A capacity belongs to the adapter it was measured from, so a change of GPU clears it
