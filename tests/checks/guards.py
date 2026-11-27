@@ -583,6 +583,14 @@ def wiring_guards(src):
           "catch (OperationCanceledException) when (ShuttingDown()) { }" in ingame_svc,
           "an error line on every exit, burying real ones")
 
+    # 27 Nov 2026, measured: drawn in software Pulse's memory halves, the
+    # processor stays within noise, the windows look the same, and the graphics card is left alone.
+    app_cs = src.text("App.xaml.cs") or ""
+    check("Pulse's windows are drawn in software, before any exists",
+          "System.Windows.Media.RenderOptions.ProcessRenderMode = System.Windows.Interop.RenderMode.SoftwareOnly;" in app_cs
+          and app_cs.index("ProcessRenderMode") < app_cs.index("ShowControlPanel()"),
+          "Pulse drawing on the laptop's graphics card: twice the memory, and the card kept busy")
+
     check("the core bars fit the in-game block",
           "public const int MaxCoreBars = 64;" in reader and "public const int MaxCores = 64;" in writer,
           "more cores read than the block has room for, cut off without a word")
