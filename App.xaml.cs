@@ -71,6 +71,15 @@ public partial class App : WinApplication
         base.OnStartup(e);
         _initialized = true;
 
+        // Pulse's windows are drawn by the processor, not the graphics card (owner's decision
+        // 5, measured 27 Nov 2026, _tests/tile-availability-ui/software-drawing.txt): Pulse's
+        // memory halves (overlay alone 285 to 153 MB, the Sensors window maximized 467 to 206 MB),
+        // processor use stays within noise (overlay 3.3 against 3.4 % of one core), the windows
+        // look the same pixel for pixel, and Pulse no longer uses the graphics card at all. Drawn
+        // by the card, it ran on the laptop's discrete GPU, competing with games, if only
+        // slightly, and giving the card a reason to stay awake. Set before any window exists.
+        System.Windows.Media.RenderOptions.ProcessRenderMode = System.Windows.Interop.RenderMode.SoftwareOnly;
+
         // Before anything else can fail. This also reports on the previous run if it never
         // shut down, which is the only way a death that reaches no managed code — a driver
         // fault, a forced termination — leaves any trace at all.

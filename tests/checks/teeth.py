@@ -230,6 +230,13 @@ MUTATIONS = [
      "closing Pulse is not logged as an in-game overlay error",
      "an error on every exit"),
 
+    # Draw with the graphics card again.
+    ("App.xaml.cs",
+     "System.Windows.Media.RenderOptions.ProcessRenderMode = System.Windows.Interop.RenderMode.SoftwareOnly;",
+     "",
+     "Pulse's windows are drawn in software",
+     "twice the memory and the graphics card kept busy"),
+
     # Back to pixels.
     ("Views/MainWindow.xaml",
      'Value="{Binding OverlayXPercent, Mode=TwoWay}"',
