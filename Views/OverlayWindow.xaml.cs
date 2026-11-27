@@ -791,7 +791,7 @@ public partial class OverlayWindow : Window
     {
         if (_reshaping) return;
         SavePosition(writeToDisk: false);
-        ReshapeWhileDragging();
+        Reshape();
     }
 
     // ── Joining the edge while dragging (owner, 27 Nov 2026) ───────────────────────
@@ -846,14 +846,20 @@ public partial class OverlayWindow : Window
         return (x, y);
     }
 
-    /// Mid-drag: the shape for where the overlay is now. When the flares come or go the window
-    /// changes size, so it is moved to keep the panel where it was and its flat sides on the edge.
-    private void ReshapeWhileDragging()
+    /// While the user places it, by dragging or with the position sliders: the shape for where
+    /// the overlay is now. When the flares come or go the window changes size, so it is moved to
+    /// keep the panel where it was and its flat sides on the edge. True when it changed.
+    ///
+    /// The sliders need this as much as a drag: while either is in use the overlay is not
+    /// re-placed (that would tug it from under the user), and re-placing was the only other
+    /// thing that set the shape, so a slider left it rounded in a corner or flat in the middle
+    /// until something else re-placed it (owner, 27 Nov 2026).
+    private bool Reshape()
     {
         var settings = SettingsService.Instance.Settings;
         var (ax, ay) = Services.InGame.InGameOverlayService.WindowOverlayAnchor(settings);
         var flush = Flush(ax, ay);
-        if (NormalPanel.Flush == flush) return;
+        if (NormalPanel.Flush == flush) return false;
 
         var hwnd = new WindowInteropHelper(this).Handle;
         var shown = BarPanel.Visibility == Visibility.Visible ? BarPanel
@@ -862,7 +868,7 @@ public partial class OverlayWindow : Window
         NormalPanel.Flush = CompactPanel.Flush = BarPanel.Flush = flush;
         UpdateLayout();
         var after = shown.FlareRoom;
-        if (hwnd == IntPtr.Zero || !GetWindowRect(hwnd, out var b)) return;
+        if (hwnd == IntPtr.Zero || !GetWindowRect(hwnd, out var b)) return true;
 
         double dip = VisualTreeHelperDpi();
         int w = b.Right - b.Left, h = b.Bottom - b.Top;
@@ -877,6 +883,7 @@ public partial class OverlayWindow : Window
         _reshaping = true;
         try { SetWindowPos(hwnd, IntPtr.Zero, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE); }
         finally { _reshaping = false; }
+        return true;
     }
 
     /// Uniform scale (Option B): the whole panel grows/shrinks together via a
@@ -1431,6 +1438,9 @@ public partial class OverlayWindow : Window
 
         // Always record the new anchor; only the disk write is deferred.
         SavePosition(writeToDisk: persist);
+
+        // Take the shape for the new place at once, and record where that left the window.
+        if (Reshape()) SavePosition(writeToDisk: persist);
     }
 
     /// <summary>
