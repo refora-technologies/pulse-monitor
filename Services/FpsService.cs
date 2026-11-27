@@ -1177,6 +1177,12 @@ public class FpsService : IDisposable
         _rawForegroundPid = pid;
         _foregroundWindow = hwnd;
 
+        // One of Pulse's own windows in front (the Sensors window, the control panel): keep
+        // measuring the program that was in front before it. Someone looking at Pulse's frame
+        // rate wants the game's, running behind; the Games page read "--" the whole time it was
+        // looked at (owner, 27 Nov 2026).
+        if (pid == (uint)Environment.ProcessId && _foregroundPid != 0) return;
+
         // Nothing worth measuring is focused, so stop measuring rather than reporting whatever
         // the shell happens to be doing.
         if (!IsWorthMeasuring(pid))
