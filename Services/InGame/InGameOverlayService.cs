@@ -74,9 +74,16 @@ public sealed class InGameOverlayService : IDisposable
         if (_disposed) return;
         if (Interlocked.Exchange(ref _ticking, 1) == 1) return;  // never two at once
         try { TickOnce(); }
+        // Pulse closing: the window thread stops taking work, and the update waiting on it is
+        // cancelled. That was logged as an error on every exit (seen in a real log, 27 Nov
+        // 2026), which buries real ones.
+        catch (OperationCanceledException) when (ShuttingDown()) { }
         catch (Exception ex) { LogService.Error(nameof(InGameOverlayService), "The in-game overlay's update failed", ex); }
         finally { Interlocked.Exchange(ref _ticking, 0); }
     }
+
+    private bool ShuttingDown() =>
+        _disposed || System.Windows.Application.Current?.Dispatcher is not { HasShutdownStarted: false };
 
     private void TickOnce()
     {

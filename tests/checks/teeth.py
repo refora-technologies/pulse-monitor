@@ -223,6 +223,13 @@ MUTATIONS = [
      "the position sliders reshape the overlay as they move it",
      "the corner shape in the middle of the screen after a slider"),
 
+    # Log the cancelled update at exit as an error again.
+    ("Services/InGame/InGameOverlayService.cs",
+     "catch (OperationCanceledException) when (ShuttingDown()) { }",
+     "",
+     "closing Pulse is not logged as an in-game overlay error",
+     "an error on every exit"),
+
     # Back to pixels.
     ("Views/MainWindow.xaml",
      'Value="{Binding OverlayXPercent, Mode=TwoWay}"',
