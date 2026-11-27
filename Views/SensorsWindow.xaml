@@ -482,7 +482,8 @@
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                        <Ellipse Width="7" Height="7" Fill="#8B5CF6" VerticalAlignment="Center" Margin="0,0,9,0"/>
+                        <!-- One down: centred on the capitals, not the line (27 Nov 2026). -->
+                        <Ellipse Width="7" Height="7" Fill="#8B5CF6" VerticalAlignment="Center" Margin="0,1,9,0"/>
                         <TextBlock Text="Pulse" FontSize="12.5" FontWeight="SemiBold" Foreground="{StaticResource Text1}" VerticalAlignment="Center"/>
                         <TextBlock Text="  /  Sensors" FontSize="12.5" FontWeight="Medium" Foreground="{StaticResource Text3}" VerticalAlignment="Center"/>
                     </StackPanel>

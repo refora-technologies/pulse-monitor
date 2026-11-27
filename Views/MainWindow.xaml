@@ -748,6 +748,72 @@
         </Style>
 
         <!-- ═══ PILL BUTTON (secondary) ═══ -->
+        <!-- The control panel's way into the Sensors window (27 Nov 2026). Tinted violet so it reads as a button
+             among the title bar's quiet text; the outline is the keyboard's only (FocusVisualStyle
+             shows for the keyboard, never after a click). -->
+        <Style x:Key="OpenSensorsFocus">
+            <Setter Property="Control.Template">
+                <Setter.Value>
+                    <ControlTemplate>
+                        <Border CornerRadius="9" BorderBrush="#A78BFA" BorderThickness="1.5" Margin="-2"/>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="OpenSensorsBtn" TargetType="Button">
+            <Setter Property="Background" Value="#1A1436"/>
+            <Setter Property="Foreground" Value="#DDD6FE"/>
+            <Setter Property="BorderBrush" Value="#2E2560"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Height" Value="28"/>
+            <Setter Property="Padding" Value="10,0,9,0"/>
+            <Setter Property="FontSize" Value="11.5"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="FontFamily" Value="{StaticResource Jakarta}"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FocusVisualStyle" Value="{StaticResource OpenSensorsFocus}"/>
+            <Setter Property="RenderTransformOrigin" Value="0.5,0.5"/>
+            <Setter Property="RenderTransform"><Setter.Value><ScaleTransform/></Setter.Value></Setter>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd" CornerRadius="8" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"
+                                Padding="{TemplateBinding Padding}">
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <!-- A reading's line: what the window is full of. -->
+                                <Path x:Name="Wave" Data="M 0,5.5 L 2.6,5.5 L 4,1.5 L 6.4,9.5 L 8,5.5 L 11,5.5"
+                                      Stroke="#A78BFA" StrokeThickness="1.4" StrokeLineJoin="Round"
+                                      StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                      Width="11" Height="11" VerticalAlignment="Center" Margin="0,0,7,0"/>
+                                <ContentPresenter VerticalAlignment="Center"/>
+                                <!-- Opens in a window of its own. -->
+                                <Path x:Name="Out" Data="M 2.5,7.5 L 7.5,2.5 M 3.6,2.5 L 7.5,2.5 L 7.5,6.4"
+                                      Stroke="#8B7FC7" StrokeThickness="1.3" StrokeLineJoin="Round"
+                                      StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                      Width="10" Height="10" VerticalAlignment="Center" Margin="6,0,0,0"/>
+                            </StackPanel>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#251B4D"/>
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="#5B3FC4"/>
+                                <Setter Property="Foreground" Value="#FFFFFF"/>
+                                <Setter TargetName="Wave" Property="Stroke" Value="#C4B5FD"/>
+                                <Setter TargetName="Out" Property="Stroke" Value="#C4B5FD"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#1E1640"/>
+                                <Setter Property="RenderTransform">
+                                    <Setter.Value><ScaleTransform ScaleX="0.97" ScaleY="0.97"/></Setter.Value>
+                                </Setter>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <Style x:Key="PillBtn" TargetType="Button">
             <Setter Property="Background" Value="#0E0C1C"/>
             <Setter Property="Foreground" Value="#A9A4CE"/>
@@ -814,7 +880,8 @@
                 <Border.Background><SolidColorBrush Color="#0B0A14" Opacity="0.85"/></Border.Background>
                 <Grid Margin="18,0,10,0">
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                        <Ellipse Width="7" Height="7" VerticalAlignment="Center" Margin="0,0,8,0">
+                        <!-- One down: centred on the capitals, not the line (27 Nov 2026). -->
+                        <Ellipse Width="7" Height="7" VerticalAlignment="Center" Margin="0,1,8,0">
                             <Ellipse.Fill>
                                 <RadialGradientBrush>
                                     <GradientStop Color="#C4B5FD" Offset="0"/>
@@ -829,10 +896,11 @@
                     </StackPanel>
                     <!-- macOS-style dot buttons, and the button that opens the Sensors window before them -->
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
-                        <Button x:Name="BtnSensors" Style="{StaticResource PillBtn}" Padding="11,3" FontSize="11"
-                                Margin="0,0,12,0" Content="Sensors" Click="BtnSensors_Click"
-                                AutomationProperties.Name="Sensors: everything this PC reports"
-                                ToolTip="Everything this PC reports, and the switches that put a reading on the overlay"/>
+                        <Button x:Name="BtnSensors" Style="{StaticResource OpenSensorsBtn}"
+                                Margin="0,0,12,0" Content="All sensors" Click="BtnSensors_Click"
+                                VerticalAlignment="Center"
+                                AutomationProperties.Name="All sensors: opens the Sensors window"
+                                ToolTip="Opens the Sensors window: every reading this PC reports, with graphs, and the switches that put a reading on your overlay"/>
                         <Button Style="{StaticResource DotBtn}" Background="#FFBD2E"
                                 AutomationProperties.Name="Minimize the control panel"
                                             Click="BtnMinimize_Click" Margin="0,0,4,0" ToolTip="Minimize">
