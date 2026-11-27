@@ -322,12 +322,8 @@
                 <views:EdgePanel.Background>
                     <SolidColorBrush Color="#0C0A18" Opacity="{Binding CompactPanelOpacity}"/>
                 </views:EdgePanel.Background>
+                <!-- Readings only, no status dot, as in games (27 Nov 2026). -->
                 <StackPanel Orientation="Horizontal" Margin="14,8,14,8">
-                    <Ellipse Width="6" Height="6" Margin="0,0,11,0" VerticalAlignment="Center">
-                        <Ellipse.Fill>
-                            <SolidColorBrush Color="{Binding StatusColor}"/>
-                        </Ellipse.Fill>
-                    </Ellipse>
                     <ItemsControl ItemsSource="{Binding ActiveTiles}">
                         <ItemsControl.ItemsPanel>
                             <ItemsPanelTemplate><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate>
