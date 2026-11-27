@@ -99,7 +99,7 @@ public partial class MainWindow : Window
                         case nameof(_vm.SelectedMonitorIndex): HighlightActiveMonitor(); break;
                         case nameof(_vm.InGameCorner):        HighlightInGameCorner(); break;
                         case nameof(_vm.InGameIsBar):         HighlightInGameLayout(); break;
-                        case nameof(_vm.CompactIsBar):        HighlightCompactLayout(); break;
+                        case nameof(_vm.OverlayLook):         HighlightCompactLayout(); break;
                     }
                 };
             }
@@ -118,7 +118,7 @@ public partial class MainWindow : Window
             NetUnitPanel.SizeChanged  += (_, _) => UpdateNetUnitIndicator(false);
             // Hidden until its switch is on, so it has no width to measure before then.
             InGameLayoutPanel.SizeChanged += (_, _) => UpdateInGameLayoutIndicator(false);
-            CompactLayoutPanel.SizeChanged += (_, _) => MoveLayoutIndicator(CompactLayoutPanel, CompactLayoutIndicator, CompactLayoutIndicatorTranslate, _vm?.CompactIsBar == true, false);
+            CompactLayoutPanel.SizeChanged += (_, _) => MoveLayoutIndicator(CompactLayoutPanel, CompactLayoutIndicator, CompactLayoutIndicatorTranslate, LookIndex(), false);
             Dispatcher.InvokeAsync(() => UpdateNetUnitIndicator(false),
                 System.Windows.Threading.DispatcherPriority.Loaded);
             Dispatcher.InvokeAsync(() => UpdateSegIndicator(false),
@@ -504,9 +504,12 @@ public partial class MainWindow : Window
     private void CompactLayout_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not WpfButton btn || _vm == null) return;
-        _vm.CompactIsBar = (btn.Tag as string) == "Bar";
+        _vm.OverlayLook = btn.Tag as string ?? "Tiles";
         HighlightCompactLayout();
     }
+
+    private static readonly string[] Looks = { "Tiles", "List", "Bar" };
+    private int LookIndex() => Math.Max(0, Array.IndexOf(Looks, _vm?.OverlayLook ?? "Tiles"));
 
     private void HighlightCompactLayout()
     {
@@ -515,17 +518,18 @@ public partial class MainWindow : Window
         var normalStyle = (WpfStyle)FindResource("SegBtn");
         foreach (var child in CompactLayoutPanel.Children)
             if (child is WpfButton btn)
-                btn.Style = ((btn.Tag as string) == "Bar") == _vm.CompactIsBar ? activeStyle : normalStyle;
-        MoveLayoutIndicator(CompactLayoutPanel, CompactLayoutIndicator, CompactLayoutIndicatorTranslate, _vm.CompactIsBar, true);
+                btn.Style = (btn.Tag as string) == _vm.OverlayLook ? activeStyle : normalStyle;
+        MoveLayoutIndicator(CompactLayoutPanel, CompactLayoutIndicator, CompactLayoutIndicatorTranslate, LookIndex(), true);
     }
 
-    /// Slides a two-way switch's highlight under the chosen half.
-    private static void MoveLayoutIndicator(System.Windows.Controls.Grid panel, WpfBorder indicator, TranslateTransform move, bool second, bool animate)
+    /// Slides a segmented switch's highlight under the chosen part.
+    private static void MoveLayoutIndicator(System.Windows.Controls.Grid panel, WpfBorder indicator, TranslateTransform move, int index, bool animate)
     {
         if (panel.ActualWidth <= 0) return;
-        double half = panel.ActualWidth / 2.0;
-        indicator.Width = half;
-        double x = second ? half : 0;
+        int parts = Math.Max(1, panel.ColumnDefinitions.Count);
+        double part = panel.ActualWidth / parts;
+        indicator.Width = part;
+        double x = index * part;
         if (animate)
             move.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation
             {

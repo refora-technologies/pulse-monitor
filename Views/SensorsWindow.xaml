@@ -65,10 +65,14 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="CheckBox">
-                        <Grid Width="30" Height="17" Background="Transparent">
-                            <Border x:Name="Track" CornerRadius="8.5" BorderThickness="1" Background="#1E1E26" BorderBrush="#30303A"/>
-                            <Border x:Name="Thumb" Width="11" Height="11" CornerRadius="5.5" Background="#7A7A86"
-                                    HorizontalAlignment="Left" Margin="3,0,0,0" VerticalAlignment="Center"/>
+                        <!-- Drawn 30 by 17, but takes a click 38 by 29 (owner, 27 Nov 2026: controls
+                             too low to hit). The negative margin keeps the rows the size they were. -->
+                        <Grid Background="Transparent" Margin="-4,-6">
+                            <Grid Width="30" Height="17" Margin="4,6">
+                                <Border x:Name="Track" CornerRadius="8.5" BorderThickness="1" Background="#1E1E26" BorderBrush="#30303A"/>
+                                <Border x:Name="Thumb" Width="11" Height="11" CornerRadius="5.5" Background="#7A7A86"
+                                        HorizontalAlignment="Left" Margin="3,0,0,0" VerticalAlignment="Center"/>
+                            </Grid>
                         </Grid>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
@@ -483,13 +487,16 @@
                         <TextBlock Text="  /  Sensors" FontSize="12.5" FontWeight="Medium" Foreground="{StaticResource Text3}" VerticalAlignment="Center"/>
                     </StackPanel>
 
-                    <Border Grid.Column="2" Width="280" Background="{StaticResource Inset}" CornerRadius="7" BorderBrush="{StaticResource Line}"
-                            BorderThickness="1" Padding="10,0" Margin="0,0,14,0" VerticalAlignment="Center">
+                    <!-- 32 high, as tall as the title bar's buttons allow and the same as the part list's
+                         entries (owner, 27 Nov 2026: the box was 26 with its text 15, too low). -->
+                    <Border Grid.Column="2" Width="300" Height="32" Background="{StaticResource Inset}" CornerRadius="8" BorderBrush="{StaticResource Line}"
+                            BorderThickness="1" Padding="11,0" Margin="0,0,14,0" VerticalAlignment="Center">
                         <Grid>
                             <TextBlock Text="&#xE721;" FontFamily="Segoe MDL2 Assets" FontSize="11" Foreground="{StaticResource Text3}"
                                        VerticalAlignment="Center"/>
                             <TextBox x:Name="SearchBox" Text="{Binding Search, UpdateSourceTrigger=PropertyChanged}"
-                                     Margin="20,0,0,0" Padding="0,5" Background="Transparent" BorderThickness="0"
+                                     Margin="20,0,0,0" Padding="0" VerticalAlignment="Stretch" VerticalContentAlignment="Center"
+                                     Background="Transparent" BorderThickness="0"
                                      Foreground="{StaticResource Text1}" CaretBrush="{StaticResource Accent}" FontSize="12"
                                      AutomationProperties.Name="Search every sensor by name or kind"/>
                             <DockPanel Margin="22,0,0,0" IsHitTestVisible="False">
@@ -504,7 +511,7 @@
                                     </Style>
                                 </DockPanel.Style>
                                 <Border DockPanel.Dock="Right" CornerRadius="4" BorderBrush="{StaticResource Line}" BorderThickness="1"
-                                        Padding="5,0" VerticalAlignment="Center">
+                                        Padding="6,2" VerticalAlignment="Center">
                                     <TextBlock Text="Ctrl F" FontSize="9.5" Foreground="{StaticResource Text3}"/>
                                 </Border>
                                 <TextBlock Text="Search sensors" FontSize="12" Foreground="{StaticResource Text3}" VerticalAlignment="Center"/>

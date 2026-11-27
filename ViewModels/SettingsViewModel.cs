@@ -365,7 +365,20 @@ public class SettingsViewModel : BaseViewModel
             SettingsService.Instance.Settings.CompactLayout = value ? "Bar" : "List";
             OverlayViewModel.Instance.IsCompactBar = value;
             OnPropertyChanged();
+            OnPropertyChanged(nameof(OverlayLook));
             SettingsService.Instance.Save();
+        }
+    }
+
+    /// The overlay's look as the panel offers it: "Tiles" (compact off), "List" or "Bar".
+    public string OverlayLook
+    {
+        get => !IsCompactMode ? "Tiles" : CompactIsBar ? "Bar" : "List";
+        set
+        {
+            if (value == OverlayLook) return;
+            if (value != "Tiles") CompactIsBar = value == "Bar";
+            IsCompactMode = value != "Tiles";
         }
     }
 
@@ -379,6 +392,7 @@ public class SettingsViewModel : BaseViewModel
             {
                 SettingsService.Instance.Settings.IsCompactMode = value;
                 OverlayViewModel.Instance.IsCompactMode = value;
+                OnPropertyChanged(nameof(OverlayLook));
                 SettingsService.Instance.Save();
             }
         }
