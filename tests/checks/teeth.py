@@ -244,6 +244,13 @@ MUTATIONS = [
      "a Pulse window in front keeps the game's frame rate",
      "FPS blank on the Games page"),
 
+    # Count the wait from the moment the game is in front again.
+    ("Services/InGame/InGameOverlayService.cs",
+     "_readySince[pid] = since = StartedAt(pid);",
+     "_readySince[pid] = since = DateTime.UtcNow;",
+     "the wait before the in-game overlay goes in counts from the game's start",
+     "ten more seconds for a game already running"),
+
     # Back to pixels.
     ("Views/MainWindow.xaml",
      'Value="{Binding OverlayXPercent, Mode=TwoWay}"',

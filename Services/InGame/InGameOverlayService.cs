@@ -118,8 +118,11 @@ public sealed class InGameOverlayService : IDisposable
             if (!_loaded.Contains(pid) && !_loadFailed.Contains(pid))
             {
                 // Not the moment it starts drawing: after it has drawn for a while, so anti-cheat
-                // that starts a few seconds behind the graphics is there to be seen.
-                if (!_readySince.TryGetValue(pid, out var since)) _readySince[pid] = since = DateTime.UtcNow;
+                // that starts a few seconds behind the graphics is there to be seen. Counted from
+                // when the program started, not from when it was first in front and allowed: a
+                // program that had been running for minutes waited a further ten seconds after
+                // the player turned Pulse on for it and went back (27 Nov 2026). One started that long ago goes in at once.
+                if (!_readySince.TryGetValue(pid, out var since)) _readySince[pid] = since = StartedAt(pid);
                 if (DateTime.UtcNow - since >= SettleTime)
                 {
                     // Asked again from scratch just before going in: nothing remembered is trusted for this.
@@ -238,9 +241,24 @@ public sealed class InGameOverlayService : IDisposable
         Verdict.AntiCheat => $"Not in {info.Name}: {info.Detail}, so the window overlay is shown",
         Verdict.Unrecognised => $"Not in {info.Name}: it does not look like a game. If it is one, Pulse can show in it",
         // Left during its few seconds' wait: it goes in once the game is back in front.
-        Verdict.Allowed => $"Getting ready in {info.Name}: it shows a few seconds after you go back to the game",
+        Verdict.Allowed => $"Getting ready in {info.Name}: it shows when you go back to the game",
         _ => $"Not in {info.Name}: {info.Detail}",
     };
+
+    /// When a program started, for the wait before going in; now when Windows will not say.
+    internal static DateTime StartedAt(int pid)
+    {
+        try
+        {
+            using var process = Process.GetProcessById(pid);
+            var started = process.StartTime.ToUniversalTime();
+            return started <= DateTime.UtcNow ? started : DateTime.UtcNow;
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception)
+        {
+            return DateTime.UtcNow;
+        }
+    }
 
     private string? Load(int pid)
     {
