@@ -168,9 +168,14 @@
                                         BorderBrush="{Binding DataContext.TileBorderBrush,
                                                      RelativeSource={RelativeSource AncestorType=Window}}">
                                     <StackPanel>
-                                        <TextBlock Text="{Binding DisplayLabel}"
-                                                   FontSize="10" FontWeight="SemiBold"
-                                                   Foreground="#928EB4" Margin="0,0,0,5"/>
+                                        <StackPanel Orientation="Horizontal" Margin="0,0,0,5">
+                                            <TextBlock Text="{Binding DisplayLabel}"
+                                                       FontSize="10" FontWeight="SemiBold"
+                                                       Foreground="#928EB4" VerticalAlignment="Center"/>
+                                            <views:PowerGlyph Power="{Binding Power}" Level="{Binding Value}" LevelBrush="{Binding ValueBrush}"
+                                                              Height="10" Margin="6,0,0,0" VerticalAlignment="Center"
+                                                              Visibility="{Binding ShowsPower, Converter={StaticResource BoolToVis}}"/>
+                                        </StackPanel>
                                         <!-- CPU Cores: a bar per core where the number would be,
                                              the height of the number it replaces. -->
                                         <views:CoreBars Loads="{Binding CoreLoads}" BarWidth="4" Height="27"
@@ -276,12 +281,16 @@
                                         <ColumnDefinition Width="Auto"/>
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Grid.Column="0"
-                                               Text="{Binding DisplayLabel}"
-                                               FontSize="11" FontWeight="Medium"
-                                               Foreground="#9692B8"
-                                               TextTrimming="CharacterEllipsis"
-                                               VerticalAlignment="Center"/>
+                                    <DockPanel Grid.Column="0" LastChildFill="False">
+                                        <TextBlock Text="{Binding DisplayLabel}"
+                                                   FontSize="11" FontWeight="Medium"
+                                                   Foreground="#9692B8"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   VerticalAlignment="Center"/>
+                                        <views:PowerGlyph Power="{Binding Power}" Level="{Binding Value}" LevelBrush="{Binding ValueBrush}"
+                                                          Height="10" Margin="6,0,0,0" VerticalAlignment="Center"
+                                                          Visibility="{Binding ShowsPower, Converter={StaticResource BoolToVis}}"/>
+                                    </DockPanel>
                                     <TextBlock Grid.Column="1"
                                                Text="{Binding DisplayValue}"
                                                FontSize="12" FontWeight="Bold"
@@ -331,6 +340,9 @@
                                             Opacity="{Binding DataContext.CompactPanelOpacity, RelativeSource={RelativeSource AncestorType=Window}}"/>
                                     <TextBlock Text="{Binding DisplayLabel}" FontSize="11" FontWeight="Medium"
                                                Foreground="#9692B8" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                    <views:PowerGlyph Power="{Binding Power}" Level="{Binding Value}" LevelBrush="{Binding ValueBrush}"
+                                                      Height="10" Margin="0,0,6,0" VerticalAlignment="Center"
+                                                      Visibility="{Binding ShowsPower, Converter={StaticResource BoolToVis}}"/>
                                     <TextBlock Text="{Binding DisplayValue}" FontSize="12" FontWeight="Bold"
                                                Foreground="{Binding ValueBrush}" VerticalAlignment="Center"
                                                Visibility="{Binding ShowsCoreBars, Converter={StaticResource InverseBoolToVis}}"/>
