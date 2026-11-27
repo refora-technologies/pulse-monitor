@@ -577,6 +577,12 @@ def wiring_guards(src):
           and mainx.count('Minimum="0" Maximum="100"') >= 2,
           "pixel counts that mean nothing without the screen's size")
 
+    # 27 Nov 2026: every exit logged "the in-game overlay's update failed" as an error.
+    ingame_svc = src.text("Services/InGame/InGameOverlayService.cs") or ""
+    check("closing Pulse is not logged as an in-game overlay error",
+          "catch (OperationCanceledException) when (ShuttingDown()) { }" in ingame_svc,
+          "an error line on every exit, burying real ones")
+
     check("the core bars fit the in-game block",
           "public const int MaxCoreBars = 64;" in reader and "public const int MaxCores = 64;" in writer,
           "more cores read than the block has room for, cut off without a word")
