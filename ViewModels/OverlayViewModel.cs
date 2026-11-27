@@ -264,7 +264,16 @@ public class OverlayViewModel : BaseViewModel
     public WpfBrush StatusBrush => _statusBrush;
 
     private double _overlayOpacity = 0.85;
-    public double OverlayOpacity { get => _overlayOpacity; set => Set(ref _overlayOpacity, value); }
+    public double OverlayOpacity
+    {
+        get => _overlayOpacity;
+        set
+        {
+            if (!Set(ref _overlayOpacity, value)) return;
+            OnPropertyChanged(nameof(NormalPanelOpacity));
+            OnPropertyChanged(nameof(CompactPanelOpacity));
+        }
+    }
 
     /// <summary>
     /// How solid the panel behind the readings is.
@@ -287,8 +296,15 @@ public class OverlayViewModel : BaseViewModel
         }
     }
 
-    public double NormalPanelOpacity  => _backgroundOpacity;           // gradient, full alpha
-    public double CompactPanelOpacity => _backgroundOpacity * 0.82;
+    // 100 is solid in every look: the compact panels used to be 82 % of the setting, so they
+    // never were (27 Nov 2026). And never quite
+    // nothing: a see-through window lets clicks fall through any pixel with no alpha at all,
+    // so at 0 the empty space between readings could not be grabbed to drag the overlay. The
+    // floor is about one step of alpha on screen once the overlay's own opacity is applied.
+    public double NormalPanelOpacity  => Math.Max(_backgroundOpacity, GrabFloor);
+    public double CompactPanelOpacity => Math.Max(_backgroundOpacity, GrabFloor);
+
+    internal double GrabFloor => 2.0 / 255.0 / Math.Max(0.05, _overlayOpacity);
 
     // The outlines are handed over as finished brushes, while the fills bind Opacity inside
     // the brush. That asymmetry is not a matter of taste: a Border gives its Background brush

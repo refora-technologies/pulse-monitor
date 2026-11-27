@@ -561,6 +561,19 @@ def wiring_guards(src):
           and "ReshapeWhileDragging();" in overlay_cs,
           "the overlay rounded against an edge until dropped exactly on its last pixel")
 
+    # 27 Nov 2026: Background 100 should be solid and 0 see-through but still draggable.
+    # Measured: at 0 the old overlay took the mouse at 8 of 81 points, only on its text.
+    overlay_vm = src.text("ViewModels/OverlayViewModel.cs") or ""
+    check("an empty panel can still be grabbed, and 100 is solid in every look",
+          "public double CompactPanelOpacity => Math.Max(_backgroundOpacity, GrabFloor);" in overlay_vm
+          and "public double NormalPanelOpacity  => Math.Max(_backgroundOpacity, GrabFloor);" in overlay_vm,
+          "Free Drag missing the overlay's empty space at Background 0; compact never solid")
+    # 27 Nov 2026: the position sliders in percent of the room, 50 the middle.
+    check("the position sliders move in percent of the room",
+          'Value="{Binding OverlayXPercent, Mode=TwoWay}"' in mainx and 'Value="{Binding OverlayYPercent, Mode=TwoWay}"' in mainx
+          and mainx.count('Minimum="0" Maximum="100"') >= 2,
+          "pixel counts that mean nothing without the screen's size")
+
     check("the core bars fit the in-game block",
           "public const int MaxCoreBars = 64;" in reader and "public const int MaxCores = 64;" in writer,
           "more cores read than the block has room for, cut off without a word")

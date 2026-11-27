@@ -949,6 +949,37 @@ public class SettingsViewModel : BaseViewModel
         set => MoveAxis(x: null, y: value);
     }
 
+    /// Where the overlay is across its display's free room, 0 to 100: 0 against the left edge,
+    /// 50 in the middle, 100 against the right (27 Nov 2026: a percentage says more than
+    /// a pixel count). The sliders move in these; the pixels stay underneath.
+    public double OverlayXPercent
+    {
+        get => Percent(p => (p.X, p.MaxX));
+        set => MoveAxis(x: FromPercent(value, p => p.MaxX), y: null);
+    }
+
+    /// The same from top to bottom.
+    public double OverlayYPercent
+    {
+        get => Percent(p => (p.Y, p.MaxY));
+        set => MoveAxis(x: null, y: FromPercent(value, p => p.MaxY));
+    }
+
+    private double Percent(Func<(int X, int Y, int MaxX, int MaxY), (int At, int Max)> axis)
+    {
+        var overlay = LiveOverlay;
+        if (overlay == null) return 0;
+        var (at, max) = axis(overlay.GetPositionPixels());
+        return max > 0 ? Math.Round(at * 100.0 / max) : 0;
+    }
+
+    private int? FromPercent(double percent, Func<(int X, int Y, int MaxX, int MaxY), int> max)
+    {
+        var overlay = LiveOverlay;
+        if (overlay == null) return null;
+        return (int)Math.Round(Math.Clamp(percent, 0, 100) / 100.0 * max(overlay.GetPositionPixels()));
+    }
+
     /// <summary>
     /// Moves one axis while its slider is being dragged.
     ///
@@ -1047,8 +1078,8 @@ public class SettingsViewModel : BaseViewModel
     /// multi-monitor setup.
     public string PositionHintText =>
         OverlayDisplayLabel.Length > 0
-            ? $"Measured from the top-left of {OverlayDisplayLabel}"
-            : "Measured from the top-left of the display";
+            ? $"Across the room the overlay has on {OverlayDisplayLabel}: 50 % is the middle, 0 and 100 % put it against the edges"
+            : "Across the room the overlay has: 50 % is the middle, 0 and 100 % put it against the edges";
 
     /// Stores wherever the overlay currently sits, ending a drag.
     public void CommitOverlayPosition()
@@ -1091,6 +1122,8 @@ public class SettingsViewModel : BaseViewModel
 
         OnPropertyChanged(nameof(OverlayX));
         OnPropertyChanged(nameof(OverlayY));
+        OnPropertyChanged(nameof(OverlayXPercent));
+        OnPropertyChanged(nameof(OverlayYPercent));
         OnPropertyChanged(nameof(OverlayMaxX));
         OnPropertyChanged(nameof(OverlayMaxY));
         OnPropertyChanged(nameof(OverlayDisplayLabel));
