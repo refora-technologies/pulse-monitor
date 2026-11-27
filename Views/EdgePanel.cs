@@ -80,6 +80,8 @@ public sealed class EdgePanel : Decorator
     private bool Has(FlushEdges e) => (Flush & e) != 0;
 
     /// The room the flares take outside the panel, on each side.
+    internal Thickness FlareRoom => Room();
+
     private Thickness Room()
     {
         double f = FlareRadius;

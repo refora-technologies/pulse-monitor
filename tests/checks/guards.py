@@ -525,13 +525,41 @@ def wiring_guards(src):
     # by what, by process number only.
     overlay_cs = src.text("Views/OverlayWindow.xaml.cs") or ""
     check("the overlay anchors under the taskbar only while the taskbar is on top",
-          "if (taskbar != IntPtr.Zero && (GetWindowLong(taskbar, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0)" in overlay_cs,
+          "if (taskbar != IntPtr.Zero && (GetWindowLong(taskbar, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0\n                && Overlaps(hwnd, taskbar))" in overlay_cs.replace("\r\n", "\n"),
           "the overlay falling behind everything while something is full screen on its display")
+    # 27 Nov 2026: the taskbar kept its topmost flag yet sat below ordinary windows, and the
+    # overlay under it with it (Edge over the overlay on 22 Nov). Under the taskbar only where it
+    # really is over the overlay, and never with an ordinary window above.
+    check("an ordinary window above the overlay makes it take the top",
+          "if (insertAfter != HWND_TOPMOST && OrdinaryWindowAbove(hwnd))" in overlay_cs
+          and "if ((GetWindowLong(w, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0) continue;" in overlay_cs,
+          "the overlay behind Edge because the taskbar it sits under had sunk below ordinary windows")
     check("a covered overlay is logged once per episode, by process number only",
           "_topmostTimer.Tick += (_, _) => { ForceTopmost(); WatchCovered(); };" in overlay_cs
           and "by a window of process {pid}" in overlay_cs
           and "GetWindowText" not in overlay_cs,
           "an overlay stuck behind with nothing in the log to say why")
+
+    # 27 Nov 2026, owner: the battery tile showed 9 % while Windows showed 80 %, after the battery
+    # had run flat. The tile shows Windows' own figure, the taskbar's, with the power source.
+    hardware = src.text("Services/HardwareService.cs") or ""
+    check("the battery tile shows Windows' own percentage",
+          "var (level, power) = PowerStatus.Read();" in hardware and "data.BatteryLevel = level;" in hardware,
+          "the battery tile stuck at a flat battery's figure while the laptop charges")
+
+    # 27 Nov 2026, owner: "does this build have that bar style mode, because I don't see it". The
+    # straight line was behind the Compact HUD switch; the three looks are one choice in sight.
+    mainx = src.text("Views/MainWindow.xaml") or ""
+    check("the overlay's three looks are offered side by side",
+          'Tag="Tiles" Click="CompactLayout_Click"' in mainx and 'Tag="Bar" Click="CompactLayout_Click"' in mainx
+          and 'Visibility="{Binding IsCompactMode' not in mainx,
+          "the straight overlay hidden until another switch is turned on")
+
+    # 27 Nov 2026, owner: the window overlay should take its edge shape at once, as in games.
+    check("a dragged overlay is pulled onto a near edge and shaped there",
+          "var (x, y) = SnapToEdges(r.Left, r.Top, w, h, work, reach);" in overlay_cs
+          and "ReshapeWhileDragging();" in overlay_cs,
+          "the overlay rounded against an edge until dropped exactly on its last pixel")
 
     check("the core bars fit the in-game block",
           "public const int MaxCoreBars = 64;" in reader and "public const int MaxCores = 64;" in writer,

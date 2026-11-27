@@ -310,6 +310,7 @@ public partial class OverlayWindow : Window
         var hwnd  = new WindowInteropHelper(this).Handle;
         int style = GetWindowLong(hwnd, GWL_EXSTYLE);
         SetWindowLong(hwnd, GWL_EXSTYLE, style | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW);
+        HwndSource.FromHwnd(hwnd)?.AddHook(OnWindowMessage);
 
         StartTopmostEnforcement();
         ForceTopmost();
@@ -406,12 +407,20 @@ public partial class OverlayWindow : Window
         // anchored the overlay under a demoted taskbar, and it fell behind everything until the
         // next foreground change happened to be full screen (owner, 18 Nov 2026: "sometimes the
         // overlay stays behind"). A taskbar that is not on top has nothing to protect anyway.
+        //
+        // And only while that taskbar is actually over the overlay. A taskbar can keep its topmost
+        // flag and still sit below ordinary windows in the window order: measured on the owner's
+        // laptop on 27 Nov 2026, Shell_TrayWnd topmost yet below Chrome and WhatsApp, and the
+        // overlay placed under it below them too; that is how Edge stayed over the overlay on
+        // 22 Nov, clicks and all. The overlay keeps out of the taskbar's place, so the two only
+        // meet when the taskbar slides up over it (auto-hide). Otherwise the top it is.
         var insertAfter = HWND_TOPMOST;
         _anchoredUnderTaskbar = false;
         if (!IsForegroundWindowFullScreen())
         {
             var taskbar = FindTaskbarOnOurMonitor(hwnd);
-            if (taskbar != IntPtr.Zero && (GetWindowLong(taskbar, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0)
+            if (taskbar != IntPtr.Zero && (GetWindowLong(taskbar, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0
+                && Overlaps(hwnd, taskbar))
             {
                 insertAfter = taskbar;
                 _anchoredUnderTaskbar = true;
@@ -420,6 +429,57 @@ public partial class OverlayWindow : Window
 
         SetWindowPos(hwnd, insertAfter, 0, 0, 0, 0,
             SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+
+        // Whatever the taskbar did, an ordinary window must never be above the overlay. If one
+        // is, the place just taken was wrong: take the very top instead.
+        if (insertAfter != HWND_TOPMOST && OrdinaryWindowAbove(hwnd))
+        {
+            SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+            _anchoredUnderTaskbar = false;
+            if (!_sunkenTaskbarSaid)
+            {
+                _sunkenTaskbarSaid = true;
+                LogService.Info(nameof(OverlayWindow),
+                    "The taskbar was below ordinary windows, so the overlay took the top place rather than its usual one just under the taskbar.");
+            }
+        }
+    }
+
+    private bool _sunkenTaskbarSaid;
+
+    /// Whether two windows' visible rectangles meet.
+    private static bool Overlaps(IntPtr a, IntPtr b)
+    {
+        if (!VisibleBounds(a, out var x) || !VisibleBounds(b, out var y)) return false;
+        return x.Left < y.Right && y.Left < x.Right && x.Top < y.Bottom && y.Top < x.Bottom;
+    }
+
+    /// A window's rectangle as drawn: without the invisible resize borders Windows adds around
+    /// most windows, which reach 8 px onto a neighbouring screen when a window is maximised.
+    private static bool VisibleBounds(IntPtr w, out RECT r)
+    {
+        if (DwmGetWindowAttribute(w, DWMWA_EXTENDED_FRAME_BOUNDS, out r, Marshal.SizeOf<RECT>()) == 0
+            && r.Right > r.Left && r.Bottom > r.Top)
+            return true;
+        return GetWindowRect(w, out r);
+    }
+
+    /// Whether any visible, ordinary (not topmost) window of another program is above this one
+    /// in the window order, where no ordinary window can be while this one is truly topmost.
+    private static bool OrdinaryWindowAbove(IntPtr hwnd)
+    {
+        uint self = (uint)Environment.ProcessId;
+        int guard = 0;
+        for (var w = GetWindow(hwnd, GW_HWNDPREV); w != IntPtr.Zero && guard++ < 1024; w = GetWindow(w, GW_HWNDPREV))
+        {
+            if (!IsWindowVisible(w)) continue;
+            if ((GetWindowLong(w, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0) continue;
+            if (DwmGetWindowAttribute(w, DWMWA_CLOAKED, out int cloaked, sizeof(int)) == 0 && cloaked != 0) continue;
+            GetWindowThreadProcessId(w, out uint pid);
+            if (pid == self) continue;
+            return true;
+        }
+        return false;
     }
 
     /// The window we are currently parked beneath, so the call isn't repeated on every
@@ -508,7 +568,7 @@ public partial class OverlayWindow : Window
     private static IntPtr CoveringWindow(IntPtr hwnd, out bool topmost, out bool fills)
     {
         topmost = fills = false;
-        if (!GetWindowRect(hwnd, out var ours)) return IntPtr.Zero;
+        if (!VisibleBounds(hwnd, out var ours)) return IntPtr.Zero;
         uint self = (uint)Environment.ProcessId;
 
         int guard = 0;
@@ -523,7 +583,7 @@ public partial class OverlayWindow : Window
             GetWindowThreadProcessId(w, out uint pid);
             if (pid == self) continue;
 
-            if (!GetWindowRect(w, out var r)) continue;
+            if (!VisibleBounds(w, out var r)) continue;
             if (r.Right <= ours.Left || r.Left >= ours.Right || r.Bottom <= ours.Top || r.Top >= ours.Bottom) continue;
 
             var name = new System.Text.StringBuilder(64);
@@ -544,9 +604,11 @@ public partial class OverlayWindow : Window
 
     private const uint GW_HWNDPREV  = 3;
     private const int DWMWA_CLOAKED = 14;
+    private const int DWMWA_EXTENDED_FRAME_BOUNDS = 9;
     [DllImport("user32.dll")] static extern IntPtr GetWindow(IntPtr hWnd, uint uCmd);
     [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr hWnd);
     [DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr hwnd, int attribute, out int value, int size);
+    [DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr hwnd, int attribute, out RECT value, int size);
 
     private void SlipBehind(IntPtr hwnd, IntPtr surface)
     {
@@ -725,7 +787,97 @@ public partial class OverlayWindow : Window
     /// a drag is what made the overlay snap back to where it started, mid-drag, on the first
     /// reading that changed width.
     /// </summary>
-    private void OnDragLocationChanged(object? sender, EventArgs e) => SavePosition(writeToDisk: false);
+    private void OnDragLocationChanged(object? sender, EventArgs e)
+    {
+        if (_reshaping) return;
+        SavePosition(writeToDisk: false);
+        ReshapeWhileDragging();
+    }
+
+    // ── Joining the edge while dragging (owner, 27 Nov 2026) ───────────────────────
+    // The in-game overlay shows its flat side and curves the moment it touches an edge, and
+    // goes round again the moment it leaves. The window overlay only did so once dropped, and
+    // only if dropped exactly on the edge's last pixel. Now it is pulled onto an edge that comes
+    // within reach while it is dragged, as Windows pulls windows into place, and takes its
+    // shape there and then.
+
+    private const int WM_MOVING = 0x0216;
+
+    /// How close an edge pulls the overlay onto it, in device-independent pixels.
+    internal const double SnapReach = 14;
+
+    private bool _reshaping;
+
+    private IntPtr OnWindowMessage(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        if (msg != WM_MOVING || !_userDragging || lParam == IntPtr.Zero) return IntPtr.Zero;
+        try
+        {
+            var r = Marshal.PtrToStructure<RECT>(lParam);
+            // The size the window is now: it can change mid-drag, when it takes or loses its
+            // flares, and the rectangle Windows offers is the one it started the drag with.
+            int w = r.Right - r.Left, h = r.Bottom - r.Top;
+            if (GetWindowRect(hwnd, out var now)) { w = now.Right - now.Left; h = now.Bottom - now.Top; }
+            var work = System.Windows.Forms.Screen.FromRectangle(new System.Drawing.Rectangle(r.Left, r.Top, w, h)).WorkingArea;
+            int reach = (int)Math.Round(SnapReach * VisualTreeHelperDpi());
+            var (x, y) = SnapToEdges(r.Left, r.Top, w, h, work, reach);
+            Marshal.StructureToPtr(new RECT { Left = x, Top = y, Right = x + w, Bottom = y + h }, lParam, false);
+            handled = true;
+            return new IntPtr(1);
+        }
+        catch (Exception ex)
+        {
+            Services.LogService.Error(nameof(OverlayWindow), "Could not pull the overlay onto the edge while dragging", ex);
+            return IntPtr.Zero;
+        }
+    }
+
+    private double VisualTreeHelperDpi() => System.Windows.Media.VisualTreeHelper.GetDpi(this).PixelsPerDip;
+
+    /// Where a window dragged to x, y lands: on any edge of the work area within reach of it,
+    /// inside or out, and otherwise where it was put. An edge further away than that, such as
+    /// another monitor's, does not pull, so the overlay can still be dragged across screens.
+    internal static (int X, int Y) SnapToEdges(int x, int y, int w, int h, System.Drawing.Rectangle work, int reach)
+    {
+        if (Math.Abs(x - work.Left) <= reach) x = work.Left;
+        else if (Math.Abs(work.Right - (x + w)) <= reach) x = work.Right - w;
+        if (Math.Abs(y - work.Top) <= reach) y = work.Top;
+        else if (Math.Abs(work.Bottom - (y + h)) <= reach) y = work.Bottom - h;
+        return (x, y);
+    }
+
+    /// Mid-drag: the shape for where the overlay is now. When the flares come or go the window
+    /// changes size, so it is moved to keep the panel where it was and its flat sides on the edge.
+    private void ReshapeWhileDragging()
+    {
+        var settings = SettingsService.Instance.Settings;
+        var (ax, ay) = Services.InGame.InGameOverlayService.WindowOverlayAnchor(settings);
+        var flush = Flush(ax, ay);
+        if (NormalPanel.Flush == flush) return;
+
+        var hwnd = new WindowInteropHelper(this).Handle;
+        var shown = BarPanel.Visibility == Visibility.Visible ? BarPanel
+                  : CompactPanel.Visibility == Visibility.Visible ? CompactPanel : NormalPanel;
+        var before = shown.FlareRoom;
+        NormalPanel.Flush = CompactPanel.Flush = BarPanel.Flush = flush;
+        UpdateLayout();
+        var after = shown.FlareRoom;
+        if (hwnd == IntPtr.Zero || !GetWindowRect(hwnd, out var b)) return;
+
+        double dip = VisualTreeHelperDpi();
+        int w = b.Right - b.Left, h = b.Bottom - b.Top;
+        int x = b.Left - (int)Math.Round((after.Left - before.Left) * dip);
+        int y = b.Top  - (int)Math.Round((after.Top  - before.Top)  * dip);
+        var work = System.Windows.Forms.Screen.FromHandle(hwnd).WorkingArea;
+        if ((flush & FlushEdges.Left)   != 0) x = work.Left;
+        if ((flush & FlushEdges.Right)  != 0) x = work.Right - w;
+        if ((flush & FlushEdges.Top)    != 0) y = work.Top;
+        if ((flush & FlushEdges.Bottom) != 0) y = work.Bottom - h;
+
+        _reshaping = true;
+        try { SetWindowPos(hwnd, IntPtr.Zero, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE); }
+        finally { _reshaping = false; }
+    }
 
     /// Uniform scale (Option B): the whole panel grows/shrinks together via a
     /// LayoutTransform, so the window's SizeToContent measures the scaled size
