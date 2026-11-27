@@ -72,18 +72,18 @@ Download the latest installer from the [website](https://pulse.reforatech.com) o
 ## Configuration & Usage
 
 Once launched, right-click the Pulse icon in the Windows system tray and choose **Open Control Panel**, or double-click the icon. From the control panel, you can:
-- Toggle the visibility of specific hardware tiles (e.g., *CPU Temp*, *GPU Power*, *FPS*), or open the **Sensors** window to see every reading and add the advanced ones.
+- Toggle the visibility of specific hardware tiles (e.g., *CPU Temp*, *GPU Power*, *FPS*), or open **All sensors** to see every reading in the Sensors window and add the advanced ones.
 - Reorder tiles by dragging the handle on each one, or with **Alt + arrow keys**. The overlay follows the order you set here.
 - Choose which GPU the GPU tiles read from on multi-GPU systems.
 - Show RAM and VRAM as used / total instead of just used.
-- Define overlay opacity and screen position, including which display to use on multi-monitor setups.
+- Define overlay opacity, background and size, and its position from 0 to 100 % across the screen, including which display to use on multi-monitor setups.
 - Fade the overlay's background independently of its text, down to just the readings floating on screen, and reset opacity, background and size to the default look in one click.
 - Resize the overlay with the **Size** slider, or by dragging the corner at its bottom right in Free Drag mode.
 - Place the overlay precisely with the **X and Y** sliders, or drag it where you want it.
-- Enable **Compact Mode** for a minimized, text-only HUD, as a list or all on one straight line. In a corner or against an edge of the screen, the overlay joins the edge.
+- Choose the **Overlay look**: tiles with bars, a compact list of values, or every value on one straight line. In a corner or against an edge of the screen, the overlay joins the edge, and a dragged overlay moves onto a nearby edge as you bring it close.
 - Adjust the hardware polling rate (0.5s, 1s, 2s, 5s).
 - Show network speeds in megabytes per second or megabits per second.
-- Show the battery charge level on a laptop.
+- Show the battery charge level on a laptop, the same figure Windows shows, with a small sign for charging, plugged in or on battery.
 - Set keyboard shortcuts for the overlay, the control panel and compact mode.
 - Turn on the **in-game overlay**, see which game it is showing in, turn it off for a single game, and give it its own position, look and readings.
 - Un-dock the overlay to manually drag it to any custom position on your desktop — right-click it in this mode for quick access to the control panel or to hide the overlay.
