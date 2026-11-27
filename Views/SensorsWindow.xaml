@@ -495,7 +495,7 @@
                             <TextBlock Text="&#xE721;" FontFamily="Segoe MDL2 Assets" FontSize="11" Foreground="{StaticResource Text3}"
                                        VerticalAlignment="Center"/>
                             <TextBox x:Name="SearchBox" Text="{Binding Search, UpdateSourceTrigger=PropertyChanged}"
-                                     Margin="20,0,0,0" Padding="0" VerticalAlignment="Stretch" VerticalContentAlignment="Center"
+                                     Margin="20,0,0,0" Padding="0" VerticalAlignment="Center"
                                      Background="Transparent" BorderThickness="0"
                                      Foreground="{StaticResource Text1}" CaretBrush="{StaticResource Accent}" FontSize="12"
                                      AutomationProperties.Name="Search every sensor by name or kind"/>
