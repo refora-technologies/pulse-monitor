@@ -591,6 +591,15 @@ def wiring_guards(src):
           and app_cs.index("ProcessRenderMode") < app_cs.index("ShowControlPanel()"),
           "Pulse drawing on the laptop's graphics card: twice the memory, and the card kept busy")
 
+    # 27 Nov 2026: the Games page read "--" while the game ran behind it, because Pulse's own
+    # window in front stopped the measuring. It keeps measuring the program that was in front.
+    fps_cs = src.text("Services/FpsService.cs") or ""
+    check("a Pulse window in front keeps the game's frame rate",
+          "if (pid == (uint)Environment.ProcessId && _foregroundPid != 0) return;" in fps_cs
+          and fps_cs.index("if (pid == (uint)Environment.ProcessId && _foregroundPid != 0) return;")
+              < fps_cs.index("if (!IsWorthMeasuring(pid))"),
+          "the frame rate blank whenever someone looks at it in Pulse")
+
     check("the core bars fit the in-game block",
           "public const int MaxCoreBars = 64;" in reader and "public const int MaxCores = 64;" in writer,
           "more cores read than the block has room for, cut off without a word")

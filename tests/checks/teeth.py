@@ -237,6 +237,13 @@ MUTATIONS = [
      "Pulse's windows are drawn in software",
      "twice the memory and the graphics card kept busy"),
 
+    # Stop measuring when Pulse's own window comes in front again.
+    ("Services/FpsService.cs",
+     "if (pid == (uint)Environment.ProcessId && _foregroundPid != 0) return;",
+     "",
+     "a Pulse window in front keeps the game's frame rate",
+     "FPS blank on the Games page"),
+
     # Back to pixels.
     ("Views/MainWindow.xaml",
      'Value="{Binding OverlayXPercent, Mode=TwoWay}"',
