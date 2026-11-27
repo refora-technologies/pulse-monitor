@@ -176,10 +176,45 @@ MUTATIONS = [
 
     # Anchor under any taskbar again, and a demoted one takes the overlay's topmost with it.
     ("Views/OverlayWindow.xaml.cs",
-     "if (taskbar != IntPtr.Zero && (GetWindowLong(taskbar, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0)",
-     "if (taskbar != IntPtr.Zero)",
+     "if (taskbar != IntPtr.Zero && (GetWindowLong(taskbar, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0\n",
+     "if (taskbar != IntPtr.Zero\n",
      "the overlay anchors under the taskbar only while the taskbar is on top",
      "the overlay behind everything while something is full screen on its display"),
+
+    # Anchor under the taskbar wherever it is, over the overlay or not.
+    ("Views/OverlayWindow.xaml.cs",
+     "\n                && Overlaps(hwnd, taskbar))",
+     ")",
+     "the overlay anchors under the taskbar only while the taskbar is on top",
+     "the overlay sinking with a taskbar that sank below ordinary windows"),
+
+    # Stop checking for an ordinary window above the overlay.
+    ("Views/OverlayWindow.xaml.cs",
+     "if (insertAfter != HWND_TOPMOST && OrdinaryWindowAbove(hwnd))",
+     "if (false)",
+     "an ordinary window above the overlay makes it take the top",
+     "Edge staying over the overlay"),
+
+    # Show the sensors' own battery figure again.
+    ("Services/HardwareService.cs",
+     "data.BatteryLevel = level;",
+     "",
+     "the battery tile shows Windows' own percentage",
+     "9 % on the tile at 80 % on the taskbar"),
+
+    # Hide the looks until Compact is on again.
+    ("Views/MainWindow.xaml",
+     '<StackPanel Margin="18,14,18,16">\n                                <TextBlock Text="Overlay look"',
+     '<StackPanel Margin="18,14,18,16" Visibility="{Binding IsCompactMode, Converter={StaticResource BoolToVis}}">\n                                <TextBlock Text="Overlay look"',
+     "the overlay's three looks are offered side by side",
+     "the straight overlay out of sight"),
+
+    # Shape the overlay only once it is dropped.
+    ("Views/OverlayWindow.xaml.cs",
+     "        SavePosition(writeToDisk: false);\n        ReshapeWhileDragging();",
+     "        SavePosition(writeToDisk: false);",
+     "a dragged overlay is pulled onto a near edge and shaped there",
+     "the edge shape only after letting go"),
 
     # Resize from the grip and leave the slider where it was.
     ("Views/OverlayWindow.xaml.cs",

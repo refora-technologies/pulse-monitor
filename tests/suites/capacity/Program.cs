@@ -48,6 +48,8 @@ class Program
         NetworkUnitIsAChoice();
         GpuUsageIsTheVendorFigure();
         BatteryIsTheOneTileWhereLowIsBad();
+        BatteryIsWhatWindowsSays();
+        OverlayIsPulledOntoNearEdges();
         EveryTileExplainsItself();
 
         Console.WriteLine($"\n{_pass} passed, {_fail} failed");
@@ -885,6 +887,66 @@ class Program
         data.GetProperty("BatteryLevel")!.SetValue(instance, (float?)37f);
         Check("and is reachable by the tile's id",
               (float?)byId.Invoke(instance, new object[] { "battery" }) == 37f);
+    }
+
+    // -- the battery is Windows' own figure (27 Nov 2026) -------------------------------
+    //
+    // A test laptop shut down on a flat battery on 25 Nov, started again on the charger,
+    // and the tile said 9 % all evening while Windows said 80 %. The tile now shows the figure
+    // the taskbar shows, from GetSystemPowerStatus, and where the power is coming from.
+    static void BatteryIsWhatWindowsSays()
+    {
+        Console.WriteLine();
+        Console.WriteLine("The battery is what Windows says:");
+        var status = _asm.GetType("Pulse.Services.PowerStatus")!;
+        var interpret = status.GetMethod("Interpret", BindingFlags.NonPublic | BindingFlags.Static)!;
+        string Say(byte ac, byte flag, byte pct)
+        {
+            var r = interpret.Invoke(null, new object[] { ac, flag, pct })!;
+            var level = (float?)r.GetType().GetField("Item1")!.GetValue(r);
+            var power = r.GetType().GetField("Item2")!.GetValue(r)!.ToString();
+            return $"{(level is null ? "none" : level.Value.ToString("0"))} {power}";
+        }
+        Check("charging, at 57 %", Say(1, 8, 57) == "57 Charging", Say(1, 8, 57));
+        Check("plugged in and held at 80 %, not charging", Say(1, 0, 80) == "80 PluggedIn", Say(1, 0, 80));
+        Check("full on the charger", Say(1, 1, 100) == "100 PluggedIn", Say(1, 1, 100));
+        Check("on battery, low", Say(0, 2, 23) == "23 OnBattery", Say(0, 2, 23));
+        Check("a desktop: no battery, so nothing rather than zero", Say(1, 128, 255) == "none Unknown", Say(1, 128, 255));
+        Check("Windows not knowing the percentage: nothing", Say(1, 0, 255) == "none Unknown", Say(1, 0, 255));
+        Check("Windows not knowing the flags: the percentage, and the charger alone",
+              Say(1, 255, 64) == "64 PluggedIn", Say(1, 255, 64));
+
+        var live = status.GetMethod("Read", BindingFlags.NonPublic | BindingFlags.Static)!.Invoke(null, null)!;
+        var liveLevel = (float?)live.GetType().GetField("Item1")!.GetValue(live);
+        Check("this machine answers", liveLevel is null || (liveLevel >= 0 && liveLevel <= 100),
+              $"{liveLevel} {live.GetType().GetField("Item2")!.GetValue(live)}");
+
+        var hs = FindSource("Services/HardwareService.cs") ?? "";
+        Check("every reading carries Windows' figure and the power source",
+              hs.Contains("var (level, power) = PowerStatus.Read();") && hs.Contains("data.BatteryPower = data.BatteryLevel is null ? BatteryPower.Unknown : power;"));
+        var data = _asm.GetType("Pulse.Services.SensorData")!;
+        Check("the power source is never sent by the sensor host",
+              data.GetProperty("BatteryPower")!.GetCustomAttributes(true).Any(a => a.GetType().Name == "JsonIgnoreAttribute"));
+    }
+
+    // -- a dragged overlay is pulled onto a near edge (27 Nov 2026) ----------------------
+    static void OverlayIsPulledOntoNearEdges()
+    {
+        Console.WriteLine();
+        Console.WriteLine("A dragged overlay is pulled onto a near edge:");
+        var overlay = _asm.GetType("Pulse.Views.OverlayWindow")!;
+        var snap = overlay.GetMethod("SnapToEdges", BindingFlags.NonPublic | BindingFlags.Static)!;
+        var work = new System.Drawing.Rectangle(0, 0, 1920, 1032);
+        string At(int x, int y)
+        {
+            var r = snap.Invoke(null, new object[] { x, y, 200, 300, work, 14 })!;
+            return $"{r.GetType().GetField("Item1")!.GetValue(r)},{r.GetType().GetField("Item2")!.GetValue(r)}";
+        }
+        Check("near the right and the bottom: onto both", At(1708, 725) == "1720,732", At(1708, 725));
+        Check("past the left edge but within reach: back onto it", At(-9, 400) == "0,400", At(-9, 400));
+        Check("near the top only: onto the top, left alone across", At(800, 13) == "800,0", At(800, 13));
+        Check("in the open: left where it was put", At(800, 400) == "800,400", At(800, 400));
+        Check("far past an edge, on its way to another screen: not pulled back", At(1900, 400) == "1900,400", At(1900, 400));
     }
 
     // -- every tile says what it is ---------------------------------------------------
