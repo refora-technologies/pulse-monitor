@@ -71,8 +71,8 @@ public partial class App : WinApplication
         base.OnStartup(e);
         _initialized = true;
 
-        // Pulse's windows are drawn by the processor, not the graphics card (owner's decision
-        // 5, measured 27 Nov 2026, _tests/tile-availability-ui/software-drawing.txt): Pulse's
+        // Pulse's windows are drawn by the processor, not the graphics card (measured 27 Nov
+        // 2026, both ways, overlay alone, control panel and Sensors window, three rounds): Pulse's
         // memory halves (overlay alone 285 to 153 MB, the Sensors window maximized 467 to 206 MB),
         // processor use stays within noise (overlay 3.3 against 3.4 % of one core), the windows
         // look the same pixel for pixel, and Pulse no longer uses the graphics card at all. Drawn
@@ -366,7 +366,7 @@ public partial class App : WinApplication
     /// for anything else that holds a library for a moment at logon, an antivirus scan being the
     /// one seen. NativeLibraryProbe records what Windows says if it ever happens again. The
     /// failure can be reproduced by holding wpfgfx_cor3.dll open with no sharing while Pulse
-    /// starts; see _tests/overlay-startup-repro.
+    /// starts.
     /// </remarks>
     public void ShowOverlay()
     {

@@ -19,7 +19,7 @@
          in a large graph, Pulse's own readings with their overlay switches, then every sensor it
          reports, grouped by kind.
 
-         The look follows _tests/design/DESIGN-NOTES.md (26 Nov): near-neutral surfaces, Pulse's
+         The look (26 Nov 2026): near-neutral surfaces, Pulse's
          violet only as the accent (selection, switches that are on, the graph being looked at),
          three text levels, tabular numbers, structure from spacing and hairlines rather than
          boxes inside boxes. -->
